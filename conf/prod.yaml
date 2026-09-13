@@ -1,0 +1,22 @@
+# Прод-конфиг без секретов.
+# Задавайте через env: MAX_BOT_TOKEN, DATABASE_PASSWORD, DATABASE_HOST, ...
+
+app:
+  name: hack-max
+  debug: false
+
+logging:
+  level: INFO
+  format: console
+
+database:
+  host: localhost
+  port: 5432
+  name: hack_max
+  user: hack_max
+  echo: false
+  pool_size: 10
+  max_overflow: 20
+
+max:
+  api_base_url: https://botapi.max.ru

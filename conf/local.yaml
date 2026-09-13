@@ -1,0 +1,24 @@
+# Локальная разработка: bot и webapp на хосте, Postgres в Docker (localhost:5432).
+# При полном стеке в Docker у сервиса bot DATABASE_HOST=postgres задаётся через env.
+# Секреты (токен бота) — только через .env / переменные окружения.
+
+app:
+  name: hack-max
+  debug: true
+
+logging:
+  level: DEBUG
+  format: console
+
+database:
+  host: localhost
+  port: 5432
+  name: hack_max
+  user: hack_max
+  password: hack_max
+  echo: true
+  pool_size: 5
+  max_overflow: 10
+
+max:
+  api_base_url: https://botapi.max.ru

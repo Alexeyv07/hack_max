@@ -1,3 +1,40 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
 
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+*.egg
 
-.idea
+# Env / secrets
+.env
+.env.local
+*.pem
+
+# Node / SvelteKit
+webapp/node_modules/
+webapp/.svelte-kit/
+webapp/build/
+webapp/.vercel/
+webapp/.output/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
