@@ -1,5 +1,19 @@
 # Проект «Умный город» — бот и WebApp для мессенджера Max
 
+## Contributing flow
+
+1. Создать ветку от main: `git checkout -b your-feature-name`
+2. Коммиты с описанием: `git commit -m "описание изменений"`
+3. Push: `git push origin your-feature-name`
+4. Создать pull request в main и смержить
+5. Переключиться на main: `git checkout main`
+6. Обновить local main: `git pull origin main`
+
+Важные моменты:
+- Если меняете файл, который параллельно трогает кто-то ещё — предупредите и мержите быстрее
+- Конфликты решаем в локальной ветке
+- Директивы коммитов: `FEAT:`, `FIX:`, `REFACTOR:`, `DOCS:`, `TEST:`
+
 ## Структура
 
 ```
@@ -58,10 +72,6 @@ docker compose up --build
 - `.env` / `.env.example` — только чувствительные секреты (например `MAX_BOT_TOKEN`)
 - Env перекрывает YAML (`DATABASE_PASSWORD`, `MAX_BOT_TOKEN`, `DATABASE_HOST`, …)
 
-## Авторизация
-
-При `bot_started` и `/start` пользователь upsert’ится в таблицу `users`.
-
 ## Линтеры
 
 ```bash
@@ -70,17 +80,3 @@ ruff check src
 ```
 
 GitHub Actions на каждый push проверяет `ruff format --check`, `ruff check` и `npm run check` для webapp.
-
-## Contributing flow
-
-1. Создать ветку от main: `git checkout -b your-feature-name`
-2. Коммиты с описанием: `git commit -m "описание изменений"`
-3. Push: `git push origin your-feature-name`
-4. Создать pull request в main и смержить
-5. Переключиться на main: `git checkout main`
-6. Обновить local main: `git pull origin main`
-
-Важные моменты:
-- Если меняете файл, который параллельно трогает кто-то ещё — предупредите и мержите быстрее
-- Конфликты решаем в локальной ветке
-- Директивы коммитов: `FEAT:`, `FIX:`, `REFACTOR:`, `DOCS:`, `TEST:`
