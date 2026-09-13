@@ -13,7 +13,10 @@ RUN apt-get update \
 COPY pyproject.toml .
 COPY src ./src
 COPY conf ./conf
+COPY alembic.ini .
+COPY alembic ./alembic
+COPY scripts/bot_entrypoint.py /app/scripts/bot_entrypoint.py
 
 RUN pip install --no-cache-dir .
 
-CMD ["python", "-m", "main"]
+CMD ["python", "/app/scripts/bot_entrypoint.py"]

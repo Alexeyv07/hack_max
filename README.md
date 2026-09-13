@@ -18,6 +18,7 @@
 
 ```
 conf/                  # local.yaml / prod.yaml
+alembic/               # миграции БД
 src/
   project/             # общее: config, logging, database
   auth/                # модуль авторизации пользователей
@@ -40,9 +41,11 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows
 # source .venv/bin/activate     # Linux/macOS
 pip install -e ".[dev]"
+pre-commit install
 copy .env.example .env          # указать MAX_BOT_TOKEN
 
 set PYTHONPATH=src
+alembic upgrade head
 python -m main
 
 # в другом терминале
@@ -58,11 +61,34 @@ copy .env.example .env          # указать MAX_BOT_TOKEN
 docker compose up --build
 ```
 
+Контейнер бота перед стартом сам делает `alembic upgrade head`.
 В контейнере бота `DATABASE_HOST=postgres` задаётся через env и перекрывает `local.yaml`.
 
 - Postgres: `localhost:5432`
 - WebApp: http://localhost:5173
 - Bot: контейнер `hack_max_bot`
+
+## Миграции (Alembic)
+
+```bash
+set PYTHONPATH=src
+
+# применить все миграции
+alembic upgrade head
+
+# откатить на одну ревизию назад
+alembic downgrade -1
+
+# откатить до конкретной ревизии
+alembic downgrade 0001_create_users
+
+# создать новую миграцию после изменения ORM-моделей
+alembic revision --autogenerate -m "описание изменений"
+
+# текущее состояние
+alembic current
+alembic history
+```
 
 ## Конфиг
 
@@ -72,11 +98,13 @@ docker compose up --build
 - `.env` / `.env.example` — только чувствительные секреты (например `MAX_BOT_TOKEN`)
 - Env перекрывает YAML (`DATABASE_PASSWORD`, `MAX_BOT_TOKEN`, `DATABASE_HOST`, …)
 
-## Линтеры
+## Линтеры и pre-commit
 
 ```bash
+pip install -e ".[dev]"
+pre-commit install
 ruff format src
 ruff check src
 ```
 
-GitHub Actions на каждый push проверяет `ruff format --check`, `ruff check` и `npm run check` для webapp.
+Перед коммитом pre-commit прогоняет `ruff` + `ruff format`. CI — то же плюс `npm run check` для webapp.

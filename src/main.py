@@ -1,4 +1,4 @@
-"""Точка входа бота: wiring, инициализация БД, polling Max."""
+"""Точка входа бота: wiring, проверка БД, polling Max."""
 
 from __future__ import annotations
 
@@ -8,9 +8,8 @@ import sys
 from maxapi import Bot, Dispatcher
 
 from auth.commands import register_auth_commands
-from auth.db import UserRow  # noqa: F401  — регистрируем ORM-метаданные
 from project.config import get_settings
-from project.database import Base, check_connection, get_engine
+from project.database import check_connection
 from project.logging_setup import get_logger, setup_logging
 
 
@@ -31,8 +30,6 @@ async def run() -> None:
         sys.exit(1)
 
     check_connection()
-    Base.metadata.create_all(bind=get_engine())
-    log.info("Схема БД актуализирована")
 
     bot = Bot(settings.max.bot_token)
     dp = Dispatcher()
