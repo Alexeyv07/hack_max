@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from auth.db.user import UserRow
 from auth.models.user import MaxUserPayload, User
+from project.database import session_scope
 from project.logging_setup import get_logger
+from project.max_events import extract_chat_id, extract_sender
 
 logger = get_logger(__name__)
 
@@ -78,3 +81,19 @@ def authorize_user(session: Session, payload: MaxUserPayload) -> User:
         )
 
     return _to_domain(row)
+
+
+def authorize_from_event(event: Any) -> User | None:
+    """Достать пользователя из события Max и сохранить/обновить в БД."""
+    sender = extract_sender(event)
+    if sender is None:
+        logger.warning("В событии нет отправителя — авторизация пропущена")
+        return None
+
+    payload = MaxUserPayload.from_event_user(
+        sender,
+        chat_id=extract_chat_id(event),
+        payload=getattr(event, "payload", None),
+    )
+    with session_scope() as session:
+        return authorize_user(session, payload)
