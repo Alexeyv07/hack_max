@@ -1,0 +1,33 @@
+# PyTorch fine-tune importance (KAN-13)
+
+model_name: cointegrated/rubert-tiny2
+max_length: 128
+train_path: ml/classify/data/train.jsonl
+val_path: null          # null = взять val_ratio из train
+test_path: null
+val_ratio: 0.15
+seed: 13
+
+# RTX 3060 4GB — комфортные дефолты
+epochs: 4
+train_batch_size: 16
+eval_batch_size: 32
+learning_rate: 2.0e-5
+weight_decay: 0.01
+warmup_ratio: 0.06
+max_grad_norm: 1.0
+gradient_accumulation_steps: 1
+fp16: true              # на CUDA; на CPU автоматически выключится
+dataloader_num_workers: 0
+
+# class weights: balanced | null
+class_weight: balanced
+early_stopping_patience: 2
+
+output_dir: ml/classify/checkpoints/rubert_importance
+export_onnx: true
+onnx_path: ml/classify/artifacts/importance_model.onnx
+tokenizer_dir: ml/classify/artifacts/tokenizer
+
+logging_steps: 20
+save_total_limit: 2

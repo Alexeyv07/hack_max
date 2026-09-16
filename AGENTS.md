@@ -28,6 +28,35 @@
 Включение сервисов — `conf/*.yaml` → `runtime.enable_bot` / `runtime.enable_api`
 (или env `ENABLE_BOT` / `ENABLE_API`). Для отладки можно закомментировать `create_task` в `main.py`.
 
+## Parser common (KAN-13)
+
+Библиотека середины пайплайна. **Не** ходит в источники и **не** является воркером.
+
+```
+парсер-воркер (KAN-10/11/12)          parser_common                 events
+─────────────────────────────         ──────────────                ──────
+fetch → ParserCandidate  ──normalize──▶ EventDraft
+                         ──persist_candidate / to_event_create──▶ create_event → DB
+```
+
+- Title/body: эвристика (`text.py`), не LLM.
+- Importance: ONNX → rules (`classify.py`, `ml/classify/MODEL.md`).
+  `importance` и `disaster_flag` независимы (ML → класс; ЧС → keywords).
+- Geo: опциональный `GeoMatcher` (KAN-6), не LLM.
+- Дедуп — KAN-19 (хук около `create_event`), не здесь.
+- Контракт для авторов парсеров: `src/parser_common/README.md`.
+- Обучение: `ml/classify/train_torch.py` (GPU). Пакет `ml/` из `src` не импортировать.
+- Ручной прогон classify: `python scripts/classify_try.py` (`PYTHONPATH=src`).
+
+Парсеров в репо пока нет — мокать кандидатами / сидом events для ленты ок.
+Сквозной флоу «источник → events» закрывается в тасках KAN-10/11/12.
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install -e ".[ml]"
+python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
+```
+
 ## Events (KAN-14)
 
 - Финальные события в таблице `events` (не сырые кандидаты парсеров).
@@ -36,7 +65,8 @@
   - `GET /events/map?limit=` — точки карты по чатам пользователя.
 - Запись событий — **только handlers in-process** (`create_event` / …).
 - **Чаты (KAN-5):** `chat_link.handlers.list_memberships_for_user` пока **MOCK** (один демо-чат, если user есть в `users` после `/start`).
-- Шкала `importance`: `1` катастрофа, `2` важное, `3` бытовуха (не на карту).
+- Шкала `importance`: `1` высокий приоритет, `2` важное, `3` бытовуха (не на карту).
+- `disaster_flag` — отдельный признак ЧС, не алиас класса 1.
 - `image_url` — главная фотка; `null` → фронт рисует карту с меткой.
 - Гео события хранится через `events.address_id -> addresses.id`; `lat/lon` для API вычисляются из `Address`, в `events` не дублируются.
 - City feed: `importance=1` только с `disaster_flag=true`.
@@ -56,6 +86,13 @@ pip install -e ".[dev]"
 set PYTHONPATH=src
 alembic upgrade head
 python -m main
+
+# ML classify (KAN-13), отдельно от runtime:
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install -e ".[ml]"
+python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
+# данные: ml/classify/DATA.md
+# ручной прогон: set PYTHONPATH=src & python scripts/classify_try.py
 
 pytest
 ruff check src tests

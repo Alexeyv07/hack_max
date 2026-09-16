@@ -1,0 +1,2 @@
+# Лёгкий JSON-артефакт для src/parser_common (можно коммитить).
+# Тяжёлые веса/joblib — только в ../checkpoints/ (gitignore).
