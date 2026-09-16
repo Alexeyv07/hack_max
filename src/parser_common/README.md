@@ -48,8 +48,8 @@ candidate = ParserCandidate(
     source="neighbors_chat",  # или news / max_public / …
     source_msg_id=str(msg_id),
     # title/body — если источник уже дал (новости); иначе None
-    geo_text=None,            # опционально узкий кусок под гео
-    address_id=None,          # если чат уже знает адрес — можно сразу
+    geo_text=None,  # опционально узкий кусок под гео
+    address_id=None,  # если чат уже знает адрес — можно сразу
 )
 
 draft = normalize(candidate, geo_matcher=matcher, chat_coordinates=chat_xy)
