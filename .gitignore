@@ -39,3 +39,13 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# ML artifacts (обучение/веса вне src — не коммитим тяжёлое)
+ml/**/data/
+ml/**/checkpoints/
+ml/**/*.pt
+ml/**/*.pth
+ml/**/*.onnx
+ml/**/*.bin
+ml/**/*.safetensors
+ml/**/.cache/

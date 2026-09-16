@@ -28,6 +28,14 @@
 Включение сервисов — `conf/*.yaml` → `runtime.enable_bot` / `runtime.enable_api`
 (или env `ENABLE_BOT` / `ENABLE_API`). Для отладки можно закомментировать `create_task` в `main.py`.
 
+## Parser common (KAN-13)
+
+- `src/parser_common/`: `ParserCandidate` → `normalize()` → `EventDraft` → (`to_event_create` → events).
+- Внутри: heuristic `ml_classify` (importance 1–3 + disaster) и сбор title/body **без LLM**.
+- Geo: опциональный `address.geocoding.GeoMatcher` (не LLM).
+- Дедуп **не здесь** — KAN-19 `ml_dedup`.
+- Обучение / датасеты / чекпоинты — только в **`ml/`** (вне `src`). Рантайм может читать лёгкий `ml/classify/rules.yaml`.
+
 ## Events (KAN-14)
 
 - Финальные события в таблице `events` (не сырые кандидаты парсеров).
