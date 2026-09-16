@@ -6,7 +6,9 @@ normalize(ParserCandidate) → EventDraft.
   2) importance — ``classify.classify_importance`` (каскад ONNX→rules)
   3) geo — опционально ``address.geocoding.GeoMatcher`` (не ML)
 
-Дедуп пересекающихся событий — KAN-19, не здесь.
+Запись в ``events`` — не здесь: воркер парсера вызывает
+``to_event_create`` + ``events.handlers.create_event`` или ``persist_candidate``.
+Дедуп пересекающихся событий — KAN-19.
 """
 
 from __future__ import annotations
@@ -73,7 +75,7 @@ def normalize(
 
 
 def to_event_create(draft: EventDraft) -> EventCreate:
-    """Мост в ``events.handlers.create_event`` (после optional ml_dedup)."""
+    """Мост в ``events.handlers.create_event``. Вызывать из воркера парсера (после optional KAN-19)."""
     return EventCreate(
         title=draft.title,
         body=draft.body,

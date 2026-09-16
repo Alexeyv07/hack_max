@@ -170,3 +170,33 @@ def test_ml_importance_independent_of_disaster_keywords() -> None:
         assert result.disaster_flag is True
     finally:
         clear_rules_cache()
+
+
+def test_persist_candidate_writes_event(db_session) -> None:
+    from address.db.address import AddressRow
+    from parser_common import ParserCandidate, persist_candidate
+
+    addr = AddressRow(
+        address_text="Москва, улица Persist, д. 1",
+        postal_code="101000",
+        latitude=Decimal("55.75"),
+        longitude=Decimal("37.62"),
+    )
+    db_session.add(addr)
+    db_session.flush()
+
+    event = persist_candidate(
+        db_session,
+        ParserCandidate(
+            raw_text="Отключили воду на Persist до вечера",
+            source="neighbors_chat",
+            source_msg_id="persist-1",
+            address_id=addr.id,
+        ),
+        geo_matcher=None,
+    )
+    assert event.id is not None
+    assert event.importance == 2
+    assert event.disaster_flag is False
+    assert event.address_id == addr.id
+    assert event.source_msg_id == "persist-1"

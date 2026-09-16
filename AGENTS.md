@@ -30,22 +30,30 @@
 
 ## Parser common (KAN-13)
 
-- `ParserCandidate` → `normalize()` → `EventDraft` → `to_event_create` → events.
-- Title/body: эвристика (`text.py`), **не** LLM.
-- **Importance classify** — каскад (см. `src/parser_common/classify.py`, `ml/classify/MODEL.md`):
-  1. ONNX `rubert-tiny2` (если есть артефакт + deps)
-  2. keyword rules (+ `ml/classify/rules.yaml`)
-  - `importance` и `disaster_flag` независимы: ML → только importance; флаг ЧС → keywords.
-- Geo: опциональный `address.geocoding.GeoMatcher`.
-- Дедуп **не здесь** — KAN-19.
-- Обучение только в `ml/classify/train_torch.py` (GPU). Не импортировать `ml/` из `src`.
-- Синтетика: `bootstrap_data.py` → `data/bootstrap.jsonl` (не перезаписывает `train.jsonl`; append — флаг `--merge-into-train`).
-- Ручной прогон: `python scripts/classify_try.py` (`PYTHONPATH=src`).
+Библиотека середины пайплайна. **Не** ходит в источники и **не** является воркером.
+
+```
+парсер-воркер (KAN-10/11/12)          parser_common                 events
+─────────────────────────────         ──────────────                ──────
+fetch → ParserCandidate  ──normalize──▶ EventDraft
+                         ──persist_candidate / to_event_create──▶ create_event → DB
+```
+
+- Title/body: эвристика (`text.py`), не LLM.
+- Importance: ONNX → rules (`classify.py`, `ml/classify/MODEL.md`).
+  `importance` и `disaster_flag` независимы (ML → класс; ЧС → keywords).
+- Geo: опциональный `GeoMatcher` (KAN-6), не LLM.
+- Дедуп — KAN-19 (хук около `create_event`), не здесь.
+- Контракт для авторов парсеров: `src/parser_common/README.md`.
+- Обучение: `ml/classify/train_torch.py` (GPU). Пакет `ml/` из `src` не импортировать.
+- Ручной прогон classify: `python scripts/classify_try.py` (`PYTHONPATH=src`).
+
+Парсеров в репо пока нет — мокать кандидатами / сидом events для ленты ок.
+Сквозной флоу «источник → events» закрывается в тасках KAN-10/11/12.
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu124
 pip install -e ".[ml]"
-python ml/classify/bootstrap_data.py
 python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
 ```
 
