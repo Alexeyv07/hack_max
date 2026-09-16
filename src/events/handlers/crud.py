@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
+from address.db.address import AddressRow
 from chat_link.models.membership import ChatMembership
 from events.cursor import (
     FeedCursor,
@@ -67,20 +68,31 @@ def _validate_importance(importance: int) -> None:
         raise ValueError(f"importance должен быть 1..3, получено {importance}")
 
 
+def _get_address(session: Session, address_id: int | None) -> AddressRow | None:
+    if address_id is None:
+        return None
+    address = session.get(AddressRow, address_id)
+    if address is None:
+        raise ValueError(f"Адрес id={address_id} не найден")
+    return address
+
+
 def _to_domain(row: EventRow, *, distance_m: float | None = None) -> Event:
     weight = compute_weight(
         importance=row.importance,
         source=row.source,
         distance_m=distance_m,
     )
+    address = row.address
     return Event(
         id=row.id,
         title=row.title,
         body=row.body,
         importance=row.importance,
         source=row.source,
-        lat=row.lat,
-        lon=row.lon,
+        address_id=row.address_id,
+        lat=float(address.latitude) if address is not None else None,
+        lon=float(address.longitude) if address is not None else None,
         weight=weight,
         source_msg_id=row.source_msg_id,
         disaster_flag=row.disaster_flag,
@@ -96,6 +108,7 @@ def create_event(session: Session, data: EventCreate) -> Event:
     """
     Создать финальное событие (только in-process: парсеры / бот / скрипты).
 
+    Геопозиция хранится ссылкой на Address, а не копией latitude/longitude.
     KAN-19 ml_dedup: сюда же позже вставить merge до insert.
     """
     _validate_importance(data.importance)
@@ -107,8 +120,7 @@ def create_event(session: Session, data: EventCreate) -> Event:
         body=data.body.strip(),
         importance=data.importance,
         source=source,
-        lat=data.lat,
-        lon=data.lon,
+        address=_get_address(session, data.address_id),
         weight=base_weight,
         source_msg_id=data.source_msg_id,
         disaster_flag=data.disaster_flag,
@@ -118,10 +130,11 @@ def create_event(session: Session, data: EventCreate) -> Event:
     session.add(row)
     session.flush()
     logger.info(
-        "Событие создано id=%s importance=%s source=%s",
+        "Событие создано id=%s importance=%s source=%s address_id=%s",
         row.id,
         row.importance,
         row.source,
+        row.address_id,
     )
     return _to_domain(row)
 
@@ -145,14 +158,10 @@ def update_event(session: Session, event_id: int, data: EventUpdate) -> Event | 
         row.importance = data.importance
     if data.source is not None:
         row.source = _normalize_source(data.source)
-    if data.clear_geo:
-        row.lat = None
-        row.lon = None
-    else:
-        if data.lat is not None:
-            row.lat = data.lat
-        if data.lon is not None:
-            row.lon = data.lon
+    if data.clear_address:
+        row.address = None
+    elif data.address_id is not None:
+        row.address = _get_address(session, data.address_id)
     if data.source_msg_id is not None:
         row.source_msg_id = data.source_msg_id
     if data.disaster_flag is not None:
@@ -191,17 +200,28 @@ def _distance_for_scope(
     scope: EventScope,
 ) -> float | None:
     """Мин. расстояние до чатов пользователя, если событие попадает в радиус scope."""
-    if row.lat is None or row.lon is None:
+    if row.address is None:
         return None
+    lat, lon = float(row.address.latitude), float(row.address.longitude)
     best: float | None = None
     for membership in memberships:
-        distance_m = haversine_m(membership.lat, membership.lon, row.lat, row.lon)
+        distance_m = haversine_m(membership.lat, membership.lon, lat, lon)
         radius = (
             membership.nearby_radius_m if scope is EventScope.NEARBY else membership.city_radius_m
         )
         if distance_m <= radius and (best is None or distance_m < best):
             best = distance_m
     return best
+
+
+def _event_rows_with_address(session: Session) -> list[EventRow]:
+    return list(
+        session.scalars(
+            select(EventRow)
+            .options(joinedload(EventRow.address))
+            .where(EventRow.address_id.is_not(None))
+        ).all()
+    )
 
 
 def list_feed(
@@ -215,7 +235,7 @@ def list_feed(
     """
     TikTok-лента по чатам пользователя: keyset (weight DESC, id DESC).
 
-    Гео берётся из memberships (чаты), не из query-параметров webapp.
+    Гео чатов берётся из memberships; гео события — из связанного Address.
     """
     if not memberships:
         raise ValueError("У пользователя нет чатов — лента пуста")
@@ -227,11 +247,7 @@ def list_feed(
     parsed: FeedCursor | None = decode_feed_cursor(cursor) if cursor else None
     scored: list[Event] = []
 
-    rows = session.scalars(
-        select(EventRow).where(EventRow.lat.is_not(None), EventRow.lon.is_not(None))
-    ).all()
-
-    for row in rows:
+    for row in _event_rows_with_address(session):
         distance_m = _distance_for_scope(row, memberships, scope=scope_value)
         if distance_m is None:
             continue
@@ -276,23 +292,19 @@ def list_map_points(
         raise ValueError("limit должен быть >= 1")
 
     points: list[MapPoint] = []
-    rows = session.scalars(
-        select(EventRow).where(EventRow.lat.is_not(None), EventRow.lon.is_not(None))
-    ).all()
-
-    for row in rows:
+    for row in _event_rows_with_address(session):
         distance_m = _distance_for_scope(row, memberships, scope=EventScope.CITY)
         if distance_m is None:
             continue
         if not allowed_on_map(importance=row.importance, disaster_flag=row.disaster_flag):
             continue
-        assert row.lat is not None and row.lon is not None
+        assert row.address is not None
         points.append(
             MapPoint(
                 id=row.id,
                 title=row.title,
-                lat=row.lat,
-                lon=row.lon,
+                lat=float(row.address.latitude),
+                lon=float(row.address.longitude),
                 importance=row.importance,
                 category=map_icon_category(
                     importance=row.importance,

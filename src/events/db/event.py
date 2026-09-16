@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from project.database import Base
+
+if TYPE_CHECKING:
+    from address.db.address import AddressRow
 
 
 class EventRow(Base):
@@ -20,8 +24,12 @@ class EventRow(Base):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     importance: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    lat: Mapped[float | None] = mapped_column(Float, nullable=True)
-    lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+    address_id: Mapped[int | None] = mapped_column(
+        ForeignKey("addresses.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    address: Mapped[AddressRow | None] = relationship("AddressRow")
     weight: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, index=True)
     source_msg_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     disaster_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

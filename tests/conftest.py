@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import address.db  # noqa: F401
 import auth.db  # noqa: F401
 import events.db  # noqa: F401
 from project.database import Base

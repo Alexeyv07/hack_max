@@ -1,0 +1,27 @@
+{
+  "osm_source": "https://www.openstreetmap.org/copyright",
+  "osm_license": "ODbL-1.0",
+  "osm_metadata": {
+    "timestamp_osm_base": "2026-09-15T22:26:20Z",
+    "timestamp_areas_base": "2026-09-15T20:59:53Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "scope": "RU-MOW: buildings with addr:street and addr:housenumber",
+  "raw_sha256": "9dbfc528763472bd2598d4fd74b549a622b2942f84393c30fe617f787771d495",
+  "gzip_sha256": "c0b09e425e3c1f2f20372637dc4571e38680866df17f476bfd74ba8d6524c1ac",
+  "input_rows": 132448,
+  "rows": 125562,
+  "rejected_address_groups": 2873,
+  "rejected_rows": 6876,
+  "with_osm_postcode": 19970,
+  "filled_from_gar": 81641,
+  "without_postcode": 23951,
+  "gar_sdk_version": "4.34",
+  "gar_source": "https://garfias.ru",
+  "gar_index_version": "2026.05.26\nv.260",
+  "private_counts": {
+    "None": 80257,
+    "False": 32992,
+    "True": 12313
+  }
+}

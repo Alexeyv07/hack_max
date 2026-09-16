@@ -14,6 +14,7 @@ dependencies = [
     "python-dotenv>=1.0,<2",
     "maxapi>=1.0,<2",
     "alembic>=1.14,<2",
+    "rapidfuzz>=3.14,<4",
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.32,<1",
     "pydantic>=2.9,<3",
@@ -56,7 +57,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["project", "auth", "events", "chats", "main", "max"]
+known-first-party = ["project", "auth", "address", "events", "chats", "main", "max"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -67,4 +68,3 @@ line-ending = "auto"
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
-

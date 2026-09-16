@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
 
+from address.db.address import AddressRow
 from auth.handlers.authorize import authorize_user
 from auth.models.user import MaxUserPayload
 from events.api.app import create_app
@@ -40,6 +43,18 @@ def client(session_factory, monkeypatch):
     reset_settings_cache()
 
 
+def _add_address(session, *, text: str, lat: float, lon: float) -> AddressRow:
+    row = AddressRow(
+        address_text=text,
+        postal_code="123456",
+        latitude=Decimal(str(lat)),
+        longitude=Decimal(str(lon)),
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
 def _seed_user_and_events(session_factory) -> None:
     session = session_factory()
     try:
@@ -47,6 +62,11 @@ def _seed_user_and_events(session_factory) -> None:
             session,
             MaxUserPayload(max_user_id=4242, name="Demo", username="demo"),
         )
+        nearby = _add_address(session, text="Москва, улица Тестовая, д. 1", lat=55.75, lon=37.62)
+        cat = _add_address(session, text="Москва, улица Тестовая, д. 2", lat=55.751, lon=37.621)
+        far = _add_address(session, text="Москва, улица Тестовая, д. 3", lat=55.90, lon=37.62)
+        water = _add_address(session, text="Москва, улица Тестовая, д. 4", lat=55.80, lon=37.62)
+
         crud.create_event(
             session,
             EventCreate(
@@ -54,8 +74,7 @@ def _seed_user_and_events(session_factory) -> None:
                 body="b",
                 importance=2,
                 source="news",
-                lat=55.75,
-                lon=37.62,
+                address_id=nearby.id,
                 image_url="https://cdn.example/nearby.jpg",
             ),
         )
@@ -66,8 +85,7 @@ def _seed_user_and_events(session_factory) -> None:
                 body="b",
                 importance=3,
                 source="neighbors_chat",
-                lat=55.751,
-                lon=37.621,
+                address_id=cat.id,
             ),
         )
         crud.create_event(
@@ -77,8 +95,7 @@ def _seed_user_and_events(session_factory) -> None:
                 body="b",
                 importance=3,
                 source="news",
-                lat=55.90,
-                lon=37.62,
+                address_id=far.id,
             ),
         )
         crud.create_event(
@@ -88,8 +105,7 @@ def _seed_user_and_events(session_factory) -> None:
                 body="отключили",
                 importance=2,
                 source="news",
-                lat=55.80,
-                lon=37.62,
+                address_id=water.id,
             ),
         )
         session.commit()
@@ -134,6 +150,8 @@ def test_feed_and_cursor(client) -> None:
     assert body["count"] == 1
     assert body["next_cursor"] is not None
     assert body["items"][0]["image_url"] == "https://cdn.example/nearby.jpg"
+    assert body["items"][0]["lat"] == 55.75
+    assert body["items"][0]["lon"] == 37.62
 
     second = test_client.get(
         "/events/feed",
