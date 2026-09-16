@@ -58,15 +58,27 @@ geo = matcher.resolve(message_text, chat_coordinates=chat_coordinates)
 ```bash
 python -m pip install -e '.[dev]'
 alembic upgrade head
-PYTHONPATH=src python -m unittest discover -s tests -p test_address_geocoding.py -v
+python -m unittest discover -s tests -p test_address_geocoding.py -v
 ```
 
 Тесты схемы дополнительно требуют PostgreSQL с правом `CREATE SCHEMA` и
 переменную `ADDRESS_TEST_DATABASE_URL`. Они работают в отдельных схемах
-и откатывают изменения. Миграции создают структуру, но не наполняют справочник.
+и откатывают изменения. Миграции создают структуру. При запуске полного стека
+через Docker `bot_entrypoint.py` автоматически наполняет пустую таблицу `addresses`.
 
 
 ## Загрузка адресов
+
+При обычном запуске полного стека отдельная команда не нужна:
+
+```bash
+docker compose up --build
+```
+
+После миграций контейнер бота проверяет `addresses` через `SELECT ... LIMIT 1`.
+Если таблица пустая, автоматически загружается
+`src/address/data/moscow.jsonl.gz`. Если в таблице уже есть хотя бы одна запись,
+повторный импорт при старте не выполняется.
 
 Локальный файл JSONL (один объект на строку), также поддерживается `.jsonl.gz`:
 
@@ -77,9 +89,11 @@ PYTHONPATH=src python -m unittest discover -s tests -p test_address_geocoding.py
 Это пример формата, не проверенный реальный адрес. Поля `id` и метаданные
 источника в файл загрузки можно не включать; `id` генерирует БД.
 
+Для ручной проверки или загрузки после `pip install -e ".[dev]"`:
+
 ```bash
-PYTHONPATH=src python -m address.seed /путь/к/адресам.jsonl.gz --validate-only
-PYTHONPATH=src python -m address.seed /путь/к/адресам.jsonl.gz
+python -m address.seed /путь/к/адресам.jsonl.gz --validate-only
+python -m address.seed /путь/к/адресам.jsonl.gz
 ```
 
 Сначала проверяется весь файл. Повторная загрузка обновляет запись по

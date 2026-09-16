@@ -3,8 +3,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
-from address.seed import read_addresses
+from address.seed import ensure_addresses_seeded, read_addresses
 
 
 class AddressFileTests(unittest.TestCase):
@@ -58,3 +59,39 @@ class AddressFileTests(unittest.TestCase):
         with gzip.open(path, "wt") as out:
             out.write(json.dumps(self.row) + "\n")
         self.assertEqual(read_addresses(path)[0]["address_text"], self.row["address_text"])
+
+
+class AddressAutoSeedTests(unittest.TestCase):
+    def setUp(self):
+        self.path = Path("/tmp/moscow.jsonl.gz")
+        self.rows = [{"address_text": "Москва, улица Тестовая, д. 1"}]
+
+    def test_existing_addresses_skip_seed(self):
+        session = Mock()
+        session.scalar.return_value = 1
+        with (
+            patch("address.seed.session_scope") as session_scope,
+            patch("address.seed.read_addresses") as read_addresses,
+            patch("address.seed.upsert_addresses") as upsert_addresses,
+        ):
+            session_scope.return_value.__enter__.return_value = session
+
+            self.assertFalse(ensure_addresses_seeded(self.path))
+
+            read_addresses.assert_not_called()
+            upsert_addresses.assert_not_called()
+
+    def test_empty_table_is_seeded(self):
+        session = Mock()
+        session.scalar.return_value = None
+        with (
+            patch("address.seed.session_scope") as session_scope,
+            patch("address.seed.read_addresses", return_value=self.rows) as read_addresses,
+            patch("address.seed.upsert_addresses") as upsert_addresses,
+        ):
+            session_scope.return_value.__enter__.return_value = session
+
+            self.assertTrue(ensure_addresses_seeded(self.path))
+
+            read_addresses.assert_called_once_with(self.path)
+            upsert_addresses.assert_called_once_with(session, self.rows)

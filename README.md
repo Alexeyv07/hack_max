@@ -54,8 +54,8 @@ pip install -e ".[dev]"
 pre-commit install
 copy .env.example .env          # указать MAX_BOT_TOKEN
 
-set PYTHONPATH=src
 alembic upgrade head
+python -m address.seed src/address/data/moscow.jsonl.gz
 python -m main
 
 # HTTP API: http://localhost:8000/docs  (если runtime.enable_api=true)
@@ -81,7 +81,7 @@ copy .env.example .env          # указать MAX_BOT_TOKEN
 docker compose up --build
 ```
 
-Контейнер бота перед стартом сам делает `alembic upgrade head`.
+Контейнер бота перед стартом сам делает `alembic upgrade head`. Если таблица `addresses` пустая, он автоматически загружает московский справочник из `src/address/data/moscow.jsonl.gz`; при следующих запусках повторный импорт не выполняется.
 В контейнере бота `DATABASE_HOST=postgres` задаётся через env и перекрывает `local.yaml`.
 
 - Postgres: `localhost:5432`
@@ -91,8 +91,6 @@ docker compose up --build
 ## Миграции (Alembic)
 
 ```bash
-set PYTHONPATH=src
-
 # применить все миграции
 alembic upgrade head
 

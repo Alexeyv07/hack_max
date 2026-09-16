@@ -8,12 +8,14 @@ from decimal import Decimal, InvalidOperation
 from itertools import batched
 from pathlib import Path
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from address.db.address import AddressRow
 from project.database import session_scope
+
+DEFAULT_ADDRESSES_FILE = Path(__file__).resolve().parent / "data" / "moscow.jsonl.gz"
 
 
 def read_addresses(path: Path) -> list[dict]:
@@ -56,7 +58,7 @@ def read_addresses(path: Path) -> list[dict]:
 
 
 def upsert_addresses(session: Session, rows: list[dict]) -> None:
-    """Обновить по PK=address_text; сохранить id, не затирать индекс и тип дома null."""
+    """Обновить по уникальному address_text; сохранить id, не затирать индекс и тип дома null."""
     for batch in batched(rows, 500):
         statement = insert(AddressRow).values(list(batch))
         session.execute(
@@ -74,6 +76,18 @@ def upsert_addresses(session: Session, rows: list[dict]) -> None:
                 },
             )
         )
+
+
+def ensure_addresses_seeded(path: Path = DEFAULT_ADDRESSES_FILE) -> bool:
+    """Загрузить справочник, только если таблица addresses пустая."""
+    with session_scope() as session:
+        address_exists = session.scalar(select(AddressRow.id).limit(1))
+        if address_exists is not None:
+            return False
+
+        rows = read_addresses(path)
+        upsert_addresses(session, rows)
+        return True
 
 
 def main() -> None:
