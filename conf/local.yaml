@@ -22,3 +22,15 @@ database:
 
 max:
   api_base_url: https://botapi.max.ru
+
+api:
+  host: 0.0.0.0
+  port: 8000
+
+events:
+  nearby_radius_m: 3000
+  city_radius_m: 30000
+
+runtime:
+  enable_bot: true
+  enable_api: true
