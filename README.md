@@ -26,8 +26,18 @@ src/
     db/                # SQLAlchemy ORM
     handlers/          # бизнес-логика + запросы
     commands/          # привязка к Max-событиям (/start, bot_started)
-  main.py              # точка входа бота
+  events/              # события (лента nearby/city)
+    models/
+    db/
+    handlers/          # CRUD + правила ленты
+    api/               # FastAPI routes → handlers
+    weight.py          # чистый расчёт веса
+  chats/               # членство в чатах (пока mock handlers)
+  max.py               # run_max_bot() — см. project/max.py
+  main.py              # bot и/или API в одном процессе
+tests/                 # pytest (API + handlers)
 webapp/                # SvelteKit mini-app
+AGENTS.md              # гайд для агентов
 ```
 
 ## Режимы запуска
@@ -48,8 +58,18 @@ set PYTHONPATH=src
 alembic upgrade head
 python -m main
 
+# HTTP API: http://localhost:8000/docs  (если runtime.enable_api=true)
+# Отключить бот или API: conf/local.yaml → runtime.enable_bot / enable_api
+
 # в другом терминале
 cd webapp && npm install && npm run dev
+```
+
+Тесты:
+
+```bash
+pip install -e ".[dev]"
+pytest
 ```
 
 `conf/local.yaml` смотрит на `localhost:5432` — это порт Postgres из Docker.
