@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, Numeric, String
+from sqlalchemy import Boolean, CheckConstraint, Numeric, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from project.database import Base
@@ -20,9 +20,11 @@ class AddressRow(Base):
         CheckConstraint("length(trim(address_text)) > 0", name="ck_addresses_text"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        server_default=text("nextval('addresses_id_seq')"), nullable=False
+    )
     postal_code: Mapped[str | None] = mapped_column(String(6), index=True, nullable=True)
-    address_text: Mapped[str] = mapped_column(String(1000), nullable=False)
+    address_text: Mapped[str] = mapped_column(String(1000), primary_key=True)
     latitude: Mapped[Decimal] = mapped_column(Numeric(10, 7), nullable=False)
     longitude: Mapped[Decimal] = mapped_column(Numeric(10, 7), nullable=False)
     # None — тип дома неизвестен, False — многоквартирный, True — индивидуальный.
