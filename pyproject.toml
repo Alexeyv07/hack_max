@@ -14,12 +14,17 @@ dependencies = [
     "python-dotenv>=1.0,<2",
     "maxapi>=1.0,<2",
     "alembic>=1.14,<2",
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.32,<1",
+    "pydantic>=2.9,<3",
 ]
 
 [project.optional-dependencies]
 dev = [
     "ruff>=0.8,<1",
     "pre-commit>=4.0,<5",
+    "pytest>=8.0,<9",
+    "httpx>=0.27,<1",
 ]
 
 [project.scripts]
@@ -34,7 +39,7 @@ where = ["src"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-src = ["src"]
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = [
@@ -51,10 +56,15 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["project", "auth", "main"]
+known-first-party = ["project", "auth", "events", "chats", "main", "max"]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+

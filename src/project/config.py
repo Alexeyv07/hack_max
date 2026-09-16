@@ -70,6 +70,12 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "APP_DEBUG": "app.debug",
         "LOG_LEVEL": "logging.level",
         "LOG_FORMAT": "logging.format",
+        "API_HOST": "api.host",
+        "API_PORT": "api.port",
+        "ENABLE_BOT": "runtime.enable_bot",
+        "ENABLE_API": "runtime.enable_api",
+        "EVENTS_NEARBY_RADIUS_M": "events.nearby_radius_m",
+        "EVENTS_CITY_RADIUS_M": "events.city_radius_m",
     }
 
     for env_key, dotted in alias_map.items():
@@ -132,12 +138,35 @@ class MaxConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ApiConfig:
+    host: str = "0.0.0.0"
+    port: int = 8000
+
+
+@dataclass(frozen=True, slots=True)
+class EventsConfig:
+    nearby_radius_m: float = 3000.0
+    city_radius_m: float = 30000.0
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeConfig:
+    """Какие сервисы поднимать в одном процессе main."""
+
+    enable_bot: bool = True
+    enable_api: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class Settings:
     environment: str
     app: AppConfig = field(default_factory=AppConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     max: MaxConfig = field(default_factory=MaxConfig)
+    api: ApiConfig = field(default_factory=ApiConfig)
+    events: EventsConfig = field(default_factory=EventsConfig)
+    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
 
 
 def _resolve_environment() -> str:
@@ -170,6 +199,9 @@ def load_settings() -> Settings:
     logging_raw = raw.get("logging") or {}
     database_raw = raw.get("database") or {}
     max_raw = raw.get("max") or {}
+    api_raw = raw.get("api") or {}
+    events_raw = raw.get("events") or {}
+    runtime_raw = raw.get("runtime") or {}
 
     return Settings(
         environment=environment,
@@ -194,6 +226,18 @@ def load_settings() -> Settings:
         max=MaxConfig(
             bot_token=max_raw.get("bot_token"),
             api_base_url=str(max_raw.get("api_base_url", "https://botapi.max.ru")),
+        ),
+        api=ApiConfig(
+            host=str(api_raw.get("host", "0.0.0.0")),
+            port=int(api_raw.get("port", 8000)),
+        ),
+        events=EventsConfig(
+            nearby_radius_m=float(events_raw.get("nearby_radius_m", 3000)),
+            city_radius_m=float(events_raw.get("city_radius_m", 30000)),
+        ),
+        runtime=RuntimeConfig(
+            enable_bot=bool(runtime_raw.get("enable_bot", True)),
+            enable_api=bool(runtime_raw.get("enable_api", True)),
         ),
     )
 
