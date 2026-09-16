@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 # Импорт ORM-моделей — иначе metadata пустая и autogenerate ничего не увидит.
+import address.db  # noqa: E402, F401
 import auth.db  # noqa: E402, F401
 from project.config import get_settings  # noqa: E402
 from project.database import Base  # noqa: E402
