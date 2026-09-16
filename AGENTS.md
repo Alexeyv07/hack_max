@@ -34,13 +34,13 @@
 - Title/body: эвристика (`text.py`), **не** LLM.
 - **Importance classify** — каскад (см. `src/parser_common/classify.py`, `ml/classify/MODEL.md`):
   1. ONNX `rubert-tiny2` (если есть артефакт + deps)
-  2. TF-IDF JSON (`importance_model.json`)
-  3. keyword rules (+ `ml/classify/rules.yaml`)
+  2. keyword rules (+ `ml/classify/rules.yaml`)
   - `importance` и `disaster_flag` независимы: ML → только importance; флаг ЧС → keywords.
 - Geo: опциональный `address.geocoding.GeoMatcher`.
 - Дедуп **не здесь** — KAN-19.
-- Обучение только в `ml/classify/` (`train_torch.py` / `train.py`). Не импортировать `ml/` из `src`.
+- Обучение только в `ml/classify/train_torch.py` (GPU). Не импортировать `ml/` из `src`.
 - Синтетика: `bootstrap_data.py` → `data/bootstrap.jsonl` (не перезаписывает `train.jsonl`; append — флаг `--merge-into-train`).
+- Ручной прогон: `python scripts/classify_try.py` (`PYTHONPATH=src`).
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu124
@@ -82,9 +82,9 @@ python -m main
 # ML classify (KAN-13), отдельно от runtime:
 pip install torch --index-url https://download.pytorch.org/whl/cu124
 pip install -e ".[ml]"
-python ml/classify/bootstrap_data.py
-python ml/classify/train_torch.py
+python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
 # данные: ml/classify/DATA.md
+# ручной прогон: set PYTHONPATH=src & python scripts/classify_try.py
 
 pytest
 ruff check src tests

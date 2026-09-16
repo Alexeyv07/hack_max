@@ -3,7 +3,7 @@ normalize(ParserCandidate) → EventDraft.
 
 Шаги:
   1) title/body — ``text.build_title_and_body`` (не ML)
-  2) importance — ``classify.classify_importance`` (каскад ONNX→TF-IDF→rules)
+  2) importance — ``classify.classify_importance`` (каскад ONNX→rules)
   3) geo — опционально ``address.geocoding.GeoMatcher`` (не ML)
 
 Дедуп пересекающихся событий — KAN-19, не здесь.

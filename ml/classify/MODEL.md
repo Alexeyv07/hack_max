@@ -2,42 +2,52 @@
 
 ## Что предсказываем
 
-Один softmax на 3 класса → `importance ∈ {1,2,3}`.
+Softmax на 3 класса → `importance ∈ {1,2,3}`.
 
-`disaster_flag` в runtime **не** голова сети: его ставят keyword-rules в `classify.disaster_flag_by_rules`. В JSONL флаг размечается отдельно и не пересчитывается из класса при загрузке (`dataset_io`).
-
-Старые артефакты могли содержать `"disaster_is_importance_1": true` — поле игнорируется инференсом.
+`disaster_flag` в runtime **не** голова сети: его ставят keyword-rules
+(`classify.disaster_flag_by_rules`). В JSONL флаг размечается отдельно.
 
 ## Каскад
 
-1. ONNX `cointegrated/rubert-tiny2` fine-tune (`predict_importance_onnx`)
-2. TF-IDF + LogReg JSON (`predict_importance`)
-3. Rules (`classify_by_rules`) — и importance, и флаг
+1. ONNX fine-tune `cointegrated/rubert-tiny2` (`predict_importance_onnx`)
+2. Rules (`classify_by_rules`) — и importance, и флаг
 
-Порог: `min_confidence` (default 0.45). Ниже → следующий уровень.
+Порог: `min_confidence` (default 0.45). Ниже → rules.
 
-При срабатывании ONNX/TF-IDF: `importance` из модели, `disaster_flag` из rules-keywords по тому же тексту. Так возможны пары `(1, false)` и `(2, true)`.
+При срабатывании ONNX: `importance` из модели, `disaster_flag` из keywords.
+Так возможны пары `(1, false)` и `(2, true)`.
 
 ## Артефакты
 
 ```
 ml/classify/artifacts/
-  importance_model.json      # tfidf_logreg_v1
-  importance_model.onnx      # optional
+  importance_model.onnx
   importance_model.meta.json
   tokenizer/                 # HF tokenizer files
 ```
 
-Формат TF-IDF JSON: vocabulary, idf, coef, intercept, classes. Сборка — `train.py`.
+Сборка: `train_torch.py` (после обучения сам зовёт export) или `export_onnx.py`.
 
-## Train (torch)
+## Train
 
 - Конфиг: `config_torch.yaml`
-- Скрипт: `train_torch.py` → checkpoint → `export_onnx.py`
-- Данные: `data/train.jsonl` (+ опционально val). Синтетику см. `bootstrap_data.py` → `bootstrap.jsonl`.
+- Скрипт: `train_torch.py` → checkpoint → ONNX
+- Данные: `data/train.jsonl`
+- Синтетика: `bootstrap_data.py` → `bootstrap.jsonl` (train не перезаписывает)
 
-На 3060 4GB: tiny2, batch 16–32, 3–5 эпох достаточно для MVP-объёма.
+GPU обязателен для нормального fine-tune (у нас RTX 3060 / CUDA).
+На 3060 4GB: tiny2, batch 16–32, 3–5 эпох.
 
 ## Rules
 
-Дефолты зашиты в `classify.py`, доп. список — `rules.yaml` (`disaster` / `important`). Rules-only путь по-прежнему мапит disaster-keywords → `(1, true)` как fallback без модели.
+Дефолты в `classify.py`, доп. список — `rules.yaml`.
+Rules-only мапит disaster-keywords → `(1, true)` как fallback без модели.
+
+## Ручная проверка
+
+```bash
+set PYTHONPATH=src
+python scripts/classify_try.py
+```
+
+Показывает raw ONNX-probs, rules и итоговый каскад.

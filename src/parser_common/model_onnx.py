@@ -1,15 +1,15 @@
 """
 ONNX-инференс fine-tuned rubert-tiny2 (3 класса importance).
 
-Артефакты (пишутся ml/classify/train_torch.py / export_onnx.py):
+Артефакты (train_torch.py / export_onnx.py):
   - ml/classify/artifacts/importance_model.onnx
   - ml/classify/artifacts/importance_model.meta.json
   - ml/classify/artifacts/tokenizer/
 
 Optional deps: onnxruntime, transformers. Нет их / нет файлов → None
-(выше по стеку сработает TF-IDF или rules).
+(выше по стеку сработают rules).
 
-method в результате: ``\"onnx\"``.
+method: ``\"onnx\"``.
 """
 
 from __future__ import annotations
@@ -20,13 +20,21 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from parser_common.model_infer import ModelPrediction
 from parser_common.text_features import softmax
 from project.config import PROJECT_ROOT
 
 DEFAULT_ONNX_PATH = PROJECT_ROOT / "ml" / "classify" / "artifacts" / "importance_model.onnx"
 DEFAULT_META_PATH = DEFAULT_ONNX_PATH.with_suffix(".meta.json")
 DEFAULT_TOKENIZER_DIR = PROJECT_ROOT / "ml" / "classify" / "artifacts" / "tokenizer"
+
+
+@dataclass(frozen=True, slots=True)
+class ModelPrediction:
+    importance: int
+    disaster_flag: bool
+    confidence: float
+    method: str  # "onnx"
+    probs: tuple[float, float, float] | None = None  # p(class1), p(2), p(3)
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +114,13 @@ def predict_importance_onnx(
     )
     logits = outputs[0][0].tolist()
     probs = softmax(logits)
+    # выравниваем probs под importance 1/2/3
+    p_by_imp = {1: 0.0, 2: 0.0, 3: 0.0}
+    for idx, p in enumerate(probs):
+        imp = int(bundle.id2label.get(idx, idx + 1))
+        p_by_imp[imp] = float(p)
+    ordered = (p_by_imp[1], p_by_imp[2], p_by_imp[3])
+
     best_i = max(range(len(probs)), key=lambda i: probs[i])
     confidence = float(probs[best_i])
     if confidence < min_confidence:
@@ -114,8 +129,8 @@ def predict_importance_onnx(
     importance = int(bundle.id2label.get(best_i, best_i + 1))
     return ModelPrediction(
         importance=importance,
-        # ЧС-флаг не из класса; см. classify.disaster_flag_by_rules
         disaster_flag=False,
         confidence=confidence,
         method="onnx",
+        probs=ordered,
     )

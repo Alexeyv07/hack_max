@@ -29,7 +29,6 @@ dev = [
 ]
 ml = [
     "scikit-learn>=1.5,<2",
-    "joblib>=1.4,<2",
     "transformers>=4.44,<5",
     "datasets>=2.21,<4",
     "accelerate>=0.34,<2",

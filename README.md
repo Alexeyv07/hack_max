@@ -38,10 +38,38 @@ src/
   main.py              # bot и/или API в одном процессе
 tests/                 # pytest (API + handlers)
 ml/                    # обучение classify (KAN-13) и dedup (KAN-19); НЕ src
+scripts/               # утилиты (entrypoint бота, ручной classify)
 
 webapp/                # SvelteKit mini-app
 AGENTS.md              # гайд для агентов
 ```
+
+## Скрипты (`scripts/`)
+
+| скрипт | зачем |
+|--------|--------|
+| `bot_entrypoint.py` | контейнер бота: `alembic upgrade head`, затем `python -m main` |
+| `classify_try.py` | REPL для importance-классификатора (ONNX → rules) |
+
+### `classify_try.py`
+
+Нужны артефакты после `train_torch.py` и deps `pip install -e ".[ml]"`.
+
+```bash
+set PYTHONPATH=src
+python scripts/classify_try.py
+```
+
+Ввод — одна строка текста (заголовок/пост). Пустая строка / `q` — выход.  
+Многострочный режим: `:m`, конец блока — строка с одной точкой `.`
+
+На каждый запрос печатает raw ONNX (`p1/p2/p3`), ответ rules и итоговый каскад
+(`importance`, `disaster_flag`, `method`).
+
+### `bot_entrypoint.py`
+
+Точка входа Docker-образа бота (см. compose). Локально обычно не нужен —
+достаточно `alembic upgrade head` и `python -m main`.
 
 ## Режимы запуска
 

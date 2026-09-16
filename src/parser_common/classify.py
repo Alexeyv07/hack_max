@@ -7,12 +7,12 @@ importance и disaster_flag — разные поля:
 
 Каскад (первый успешный по confidence)::
 
-    текст → ONNX rubert-tiny2 → TF-IDF JSON → keyword rules
+    текст → ONNX rubert-tiny2 → keyword rules
 
 ML предсказывает только importance.
 disaster_flag всегда считается keyword-rules (не выводится из importance==1).
 
-Обучение: ml/classify/ (MODEL.md). В src нет датасетов и train-кода.
+Обучение: ml/classify/train_torch.py (GPU). В src нет датасетов и train-кода.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from pathlib import Path
 
 import yaml
 
-from parser_common.model_infer import clear_model_cache, predict_importance
 from parser_common.model_onnx import clear_onnx_cache, predict_importance_onnx
 from parser_common.text_features import normalize_text
 from project.config import PROJECT_ROOT
@@ -61,7 +60,7 @@ _RULES_PATH = PROJECT_ROOT / "ml" / "classify" / "rules.yaml"
 class ClassifyResult:
     importance: int
     disaster_flag: bool
-    method: str  # "onnx" | "tfidf" | "rules"
+    method: str  # "onnx" | "rules"
 
 
 @lru_cache(maxsize=1)
@@ -78,9 +77,8 @@ def _load_extra_keywords() -> tuple[tuple[str, ...], tuple[str, ...]]:
 
 
 def clear_rules_cache() -> None:
-    """Сброс кэшей rules + ML (тесты / hot-reload артефактов)."""
+    """Сброс кэшей rules + ONNX (тесты / hot-reload артефактов)."""
     _load_extra_keywords.cache_clear()
-    clear_model_cache()
     clear_onnx_cache()
 
 
@@ -123,7 +121,7 @@ def classify_importance(
     min_confidence: float = 0.45,
 ) -> ClassifyResult:
     """
-    Каскад: ONNX → TF-IDF → rules.
+    Каскад: ONNX → rules.
 
     ``use_model=False`` — только rules.
     При ML: importance из модели, disaster_flag из keyword-rules.
@@ -137,14 +135,6 @@ def classify_importance(
                 importance=onnx.importance,
                 disaster_flag=disaster,
                 method=onnx.method,
-            )
-
-        tfidf = predict_importance(text, min_confidence=min_confidence)
-        if tfidf is not None:
-            return ClassifyResult(
-                importance=tfidf.importance,
-                disaster_flag=disaster,
-                method=tfidf.method,
             )
 
     return classify_by_rules(text)

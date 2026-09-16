@@ -1,10 +1,9 @@
-"""Тесты parser_common: classify + normalize + model infer."""
+"""Тесты parser_common: classify + normalize (+ mock ONNX)."""
 
 from __future__ import annotations
 
-import json
 from decimal import Decimal
-from pathlib import Path
+from unittest.mock import patch
 
 from address.geocoding import GeoMatcher
 from address.models.address import Address
@@ -15,7 +14,7 @@ from parser_common.classify import (
     classify_importance,
     clear_rules_cache,
 )
-from parser_common.model_infer import clear_model_cache, predict_importance
+from parser_common.model_onnx import ModelPrediction
 
 
 def test_classify_disaster() -> None:
@@ -125,81 +124,48 @@ def test_rules_yaml_extra_keyword(monkeypatch, tmp_path) -> None:
         clear_rules_cache()
 
 
-def _write_tiny_model(path: Path) -> None:
-    """Минимальный артефакт: маркеры вне keyword-rules."""
-    vocab = {"мегачп": 0, "жкхавария": 1, "бытовухамаркер": 2}
-    idf = [1.0, 1.0, 1.0]
-    coef = [
-        [5.0, 0.0, 0.0],
-        [0.0, 5.0, 0.0],
-        [0.0, 0.0, 5.0],
-    ]
-    payload = {
-        "format": "tfidf_logreg_v1",
-        "ngram_range": [1, 1],
-        "analyzer": "word",
-        "vocabulary": vocab,
-        "idf": idf,
-        "classes": [1, 2, 3],
-        "coef": coef,
-        "intercept": [0.0, 0.0, 0.0],
-        "disaster_is_importance_1": False,
-    }
-    path.write_text(json.dumps(payload), encoding="utf-8")
-
-
-def test_model_infer_predicts(tmp_path, monkeypatch) -> None:
-    model = tmp_path / "m.json"
-    _write_tiny_model(model)
-    clear_model_cache()
-    try:
-        pred = predict_importance("Сегодня мегачп в городе", path=model, min_confidence=0.3)
-        assert pred is not None
-        assert pred.importance == 1
-        assert pred.disaster_flag is False
-
-        pred2 = predict_importance("Большая жкхавария на сети", path=model, min_confidence=0.3)
-        assert pred2 is not None
-        assert pred2.importance == 2
-
-        pred3 = predict_importance("Просто бытовухамаркер во дворе", path=model, min_confidence=0.3)
-        assert pred3 is not None
-        assert pred3.importance == 3
-    finally:
-        clear_model_cache()
-
-
-def test_classify_uses_model_when_available(tmp_path, monkeypatch) -> None:
-    model = tmp_path / "m.json"
-    _write_tiny_model(model)
-    monkeypatch.setattr(
-        "parser_common.model_infer.DEFAULT_MODEL_PATH",
-        model,
+def test_classify_uses_onnx_when_available() -> None:
+    fake = ModelPrediction(
+        importance=1,
+        disaster_flag=False,
+        confidence=0.9,
+        method="onnx",
+        probs=(0.9, 0.05, 0.05),
     )
     clear_rules_cache()
     try:
-        # Нет keyword-совпадений → rules дали бы 3; модель поднимает importance до 1.
-        # disaster_flag при этом False (нет ЧС-keywords).
-        result = classify_importance("Сегодня мегачп рядом", min_confidence=0.3)
-        assert result.method == "tfidf"
+        with patch(
+            "parser_common.classify.predict_importance_onnx",
+            return_value=fake,
+        ):
+            result = classify_importance("Сегодня мегачп рядом", min_confidence=0.3)
+        assert result.method == "onnx"
         assert result.importance == 1
         assert result.disaster_flag is False
     finally:
         clear_rules_cache()
 
 
-def test_ml_importance_independent_of_disaster_keywords(tmp_path, monkeypatch) -> None:
+def test_ml_importance_independent_of_disaster_keywords() -> None:
     """Модель говорит 2, keywords ЧС → disaster_flag True при importance 2."""
-    model = tmp_path / "m.json"
-    _write_tiny_model(model)
-    monkeypatch.setattr("parser_common.model_infer.DEFAULT_MODEL_PATH", model)
+    fake = ModelPrediction(
+        importance=2,
+        disaster_flag=False,
+        confidence=0.8,
+        method="onnx",
+        probs=(0.1, 0.8, 0.1),
+    )
     clear_rules_cache()
     try:
-        result = classify_importance(
-            "жкхавария и эвакуация жителей",
-            min_confidence=0.3,
-        )
-        assert result.method == "tfidf"
+        with patch(
+            "parser_common.classify.predict_importance_onnx",
+            return_value=fake,
+        ):
+            result = classify_importance(
+                "жкхавария и эвакуация жителей",
+                min_confidence=0.3,
+            )
+        assert result.method == "onnx"
         assert result.importance == 2
         assert result.disaster_flag is True
     finally:
