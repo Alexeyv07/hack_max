@@ -49,3 +49,7 @@ ml/**/*.onnx
 ml/**/*.bin
 ml/**/*.safetensors
 ml/**/.cache/
+# tokenizer конфиги в artifacts можно коммитить (vocab/tokenizer.json)
+!ml/classify/artifacts/tokenizer/
+!ml/classify/artifacts/*.meta.json
+!ml/classify/artifacts/*.json

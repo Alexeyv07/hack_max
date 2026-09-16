@@ -1,17 +1,11 @@
-# ML / research вне src/
-#
-# Сюда кладём обучение, датасеты, чекпоинты, эксперименты.
-# Рантайм (src/parser_common) читает только лёгкий rules.yaml при наличии.
-#
-# Структура:
-#   ml/classify/rules.yaml     — опциональные keywords (подхватывает classify)
-#   ml/classify/train_stub.py  — заготовка под обучение tiny-классификатора
-#   ml/classify/data/          — датасеты (gitignore)
-#   ml/classify/checkpoints/   — веса (gitignore)
-#   ml/dedup/                   — будущее под KAN-19 embeddings
+# ML вне src
 
-**Не импортировать пакеты из ml/ в src.** Обучение запускается отдельно:
+Обучение и артефакты **не** кладём в `src/`.
+
+- **importance classify (KAN-13):** [`classify/MODEL.md`](./classify/MODEL.md)
+- **dedup embeddings (KAN-19):** `dedup/` (позже)
 
 ```bash
-python ml/classify/train_stub.py
+pip install -e ".[ml]"
+python ml/classify/train_torch.py
 ```

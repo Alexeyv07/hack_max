@@ -37,7 +37,8 @@ src/
   max.py               # run_max_bot() — см. project/max.py
   main.py              # bot и/или API в одном процессе
 tests/                 # pytest (API + handlers)
-ml/                    # обучение/данные classify & dedup (НЕ src)
+ml/                    # обучение classify (KAN-13) и dedup (KAN-19); НЕ src
+
 webapp/                # SvelteKit mini-app
 AGENTS.md              # гайд для агентов
 ```

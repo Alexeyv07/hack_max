@@ -30,11 +30,24 @@
 
 ## Parser common (KAN-13)
 
-- `src/parser_common/`: `ParserCandidate` → `normalize()` → `EventDraft` → (`to_event_create` → events).
-- Внутри: heuristic `ml_classify` (importance 1–3 + disaster) и сбор title/body **без LLM**.
-- Geo: опциональный `address.geocoding.GeoMatcher` (не LLM).
-- Дедуп **не здесь** — KAN-19 `ml_dedup`.
-- Обучение / датасеты / чекпоинты — только в **`ml/`** (вне `src`). Рантайм может читать лёгкий `ml/classify/rules.yaml`.
+- `ParserCandidate` → `normalize()` → `EventDraft` → `to_event_create` → events.
+- Title/body: эвристика (`text.py`), **не** LLM.
+- **Importance classify** — каскад (см. `src/parser_common/classify.py`, `ml/classify/MODEL.md`):
+  1. ONNX `rubert-tiny2` (если есть артефакт + deps)
+  2. TF-IDF JSON (`importance_model.json`)
+  3. keyword rules (+ `ml/classify/rules.yaml`)
+  - `importance` и `disaster_flag` независимы: ML → только importance; флаг ЧС → keywords.
+- Geo: опциональный `address.geocoding.GeoMatcher`.
+- Дедуп **не здесь** — KAN-19.
+- Обучение только в `ml/classify/` (`train_torch.py` / `train.py`). Не импортировать `ml/` из `src`.
+- Синтетика: `bootstrap_data.py` → `data/bootstrap.jsonl` (не перезаписывает `train.jsonl`; append — флаг `--merge-into-train`).
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install -e ".[ml]"
+python ml/classify/bootstrap_data.py
+python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
+```
 
 ## Events (KAN-14)
 
@@ -44,7 +57,8 @@
   - `GET /events/map?limit=` — точки карты по чатам пользователя.
 - Запись событий — **только handlers in-process** (`create_event` / …).
 - **Чаты (KAN-5):** `chat_link.handlers.list_memberships_for_user` пока **MOCK** (один демо-чат, если user есть в `users` после `/start`).
-- Шкала `importance`: `1` катастрофа, `2` важное, `3` бытовуха (не на карту).
+- Шкала `importance`: `1` высокий приоритет, `2` важное, `3` бытовуха (не на карту).
+- `disaster_flag` — отдельный признак ЧС, не алиас класса 1.
 - `image_url` — главная фотка; `null` → фронт рисует карту с меткой.
 - Гео события хранится через `events.address_id -> addresses.id`; `lat/lon` для API вычисляются из `Address`, в `events` не дублируются.
 - City feed: `importance=1` только с `disaster_flag=true`.
@@ -64,6 +78,13 @@ pip install -e ".[dev]"
 set PYTHONPATH=src
 alembic upgrade head
 python -m main
+
+# ML classify (KAN-13), отдельно от runtime:
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install -e ".[ml]"
+python ml/classify/bootstrap_data.py
+python ml/classify/train_torch.py
+# данные: ml/classify/DATA.md
 
 pytest
 ruff check src tests

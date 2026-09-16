@@ -1,4 +1,13 @@
-"""normalize(ParserCandidate) → EventDraft (+ опциональный geo через address)."""
+"""
+normalize(ParserCandidate) → EventDraft.
+
+Шаги:
+  1) title/body — ``text.build_title_and_body`` (не ML)
+  2) importance — ``classify.classify_importance`` (каскад ONNX→TF-IDF→rules)
+  3) geo — опционально ``address.geocoding.GeoMatcher`` (не ML)
+
+Дедуп пересекающихся событий — KAN-19, не здесь.
+"""
 
 from __future__ import annotations
 
@@ -21,11 +30,6 @@ def normalize(
     geo_matcher: GeoMatcher | None = None,
     chat_coordinates: tuple[Decimal, Decimal] | None = None,
 ) -> EventDraft:
-    """
-    Общий шаг всех парсеров: title/body + importance + geo.
-
-    Дедуп (KAN-19) и запись в БД — снаружи.
-    """
     if not candidate.source or not str(candidate.source).strip():
         raise ValueError("source обязателен")
 
@@ -69,7 +73,7 @@ def normalize(
 
 
 def to_event_create(draft: EventDraft) -> EventCreate:
-    """Удобный мост в events.handlers.create_event (после optional ml_dedup)."""
+    """Мост в ``events.handlers.create_event`` (после optional ml_dedup)."""
     return EventCreate(
         title=draft.title,
         body=draft.body,

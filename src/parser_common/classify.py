@@ -1,17 +1,33 @@
-"""Эвристический classify importance (ml_classify MVP без GPU/LLM)."""
+"""
+Классификация важности события (ml_classify).
+
+importance и disaster_flag — разные поля:
+  importance 1|2|3 — вес/ранг для ленты
+  disaster_flag — отдельный признак ЧС (карта, city-feed policy)
+
+Каскад (первый успешный по confidence)::
+
+    текст → ONNX rubert-tiny2 → TF-IDF JSON → keyword rules
+
+ML предсказывает только importance.
+disaster_flag всегда считается keyword-rules (не выводится из importance==1).
+
+Обучение: ml/classify/ (MODEL.md). В src нет датасетов и train-кода.
+"""
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
 import yaml
 
+from parser_common.model_infer import clear_model_cache, predict_importance
+from parser_common.model_onnx import clear_onnx_cache, predict_importance_onnx
+from parser_common.text_features import normalize_text
 from project.config import PROJECT_ROOT
 
-# Компактные дефолты в коде. Расширения/датасеты — только в ml/ (вне src).
 _DEFAULT_DISASTER = (
     "катастроф",
     "цунами",
@@ -45,11 +61,11 @@ _RULES_PATH = PROJECT_ROOT / "ml" / "classify" / "rules.yaml"
 class ClassifyResult:
     importance: int
     disaster_flag: bool
+    method: str  # "onnx" | "tfidf" | "rules"
 
 
 @lru_cache(maxsize=1)
 def _load_extra_keywords() -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Опционально подтянуть keywords из ml/classify/rules.yaml (не из src)."""
     if not _RULES_PATH.is_file():
         return (), ()
     try:
@@ -62,33 +78,77 @@ def _load_extra_keywords() -> tuple[tuple[str, ...], tuple[str, ...]]:
 
 
 def clear_rules_cache() -> None:
-    """Сброс кэша правил (тесты)."""
+    """Сброс кэшей rules + ML (тесты / hot-reload артефактов)."""
     _load_extra_keywords.cache_clear()
+    clear_model_cache()
+    clear_onnx_cache()
 
 
 def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
     return any(needle in text for needle in needles)
 
 
-def classify_importance(text: str) -> ClassifyResult:
-    """
-    Rules + keywords:
-      - катастрофы → importance=1 + disaster_flag
-      - важное ЖКХ → importance=2
-      - иначе бытовуха → importance=3
-    """
-    normalized = re.sub(r"\s+", " ", text.lower().replace("ё", "е")).strip()
+def _keyword_sets(text: str) -> tuple[bool, bool]:
+    normalized = normalize_text(text)
     extra_disaster, extra_important = _load_extra_keywords()
-    disaster_kw = _DEFAULT_DISASTER + extra_disaster
-    important_kw = _DEFAULT_IMPORTANT + extra_important
+    is_disaster = _contains_any(normalized, _DEFAULT_DISASTER + extra_disaster)
+    is_important = _contains_any(normalized, _DEFAULT_IMPORTANT + extra_important)
+    return is_disaster, is_important
 
-    if _contains_any(normalized, disaster_kw):
-        return ClassifyResult(importance=1, disaster_flag=True)
-    if _contains_any(normalized, important_kw):
-        return ClassifyResult(importance=2, disaster_flag=False)
-    return ClassifyResult(importance=3, disaster_flag=False)
+
+def disaster_flag_by_rules(text: str) -> bool:
+    """ЧС-маркер по keywords. Не зависит от predicted importance."""
+    is_disaster, _ = _keyword_sets(text)
+    return is_disaster
+
+
+def classify_by_rules(text: str) -> ClassifyResult:
+    """
+    Rules без ML.
+    При совпадении disaster-keywords: importance=1 и disaster_flag=True
+    (эвристика fallback; в датасете/ML связка не обязательна).
+    """
+    is_disaster, is_important = _keyword_sets(text)
+    if is_disaster:
+        return ClassifyResult(importance=1, disaster_flag=True, method="rules")
+    if is_important:
+        return ClassifyResult(importance=2, disaster_flag=False, method="rules")
+    return ClassifyResult(importance=3, disaster_flag=False, method="rules")
+
+
+def classify_importance(
+    text: str,
+    *,
+    use_model: bool = True,
+    min_confidence: float = 0.45,
+) -> ClassifyResult:
+    """
+    Каскад: ONNX → TF-IDF → rules.
+
+    ``use_model=False`` — только rules.
+    При ML: importance из модели, disaster_flag из keyword-rules.
+    """
+    disaster = disaster_flag_by_rules(text)
+
+    if use_model:
+        onnx = predict_importance_onnx(text, min_confidence=min_confidence)
+        if onnx is not None:
+            return ClassifyResult(
+                importance=onnx.importance,
+                disaster_flag=disaster,
+                method=onnx.method,
+            )
+
+        tfidf = predict_importance(text, min_confidence=min_confidence)
+        if tfidf is not None:
+            return ClassifyResult(
+                importance=tfidf.importance,
+                disaster_flag=disaster,
+                method=tfidf.method,
+            )
+
+    return classify_by_rules(text)
 
 
 def rules_path() -> Path:
-    """Путь к внешнему yaml (для тестов/доков)."""
     return _RULES_PATH
