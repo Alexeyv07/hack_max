@@ -38,6 +38,7 @@
 - **Чаты (KAN-5):** `chat_link.handlers.list_memberships_for_user` пока **MOCK** (один демо-чат, если user есть в `users` после `/start`).
 - Шкала `importance`: `1` катастрофа, `2` важное, `3` бытовуха (не на карту).
 - `image_url` — главная фотка; `null` → фронт рисует карту с меткой.
+- Гео события хранится через `events.address_id -> addresses.id`; `lat/lon` для API вычисляются из `Address`, в `events` не дублируются.
 - City feed: `importance=1` только с `disaster_flag=true`.
 - Map: `importance` 1–2; `category`: `catastrophe` | `important`.
 - Вес: `events.weight.compute_weight`. Дедуп (KAN-19) — хук в `create_event`.

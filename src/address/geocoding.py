@@ -61,6 +61,7 @@ class GeoResult:
     method: Literal["postcode", "fuzzy", "fallback"]
     score: float = 0
     address_text: str | None = None
+    address_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +155,7 @@ class GeoMatcher:
                 "postcode",
                 100,
                 address.address_text,
+                address.id,
             )
         words = [word for word in _HOUSE.sub(" ", normalized).split() if word not in _STREET_TYPES]
         scores = {
@@ -178,4 +180,5 @@ class GeoMatcher:
             "postcode" if postcodes else "fuzzy",
             score,
             address.address_text,
+            address.id,
         )

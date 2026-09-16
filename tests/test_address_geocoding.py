@@ -5,8 +5,8 @@ from address.geocoding import GeoMatcher, normalize_address
 from address.models.address import Address
 
 
-def address(text, postcode="123456", latitude="55.75"):
-    return Address(None, postcode, text, Decimal(latitude), Decimal("37.60"))
+def address(text, postcode="123456", latitude="55.75", address_id=1):
+    return Address(address_id, postcode, text, Decimal(latitude), Decimal("37.60"))
 
 
 class GeocodingTests(unittest.TestCase):
@@ -22,6 +22,7 @@ class GeocodingTests(unittest.TestCase):
     def test_unique_postcode_lookup(self):
         result = GeoMatcher([self.first]).resolve("Индекс: 123456")
         self.assertEqual(result.address_text, self.first.address_text)
+        self.assertEqual(result.address_id, self.first.id)
         self.assertEqual((result.scope, result.method, result.score), ("address", "postcode", 100))
 
     def test_repeated_postcode_does_not_pick_a_random_house(self):

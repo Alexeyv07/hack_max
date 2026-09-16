@@ -24,8 +24,7 @@ class EventCreate:
     body: str
     importance: int
     source: EventSource | str
-    lat: float | None = None
-    lon: float | None = None
+    address_id: int | None = None
     source_msg_id: str | None = None
     disaster_flag: bool = False
     source_url: str | None = None
@@ -41,13 +40,12 @@ class EventUpdate:
     body: str | None = None
     importance: int | None = None
     source: EventSource | str | None = None
-    lat: float | None = None
-    lon: float | None = None
+    address_id: int | None = None
     source_msg_id: str | None = None
     disaster_flag: bool | None = None
     source_url: str | None = None
     image_url: str | None = None
-    clear_geo: bool = False
+    clear_address: bool = False
     clear_image: bool = False
 
 
@@ -60,6 +58,7 @@ class Event:
     body: str
     importance: int
     source: str
+    address_id: int | None
     lat: float | None
     lon: float | None
     weight: float

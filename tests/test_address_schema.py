@@ -1,4 +1,6 @@
-"""PYTHONPATH=src ADDRESS_TEST_DATABASE_URL=... python -m unittest discover -s tests -v.
+"""Интеграционные тесты финальной схемы address + events на PostgreSQL.
+
+PYTHONPATH=src ADDRESS_TEST_DATABASE_URL=... python -m unittest tests.test_address_schema -v
 
 Нужен PostgreSQL с правом CREATE SCHEMA. Все изменения тестов откатываются.
 """
@@ -19,11 +21,20 @@ from address.db.queries import load_addresses
 from address.geocoding import GeoMatcher
 from address.seed import upsert_addresses
 from auth.db import UserRow  # noqa: F401 — зарегистрировать users в metadata
+from events.db import EventRow
 from project.database import Base
 
 
 @unittest.skipUnless(os.getenv("ADDRESS_TEST_DATABASE_URL"), "Нужен ADDRESS_TEST_DATABASE_URL")
 class AddressSchemaTests(unittest.TestCase):
+    MIGRATIONS = (
+        "0001_create_users",
+        "0002_create_events",
+        "0003_events_image_url",
+        "0004_create_addresses",
+        "0005_event_address_fk",
+    )
+
     def setUp(self):
         self.engine = sa.create_engine(os.environ["ADDRESS_TEST_DATABASE_URL"])
         self.addCleanup(self.engine.dispose)
@@ -35,10 +46,10 @@ class AddressSchemaTests(unittest.TestCase):
         self.connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
         self.connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
         self.context = MigrationContext.configure(self.connection)
-        self.migration = self.load_migration("0002_create_addresses")
+        self.migrations = [self.load_migration(name) for name in self.MIGRATIONS]
         with Operations.context(self.context):
-            self.load_migration("0001_create_users").upgrade()
-            self.migration.upgrade()
+            for migration in self.migrations:
+                migration.upgrade()
 
     @staticmethod
     def load_migration(name):
@@ -48,17 +59,31 @@ class AddressSchemaTests(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
-    def test_migration_matches_models_and_can_be_reverted(self):
+    def test_migrations_match_models_and_can_be_reverted(self):
         self.assertEqual(compare_metadata(self.context, Base.metadata), [])
+        inspector = sa.inspect(self.connection)
+        self.assertEqual(inspector.get_pk_constraint("addresses")["constrained_columns"], ["id"])
         self.assertEqual(
-            sa.inspect(self.connection).get_pk_constraint("addresses")["constrained_columns"],
-            ["address_text"],
+            {item["name"] for item in inspector.get_unique_constraints("addresses")},
+            {"uq_addresses_address_text"},
         )
+        self.assertIn("address_id", {column["name"] for column in inspector.get_columns("events")})
+        self.assertNotIn("lat", {column["name"] for column in inspector.get_columns("events")})
+        self.assertNotIn("lon", {column["name"] for column in inspector.get_columns("events")})
+        foreign_keys = inspector.get_foreign_keys("events")
+        self.assertTrue(
+            any(
+                fk["constrained_columns"] == ["address_id"]
+                and fk["referred_table"] == "addresses"
+                and fk["referred_columns"] == ["id"]
+                for fk in foreign_keys
+            )
+        )
+
         with Operations.context(self.context):
-            self.migration.downgrade()
-            self.assertEqual(sa.inspect(self.connection).get_table_names(), ["users"])
-            self.migration.upgrade()
-        self.assertEqual(compare_metadata(self.context, Base.metadata), [])
+            for migration in reversed(self.migrations):
+                migration.downgrade()
+        self.assertEqual(sa.inspect(self.connection).get_table_names(), [])
 
     def test_address_primary_key_and_scoped_database_lookup(self):
         from sqlalchemy.orm import Session
@@ -77,15 +102,47 @@ class AddressSchemaTests(unittest.TestCase):
                 ]
             )
             session.flush()
-            self.assertIsNotNone(session.get(AddressRow, text).id)
+            address_id = session.scalar(
+                sa.select(AddressRow.id).where(AddressRow.address_text == text)
+            )
+            self.assertIsNotNone(address_id)
+            self.assertEqual(session.get(AddressRow, address_id).address_text, text)
             selected = load_addresses(session, address_texts=[text])
             self.assertEqual(len(selected), 1)
             self.assertEqual(load_addresses(session, address_texts=[]), [])
-            self.assertEqual(GeoMatcher(selected).resolve("123456").address_text, text)
+            result = GeoMatcher(selected).resolve("123456")
+            self.assertEqual(result.address_text, text)
+            self.assertEqual(result.address_id, address_id)
             with self.assertRaises(sa.exc.IntegrityError), self.connection.begin_nested():
                 self.connection.execute(
                     sa.insert(AddressRow).values(address_text=text, latitude=55, longitude=37)
                 )
+
+    def test_event_references_address_instead_of_copying_coordinates(self):
+        from sqlalchemy.orm import Session
+
+        with Session(bind=self.connection, join_transaction_mode="create_savepoint") as session:
+            address = AddressRow(
+                address_text="Москва, улица Событийная, д. 1",
+                postal_code="123456",
+                latitude=55.75,
+                longitude=37.62,
+            )
+            session.add(address)
+            session.flush()
+            event = EventRow(
+                title="Событие",
+                body="Описание",
+                importance=2,
+                source="news",
+                address_id=address.id,
+                weight=0,
+                disaster_flag=False,
+            )
+            session.add(event)
+            session.flush()
+            self.assertEqual(event.address_id, address.id)
+            self.assertEqual(event.address.address_text, address.address_text)
 
     def test_same_postal_code_allows_different_houses(self):
         for number in (1, 2):
