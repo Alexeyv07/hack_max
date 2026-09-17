@@ -32,37 +32,49 @@ events:
   city_radius_m: 30000
 
 runtime:
-  enable_bot: true
+  enable_bot: false
   enable_api: true
   enable_news_parser: true
 
 news_parser:
-  lookback_days: 21
-  poll_interval_seconds: 3600
-  request_timeout_seconds: 30
-  max_articles_per_source_per_run: 500
+  # bootstrap — только RSS/incremental (быстро) + dump snapshot; production — полный backfill
+  mode: bootstrap
+  lookback_days: 3
+  poll_interval_seconds: 120
+  request_timeout_seconds: 10
+  collect_timeout_seconds: 60
+  max_articles_per_source_per_run: 15
+  max_pages_per_run: 1
+  bootstrap_articles_per_source: 15
+  bootstrap_snapshot_path: src/parse_news/data/bootstrap_events.jsonl.gz
   insert_batch_size: 25
-  early_stop_known_streak: 15
+  early_stop_known_streak: 10
   user_agent: "HackMaxNewsBot/1.0"
   sources:
     tass:
       enabled: true
       feed_url: "https://tass.ru/rss/v2.xml"
+      reliability: 0.92
     ria:
       enabled: true
       feed_url: "https://ria.ru/export/rss2/index.xml"
+      reliability: 0.90
     kommersant:
       enabled: true
       listing_url: "https://www.kommersant.ru/rubric/6"
       archive_url: "https://www.kommersant.ru/archive/"
+      reliability: 0.88
     msk1:
       enabled: true
       feed_url: "https://msk1.ru/rss-feeds/rss.xml"
-      listing_url: "https://msk1.ru/text/"
+      listing_url: "https://msk1.ru/text/?page={page}"
+      reliability: 0.82
     mskagency:
       enabled: true
       listing_url: "https://www.mskagency.ru/lenta"
+      reliability: 0.80
     m24:
       enabled: true
       feed_url: "https://www.m24.ru/rss.xml"
       listing_url: "https://www.m24.ru/news"
+      reliability: 0.85

@@ -2,90 +2,90 @@
 
 Воркер новостных источников: fetch → `RawNewsArticle` → гео → `ParserCandidate` → `persist_candidate` → `events`.
 
+## Режимы (`news_parser.mode`)
+
+| mode | Назначение | Поведение |
+|------|------------|-----------|
+| `bootstrap` | Хакатон / демо | **Только RSS/incremental** (без HTML-архивов) → быстро; после первого круга dump в `bootstrap_events.jsonl.gz` |
+| `production` | Боевой realtime | Полный backfill до lookback, затем incremental |
+
+### Snapshot событий (как addresses)
+
+```bash
+# после успешного bootstrap (или вручную из БД):
+set PYTHONPATH=src
+python -m parse_news.seed dump
+# → src/parse_news/data/bootstrap_events.jsonl.gz
+
+# загрузка в пустую БД:
+python -m parse_news.seed load
+```
+
+Docker entrypoint (`scripts/bot_entrypoint.py`): addresses seed → events snapshot → main.
+
+## Геопривязка
+
+Только **Москва**. Чужой город/страна (Донбасс, Украина, СПб, …) → `address_id=null`, без дефолта Москвы. Без адреса событие **не в ленте**.
+
+- Локальные СМИ (`m24`/`msk1`/`mskagency`) без чужой гео → Москва city.
+- Федеральные (`tass`/`ria`/`kommersant`) — только при явном «Москва» / улице / индексе.
+- StreetCatalog: stemming + fuzzy (`address/street_catalog.py`).
+
 ## Поток
 
 ```text
 источник (RSS / HTML listing)
         │
         ▼
-  RawNewsArticle           # outlet, external_id, url, title, published_at, body?
-        │                  # опционально: geo_city / geo_street / geo_house
+  RawNewsArticle           # + published_at, опционально geo_*
         ▼
-  resolve_article_geo      # → GeoBind(address_id, geo_by)
-        │
+  resolve_article_geo      # StreetCatalog stem+fuzzy → GeoBind
         ▼
-  ParserCandidate          # source=news, source_msg_id=outlet:external_id
-        │                  # address_id + geo_by
-        ▼
-  persist_candidate → events
+  ParserCandidate → persist_candidate → events (weight, published_at, geo_by)
 ```
 
 ## Адаптеры (`sources/`)
 
-| outlet | key | listing / feed | ID из URL |
-|--------|-----|----------------|-----------|
-| ТАСС | `tass` | RSS `tass.ru/rss/v2.xml`; backfill: sitemap / Google News | `/1234567` в path |
-| РИА | `ria` | RSS `ria.ru/export/rss2/index.xml`; backfill: дневной архив | `-2118199709.html` |
-| Коммерсант | `kommersant` | `/rubric/6`, archive | `/doc/1234567` |
-| MSK1 | `msk1` | RSS `msk1.ru/rss-feeds/rss.xml`; backfill: `/text/?page=` | `/text/.../YYYY/MM/DD/76634109/` |
-| МСК Агентство | `mskagency` | `/lenta?page=` | `/materials/111`, `data-material_id` |
-| M24 | `m24` | RSS `m24.ru/rss.xml`; backfill: walk по ID | `/news/DDMMYYYY/9876543` |
+| outlet | key | listing / feed |
+|--------|-----|----------------|
+| ТАСС | `tass` | RSS; backfill sitemap / Google News |
+| РИА | `ria` | RSS; архив |
+| Коммерсант | `kommersant` | `/rubric/6`, archive |
+| MSK1 | `msk1` | RSS; listing `text/?page={page}` |
+| МСК Агентство | `mskagency` | `/lenta?page=` |
+| M24 | `m24` | RSS; walk ID |
 
-Контракт адаптера: `BaseNewsSource.collect(client, since, mode, listing_cursor, max_articles) → CollectResult`.
+У каждого outlet в YAML: `reliability` (0..1) для веса ленты.
 
-- `mode`: `backfill` | `incremental`
-- `CollectResult`: `articles`, `next_cursor` (для пагинации backfill), `reached_since`
-- Если источник отдаёт структурированное место — заполнить `RawNewsArticle.geo_*`
+## Вес в ленте (TikTok)
 
-## Backfill и курсоры
+```text
+weight = 0.50 × relevance + 0.30 × timeliness + 0.20 × source_reliability
+```
 
-Таблица `news_parser_cursors` (ключ = outlet):
+- **relevance** — importance + близость к чату + точность `geo_by`
+- **timeliness** — half-life 24ч от `published_at` (иначе `created_at`)
+- **source_reliability** — `news_parser.sources.<outlet>.reliability`
 
-- **Первый запуск** или `backfill_complete=false` → `mode=backfill`, окно `lookback_days` (по умолчанию 21).
-- **Incremental** после завершения backfill: RSS / первая страница ленты.
-- **Restart-safe**: `listing_cursor` сохраняется между poll-циклами; при рестарте backfill продолжается с сохранённой страницы.
-- Если `backfill_complete=true`, но событий outlet в `events` нет — снова backfill.
-
-## Геопривязка
-
-Событие получает `address_id` + `geo_by` (`city` | `street` | `home`).
-
-Справочник `addresses` хранит компоненты `city` / `street` / `house`. Сопоставление:
-
-| Что известно | `geo_by` | Как выбирается адрес |
-|--------------|----------|----------------------|
-| город + улица + дом | `home` | точная строка в `addresses` |
-| город + улица | `street` | любой дом на улице (пин на карте) |
-| только город | `city` | city-адрес (street/house пустые; создаётся при необходимости) |
-
-### Каскад `resolve_article_geo`
-
-1. **Метаданные источника** — если адаптер заполнил `geo_city` / `geo_street` / `geo_house`, сразу `find_geo_bind`.
-2. **Анализ текста** (title + body):
-   - 6-значный индекс → `GeoMatcher` по домам индекса → обычно `geo_by=home`;
-   - упоминание улицы (+ опционально дом) → сопоставление по `city/street/house`, иначе fuzzy по индексу улиц Москвы;
-   - упоминание Москвы без улицы → `geo_by=city`.
-3. **Дефолт по outlet** — локальные московские СМИ без места в тексте:
-   - `m24`, `msk1`, `mskagency` → город Москва, `geo_by=city`;
-   - федеральные (`ria`, `tass`, `kommersant`) → без дефолта, `address_id=null`.
-
-Логика справочника и `find_geo_bind` — в `address.resolve` / `address.components`.
+Пересчёт с `distance_m` — при `GET /events/feed`.
 
 ## Конфиг
 
-`conf/*.yaml` → секция `news_parser`:
-
-- `runtime.enable_news_parser` / env `ENABLE_NEWS_PARSER`
-- `lookback_days`, `poll_interval_seconds`, `max_articles_per_source_per_run`, `insert_batch_size`, …
-- `sources.<outlet>.enabled`, `feed_url`, `listing_url`, …
-
-Включение: `main.py` запускает `run_news_parser()` рядом с ботом/API (`asyncio.gather`).
+```yaml
+news_parser:
+  mode: bootstrap          # или production
+  bootstrap_articles_per_source: 40
+  max_articles_per_source_per_run: 40
+  max_pages_per_run: 3
+  lookback_days: 7
+  poll_interval_seconds: 60
+  sources.msk1.listing_url: "https://msk1.ru/text/?page={page}"
+  sources.msk1.reliability: 0.82
+```
 
 ## Тесты
 
-Фикстуры без сети: `tests/parse_news/fixtures/`. Запуск:
-
 ```bash
 set PYTHONPATH=src
-pytest tests/parse_news -q
+pytest tests/parse_news tests/events/test_weight.py -q
 ```

@@ -31,6 +31,7 @@ class EventCreate:
     source_url: str | None = None
     # Одна главная фотка (выбранная у кандидатов). None → фронт рисует карту с меткой.
     image_url: str | None = None
+    published_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +48,7 @@ class EventUpdate:
     disaster_flag: bool | None = None
     source_url: str | None = None
     image_url: str | None = None
+    published_at: datetime | None = None
     clear_address: bool = False
     clear_image: bool = False
 
@@ -69,6 +71,7 @@ class Event:
     source_url: str | None
     image_url: str | None
     geo_by: str | None = None
+    published_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     distance_m: float | None = None

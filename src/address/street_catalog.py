@@ -1,0 +1,362 @@
+"""Каталог улиц: stemming + fuzzy lookup по справочнику addresses."""
+
+from __future__ import annotations
+
+import re
+from collections import defaultdict
+from dataclasses import dataclass, field
+
+from rapidfuzz import fuzz, process
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from address.components import parse_address_text
+from address.db.address import AddressRow
+from address.geocoding import normalize_address
+from project.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
+_STREET_TYPES = frozenset(
+    {
+        "улица",
+        "проспект",
+        "проезд",
+        "переулок",
+        "шоссе",
+        "бульвар",
+        "набережная",
+        "площадь",
+        "аллея",
+        "тупик",
+        "квартал",
+        "микрорайон",
+        "линия",
+    }
+)
+
+_ORDINAL = re.compile(r"^\d+-?[йяе]$", re.IGNORECASE)
+_HOUSE_BASE = re.compile(r"^(\d+[а-яa-z]?)", re.IGNORECASE)
+
+# Короткие окончания: длинные «ском/ского» иначе дают разный корень у «-ский» vs «-ском».
+_STEM_SUFFIXES = (
+    "ого",
+    "ему",
+    "ому",
+    "ыми",
+    "ими",
+    "ых",
+    "их",
+    "ая",
+    "яя",
+    "ое",
+    "ее",
+    "ые",
+    "ие",
+    "ой",
+    "ый",
+    "ий",
+    "ом",
+    "ем",
+    "ую",
+    "юю",
+    "ам",
+    "ям",
+    "ах",
+    "ях",
+)
+
+
+@dataclass(slots=True)
+class StreetEntry:
+    city: str
+    canonical: str
+    pin_id: int
+    houses: dict[str, int] = field(default_factory=dict)
+    keys: set[str] = field(default_factory=set)
+
+
+@dataclass(frozen=True, slots=True)
+class StreetHit:
+    city: str
+    canonical: str
+    pin_id: int
+    address_id: int
+    score: float
+    house: str | None = None
+
+
+def stem_token(token: str) -> str:
+    """Срезать типичные окончания; корень не короче 4 символов."""
+    word = token.lower().replace("ё", "е")
+    if len(word) < 5:
+        return word
+    for suffix in _STEM_SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            return word[: -len(suffix)]
+    return word
+
+
+def normalize_house(value: str | None) -> str | None:
+    if not value:
+        return None
+    text = value.lower().replace("ё", "е").strip()
+    text = re.sub(r"\s+", "", text)
+    text = (
+        text.replace("корпус", "к")
+        .replace("корп", "к")
+        .replace("строение", "с")
+        .replace("стр", "с")
+    )
+    return text or None
+
+
+def house_lookup_keys(value: str | None) -> list[str]:
+    """Варианты ключа дома: exact, затем базовый номер."""
+    norm = normalize_house(value)
+    if not norm:
+        return []
+    keys = [norm]
+    match = _HOUSE_BASE.match(norm)
+    if match:
+        base = match.group(1).lower()
+        if base not in keys:
+            keys.append(base)
+    # «2к1» → также «2»
+    compact = re.sub(r"[кс].*$", "", norm)
+    if compact and compact not in keys:
+        keys.append(compact)
+    return keys
+
+
+def street_alias_keys(street: str) -> set[str]:
+    """Набор ключей для одной улицы (полное / без типа / без ординала / stem)."""
+    normalized = normalize_address(street)
+    if not normalized:
+        return set()
+    tokens = normalized.split()
+    keys: set[str] = {normalized}
+
+    without_type = [t for t in tokens if t not in _STREET_TYPES]
+    if without_type:
+        keys.add(" ".join(without_type))
+
+    without_ord = [t for t in without_type if not _ORDINAL.match(t)]
+    if without_ord:
+        keys.add(" ".join(without_ord))
+
+    stemmed = [stem_token(t) for t in without_type]
+    if stemmed:
+        keys.add(" ".join(stemmed))
+    stemmed_no_ord = [stem_token(t) for t in without_ord]
+    if stemmed_no_ord:
+        keys.add(" ".join(stemmed_no_ord))
+
+    # Одиночные значимые токены (тверская → тверск)
+    for token in without_ord:
+        if len(token) >= 4 and not token.isdigit():
+            keys.add(token)
+            keys.add(stem_token(token))
+
+    return {k for k in keys if k}
+
+
+def hint_keys(hint: str) -> set[str]:
+    return street_alias_keys(hint)
+
+
+class StreetCatalog:
+    """Снимок улиц города: exact → contains → fuzzy (rapidfuzz)."""
+
+    def __init__(
+        self,
+        entries: list[StreetEntry],
+        *,
+        fuzzy_threshold: float = 82,
+        fuzzy_margin: float = 5,
+    ) -> None:
+        self.entries = entries
+        self.fuzzy_threshold = fuzzy_threshold
+        self.fuzzy_margin = fuzzy_margin
+        self._by_key: dict[str, list[StreetEntry]] = defaultdict(list)
+        self._fuzzy_choices: list[str] = []
+        self._fuzzy_entry_for_choice: dict[str, StreetEntry] = {}
+        for entry in entries:
+            for key in entry.keys:
+                self._by_key[key].append(entry)
+            # Для fuzzy — stem без типа/ординала как основной выбор
+            primary = max(entry.keys, key=len) if entry.keys else entry.canonical
+            stem_keys = sorted(
+                (k for k in entry.keys if " " not in k or all(len(p) >= 3 for p in k.split())),
+                key=len,
+                reverse=True,
+            )
+            choice = stem_keys[0] if stem_keys else primary
+            # Уникальный choice на entry (иначе process вернёт один ключ на несколько улиц)
+            label = f"{choice}::{entry.canonical}"
+            self._fuzzy_choices.append(label)
+            self._fuzzy_entry_for_choice[label] = entry
+
+    @classmethod
+    def load(cls, session: Session, *, city: str | None = "Москва") -> StreetCatalog:
+        by_street: dict[tuple[str, str], StreetEntry] = {}
+        rows = session.scalars(select(AddressRow)).yield_per(2000)
+        count = 0
+        for row in rows:
+            count += 1
+            if row.id is None:
+                continue
+            city_name = row.city
+            street = row.street
+            if not city_name or not street:
+                parsed = parse_address_text(row.address_text)
+                city_name = city_name or parsed.city
+                street = street or parsed.street
+            if not city_name or not street:
+                continue
+            if city is not None and city_name.strip().casefold() != city.casefold():
+                continue
+
+            street_norm = normalize_address(street)
+            key = (city_name.strip(), street_norm)
+            entry = by_street.get(key)
+            if entry is None:
+                entry = StreetEntry(
+                    city=city_name.strip(),
+                    canonical=street.strip(),
+                    pin_id=row.id,
+                    keys=street_alias_keys(street),
+                )
+                by_street[key] = entry
+            else:
+                entry.pin_id = min(entry.pin_id, row.id)
+
+            for hk in house_lookup_keys(row.house):
+                entry.houses.setdefault(hk, row.id)
+
+        catalog = cls(list(by_street.values()))
+        logger.info(
+            "StreetCatalog загружен: addresses=%d streets=%d keys=%d",
+            count,
+            len(catalog.entries),
+            len(catalog._by_key),
+        )
+        return catalog
+
+    def lookup(self, hint: str, *, house: str | None = None) -> StreetHit | None:
+        if not hint or not hint.strip():
+            return None
+        entry = self._resolve_entry(hint)
+        if entry is None:
+            return None
+        address_id = entry.pin_id
+        matched_house: str | None = None
+        for hk in house_lookup_keys(house):
+            if hk in entry.houses:
+                address_id = entry.houses[hk]
+                matched_house = hk
+                break
+        return StreetHit(
+            city=entry.city,
+            canonical=entry.canonical,
+            pin_id=entry.pin_id,
+            address_id=address_id,
+            score=100.0,
+            house=matched_house,
+        )
+
+    def lookup_hints(self, hints: list[str], *, house: str | None = None) -> StreetHit | None:
+        best: StreetHit | None = None
+        for hint in hints:
+            hit = self.lookup(hint, house=house)
+            if hit is None:
+                continue
+            if (
+                best is None
+                or hit.score > best.score
+                or (hit.score == best.score and hit.house and not best.house)
+            ):
+                best = hit
+        return best
+
+    def _resolve_entry(self, hint: str) -> StreetEntry | None:
+        keys = hint_keys(hint)
+        # 1) exact
+        exact_hits: list[StreetEntry] = []
+        seen: set[int] = set()
+        for key in keys:
+            for entry in self._by_key.get(key, ()):
+                if id(entry) not in seen:
+                    seen.add(id(entry))
+                    exact_hits.append(entry)
+        if len(exact_hits) == 1:
+            return exact_hits[0]
+        if len(exact_hits) > 1:
+            # Несколько exact — берём с наибольшим пересечением ключей
+            scored = sorted(
+                exact_hits,
+                key=lambda e: len(e.keys & keys),
+                reverse=True,
+            )
+            if len(scored) == 1 or len(scored[0].keys & keys) > len(scored[1].keys & keys):
+                return scored[0]
+            return None  # неоднозначно
+
+        # 2) contains / prefix (длина ключа ≥ 4)
+        contain_hits: list[tuple[int, StreetEntry]] = []
+        for key in keys:
+            if len(key) < 4:
+                continue
+            for indexed, entries in self._by_key.items():
+                if len(indexed) < 4:
+                    continue
+                if key == indexed:
+                    continue
+                if key in indexed or indexed in key:
+                    for entry in entries:
+                        contain_hits.append((min(len(key), len(indexed)), entry))
+        if contain_hits:
+            contain_hits.sort(key=lambda pair: pair[0], reverse=True)
+            top_len = contain_hits[0][0]
+            top_entries = []
+            seen_c: set[int] = set()
+            for length, entry in contain_hits:
+                if length < top_len:
+                    break
+                if id(entry) not in seen_c:
+                    seen_c.add(id(entry))
+                    top_entries.append(entry)
+            if len(top_entries) == 1:
+                return top_entries[0]
+            if len(top_entries) > 1:
+                return None
+
+        # 3) fuzzy
+        return self._fuzzy_lookup(keys)
+
+    def _fuzzy_lookup(self, keys: set[str]) -> StreetEntry | None:
+        if not self._fuzzy_choices:
+            return None
+        query = max(keys, key=len) if keys else ""
+        if len(query) < 4:
+            return None
+
+        # Сравниваем с частью до ::
+        def _scorer(q: str, choice: str, **kwargs: object) -> float:
+            label = choice.split("::", 1)[0]
+            return float(fuzz.WRatio(q, label, **kwargs))
+
+        results = process.extract(
+            query,
+            self._fuzzy_choices,
+            scorer=_scorer,
+            limit=3,
+        )
+        if not results:
+            return None
+        best_label, best_score, _ = results[0]
+        if best_score < self.fuzzy_threshold:
+            return None
+        if len(results) > 1 and best_score - results[1][1] < self.fuzzy_margin:
+            return None
+        return self._fuzzy_entry_for_choice.get(best_label)

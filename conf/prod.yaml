@@ -35,10 +35,13 @@ runtime:
   enable_news_parser: true
 
 news_parser:
+  mode: production
   lookback_days: 21
   poll_interval_seconds: 3600
   request_timeout_seconds: 30
   max_articles_per_source_per_run: 30
+  max_pages_per_run: 10
+  bootstrap_articles_per_source: 40
   insert_batch_size: 25
   early_stop_known_streak: 15
   user_agent: "HackMaxNewsBot/1.0"
@@ -46,21 +49,27 @@ news_parser:
     tass:
       enabled: true
       feed_url: "https://tass.ru/rss/v2.xml"
+      reliability: 0.70
     ria:
       enabled: true
       feed_url: "https://ria.ru/export/rss2/index.xml"
+      reliability: 0.65
     kommersant:
       enabled: true
       listing_url: "https://www.kommersant.ru/rubric/6"
       archive_url: "https://www.kommersant.ru/archive/"
+      reliability: 0.75
     msk1:
       enabled: true
       feed_url: "https://msk1.ru/rss-feeds/rss.xml"
-      listing_url: "https://msk1.ru/text/"
+      listing_url: "https://msk1.ru/text/?page={page}"
+      reliability: 0.95
     mskagency:
       enabled: true
       listing_url: "https://www.mskagency.ru/lenta"
+      reliability: 0.85
     m24:
       enabled: true
       feed_url: "https://www.m24.ru/rss.xml"
       listing_url: "https://www.m24.ru/news"
+      reliability: 0.90

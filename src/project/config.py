@@ -156,14 +156,23 @@ class NewsSourceConfig:
     feed_url: str | None = None
     listing_url: str | None = None
     archive_url: str | None = None
+    # Надёжность источника 0..1 для веса ленты (ЖКХ / соседские новости).
+    reliability: float = 0.7
 
 
 @dataclass(frozen=True, slots=True)
 class NewsParserConfig:
-    lookback_days: int = 21
+    # bootstrap — быстро набрать N статей на демо; production — полный backfill + realtime.
+    mode: str = "bootstrap"
+    lookback_days: int = 3
     poll_interval_seconds: int = 3600
-    request_timeout_seconds: int = 30
-    max_articles_per_source_per_run: int = 500
+    request_timeout_seconds: int = 12
+    max_articles_per_source_per_run: int = 15
+    max_pages_per_run: int = 1
+    bootstrap_articles_per_source: int = 15
+    # После bootstrap сохранить события в файл (как address seed).
+    bootstrap_snapshot_path: str = "src/parse_news/data/bootstrap_events.jsonl.gz"
+    collect_timeout_seconds: int = 90
     insert_batch_size: int = 25
     early_stop_known_streak: int = 15
     user_agent: str = "HackMaxNewsBot/1.0 (+https://github.com/hack-max)"
@@ -206,6 +215,7 @@ def _parse_news_sources(raw: Any) -> dict[str, NewsSourceConfig]:
             feed_url=value.get("feed_url"),
             listing_url=value.get("listing_url"),
             archive_url=value.get("archive_url"),
+            reliability=float(value.get("reliability", 0.7)),
         )
     return sources
 
@@ -278,12 +288,24 @@ def load_settings() -> Settings:
             city_radius_m=float(events_raw.get("city_radius_m", 30000)),
         ),
         news_parser=NewsParserConfig(
-            lookback_days=int(news_parser_raw.get("lookback_days", 21)),
+            mode=str(news_parser_raw.get("mode", "bootstrap")).strip().lower(),
+            lookback_days=int(news_parser_raw.get("lookback_days", 3)),
             poll_interval_seconds=int(news_parser_raw.get("poll_interval_seconds", 3600)),
-            request_timeout_seconds=int(news_parser_raw.get("request_timeout_seconds", 30)),
+            request_timeout_seconds=int(news_parser_raw.get("request_timeout_seconds", 12)),
             max_articles_per_source_per_run=int(
-                news_parser_raw.get("max_articles_per_source_per_run", 500)
+                news_parser_raw.get("max_articles_per_source_per_run", 15)
             ),
+            max_pages_per_run=int(news_parser_raw.get("max_pages_per_run", 1)),
+            bootstrap_articles_per_source=int(
+                news_parser_raw.get("bootstrap_articles_per_source", 15)
+            ),
+            bootstrap_snapshot_path=str(
+                news_parser_raw.get(
+                    "bootstrap_snapshot_path",
+                    "src/parse_news/data/bootstrap_events.jsonl.gz",
+                )
+            ),
+            collect_timeout_seconds=int(news_parser_raw.get("collect_timeout_seconds", 90)),
             insert_batch_size=int(news_parser_raw.get("insert_batch_size", 25)),
             early_stop_known_streak=int(news_parser_raw.get("early_stop_known_streak", 15)),
             user_agent=str(

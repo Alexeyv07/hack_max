@@ -60,18 +60,16 @@ sources → RawNewsArticle → ParserCandidate → persist_candidate → events
 
 - **6 outlets:** tass, ria (riaru.online), kommersant rubric/6, msk1, mskagency, m24.
 - **Restart-safe:** таблица `news_parser_cursors`; первый запуск / пустой outlet → backfill `lookback_days` (21), затем incremental.
+- **Режимы:** `news_parser.mode=bootstrap` (быстро N статей на демо → incremental) или
+  `production` (полный backfill + realtime). См. `src/parse_news/README.md`.
 - **Geo:** каскад `resolve_article_geo` → `address_id` + `geo_by` (`city`|`street`|`home`):
-  1) гео-поля источника; 2) текст (индекс / улица / город); 3) дефолт outlet
-  (`m24`/`msk1`/`mskagency` → Москва, `geo_by=city`). Подробности: `src/parse_news/README.md`.
-  Справочник `addresses` — колонки `city`/`street`/`house`.
-- **Лимит:** `max_articles_per_source_per_run` — размер **одной пачки на один источник**
-  за один `collect()`, не общий потолок. Backfill крутится без часовой паузы, пока
-  `backfill_complete=false`. Вставка в `events` батчами `insert_batch_size` (25).
+  1) гео-поля источника; 2) текст (индекс / **StreetCatalog** stem+fuzzy / город);
+  3) дефолт Москва для всех outlet (иначе NULL → нет в ленте).
+- **Лимит:** `max_articles_per_source_per_run` + `max_pages_per_run`; backfill в bootstrap
+  завершается после одной пачки. Вставка батчами `insert_batch_size`.
 - **ТАСС:** sitemap часто 403 → сразу Google News RSS `site:tass.ru when:Nd`.
 - **Запуск:** `run_news_parser()` в `main.py` рядом с bot/api (`asyncio.gather`).
-- Контракт адаптеров: `src/parse_news/README.md`.
-- Миграция: `alembic upgrade head` (курсоры, unique `(source, source_msg_id)`,
-  `addresses.city/street/house`, `events.geo_by`).
+- Контракт: `src/parse_news/README.md`. Миграции: курсоры, addresses components, `events.geo_by` / `published_at`.
 
 KAN-10 (чаты) и KAN-12 — отдельные воркеры; общая середина — `parser_common` (KAN-13).
 
@@ -97,7 +95,9 @@ python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
   В `addresses` — компоненты `city` / `street` / `house`.
 - City feed: `importance=1` только с `disaster_flag=true`.
 - Map: `importance` 1–2; `category`: `catastrophe` | `important`.
-- Вес: `events.weight.compute_weight`. Дедуп (KAN-19) — хук в `create_event`.
+- Вес ленты: `0.5×relevance + 0.3×timeliness + 0.2×source_reliability`
+  (`events.weight`); reliability — в `news_parser.sources.*.reliability`.
+- Дедуп (KAN-19) — хук в `create_event`.
 
 ## Конфиг
 

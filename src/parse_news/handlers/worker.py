@@ -7,9 +7,10 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
+from address.street_catalog import StreetCatalog
 from events.handlers.crud import list_existing_source_msg_ids
 from events.models.event import EventSource
-from parse_news.handlers.geo import MoscowStreetIndex, resolve_article_geo
+from parse_news.handlers.geo import resolve_article_geo
 from parse_news.handlers.ingest import persist_article
 from parse_news.handlers.state import (
     count_events_for_outlet,
@@ -27,7 +28,15 @@ from project.logging_setup import get_logger
 logger = get_logger(__name__)
 
 
-def _need_backfill(*, backfill_complete: bool, outlet_event_count: int) -> bool:
+def _need_backfill(
+    *,
+    backfill_complete: bool,
+    outlet_event_count: int,
+    parser_mode: str,
+) -> bool:
+    # bootstrap: только быстрый RSS/incremental, без HTML-архивов.
+    if parser_mode == "bootstrap":
+        return False
     return (not backfill_complete) or outlet_event_count == 0
 
 
@@ -37,22 +46,31 @@ def _backfill_done_after_collect(
     mode: CollectMode,
     result: CollectResult,
     max_articles: int,
+    parser_mode: str,
+    outlet_event_count: int,
+    bootstrap_target: int,
 ) -> bool:
     """
-    backfill_complete только когда реально дошли до lookback.
+    backfill_complete:
 
-    Если за прогон набрали ровно max_articles — это лимит пачки, не конец истории.
+    - bootstrap: после одной пачки (или когда уже >= N событий) — хватит для демо;
+    - production: только когда реально дошли до lookback (reached_since / архив исчерпан).
     """
     if previous_complete and mode != "backfill":
         return True
     if mode != "backfill":
         return previous_complete
+
+    if parser_mode == "bootstrap":
+        if outlet_event_count >= bootstrap_target:
+            return True
+        # Одна успешная пачка backfill → дальше incremental (realtime).
+        return bool(result.articles) or result.reached_since or result.next_cursor is None
+
     if result.reached_since:
         return True
-    # Упёрлись в лимит пачки → продолжим в следующем прогоне.
     if len(result.articles) >= max_articles:
         return False
-    # Мало статей и нет курсора — архив исчерпан (или источник пуст после since).
     return result.next_cursor is None
 
 
@@ -61,7 +79,7 @@ async def _process_source(
     source: NewsSource,
     cfg: NewsParserConfig,
     *,
-    street_index: MoscowStreetIndex | None,
+    street_index: StreetCatalog | None,
 ) -> bool:
     """
     Один прогон источника. Возвращает True, если backfill ещё не завершён
@@ -76,19 +94,26 @@ async def _process_source(
         need_backfill = _need_backfill(
             backfill_complete=cursor.backfill_complete,
             outlet_event_count=outlet_count,
+            parser_mode=cfg.mode,
         )
         mode: CollectMode = "backfill" if need_backfill else "incremental"
         listing_cursor = cursor.listing_cursor
         previous_complete = cursor.backfill_complete
 
     since = datetime.now(UTC) - timedelta(days=cfg.lookback_days)
+    max_per_run = cfg.max_articles_per_source_per_run
+    if cfg.mode == "bootstrap":
+        max_per_run = min(max_per_run, cfg.bootstrap_articles_per_source)
+
     logger.info(
-        "Источник %s: mode=%s since=%s cursor=%s max_per_run=%d",
+        "Источник %s: mode=%s parser=%s since=%s cursor=%s max_per_run=%d pages=%d",
         source_key,
         mode,
+        cfg.mode,
         since.date().isoformat(),
         listing_cursor,
-        cfg.max_articles_per_source_per_run,
+        max_per_run,
+        cfg.max_pages_per_run,
     )
 
     try:
@@ -97,7 +122,8 @@ async def _process_source(
             since=since,
             mode=mode,
             listing_cursor=listing_cursor,
-            max_articles=cfg.max_articles_per_source_per_run,
+            max_articles=max_per_run,
+            max_pages=cfg.max_pages_per_run,
         )
     except NotImplementedError:
         logger.warning("Адаптер %s ещё не реализован — пропуск", source_key)
@@ -134,7 +160,10 @@ async def _process_source(
         previous_complete=previous_complete,
         mode=mode,
         result=result,
-        max_articles=cfg.max_articles_per_source_per_run,
+        max_articles=max_per_run,
+        parser_mode=cfg.mode,
+        outlet_event_count=outlet_count + created,
+        bootstrap_target=cfg.bootstrap_articles_per_source,
     )
     # Если упёрлись в лимит, а курсора нет — сохраняем listing_cursor как был,
     # чтобы не потерять прогресс; иначе пишем next_cursor.
@@ -174,7 +203,7 @@ def _persist_articles_batched(
     cfg: NewsParserConfig,
     mode: CollectMode,
     source_key: str,
-    street_index: MoscowStreetIndex | None,
+    street_index: StreetCatalog | None,
 ) -> tuple[int, int, datetime | None, datetime | None]:
     batch_size = max(1, cfg.insert_batch_size)
     created = 0
@@ -236,7 +265,7 @@ def _flush_batch(
     batch: list[RawNewsArticle],
     *,
     existing: set[str],
-    street_index: MoscowStreetIndex | None,
+    street_index: StreetCatalog | None,
 ) -> tuple[int, int]:
     created = 0
     skipped = 0
@@ -261,6 +290,10 @@ def _flush_batch(
 
 
 async def run_news_parser() -> None:
+    from pathlib import Path
+
+    from parse_news.seed import DEFAULT_SNAPSHOT, dump_events_snapshot, ensure_events_seeded
+
     settings = get_settings()
     cfg = settings.news_parser
 
@@ -268,57 +301,99 @@ async def run_news_parser() -> None:
         logger.info("Парсер новостей отключён (runtime.enable_news_parser=false)")
         return
 
+    snap_path = Path(cfg.bootstrap_snapshot_path)
+    if not snap_path.is_absolute():
+        snap_path = Path(__file__).resolve().parents[3] / snap_path
+    if not snap_path.is_file():
+        snap_path = DEFAULT_SNAPSHOT
+
+    try:
+        if ensure_events_seeded(snap_path):
+            logger.info("События загружены из snapshot %s", snap_path)
+    except Exception:
+        logger.exception("Не удалось загрузить snapshot событий — продолжаем парсинг")
+
     sources = get_sources(cfg)
     logger.info(
-        "Старт парсера новостей: источников=%d max_per_source_per_run=%d "
-        "batch=%d poll=%ds lookback=%d",
+        "Старт парсера новостей: mode=%s источников=%d max_per_run=%d poll=%ds",
+        cfg.mode,
         len(sources),
         cfg.max_articles_per_source_per_run,
-        cfg.insert_batch_size,
         cfg.poll_interval_seconds,
-        cfg.lookback_days,
     )
 
-    street_index: MoscowStreetIndex | None = None
+    street_index: StreetCatalog | None = None
     try:
         with session_scope() as session:
-            street_index = MoscowStreetIndex.load(session)
+            street_index = StreetCatalog.load(session)
     except Exception:
         logger.exception("Не удалось загрузить индекс улиц — geo только по индексу")
 
-    async with make_client(settings) as client:
-        while True:
-            any_backfill_pending = False
-            for source in sources:
-                try:
-                    pending = await _process_source(
-                        client,
-                        source,
-                        cfg,
-                        street_index=street_index,
-                    )
-                    any_backfill_pending = any_backfill_pending or pending
-                except Exception as exc:
-                    logger.exception("Необработанная ошибка источника %s: %s", source.key, exc)
-                    try:
-                        with session_scope() as session:
-                            cursor = get_or_create_cursor(session, source.key)
-                            update_cursor(
-                                session,
-                                cursor,
-                                last_run_at=datetime.now(UTC),
-                                last_error=str(exc),
+    snapshot_dumped = snap_path.is_file()
+    while True:
+        try:
+            async with make_client(settings) as client:
+                while True:
+                    any_backfill_pending = False
+                    for source in sources:
+                        try:
+                            pending = await _process_source(
+                                client,
+                                source,
+                                cfg,
+                                street_index=street_index,
                             )
-                    except Exception:
-                        logger.exception("Не удалось записать last_error для %s", source.key)
+                            any_backfill_pending = any_backfill_pending or pending
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc:
+                            logger.exception(
+                                "Необработанная ошибка источника %s: %s",
+                                source.key,
+                                exc,
+                            )
+                            try:
+                                with session_scope() as session:
+                                    cursor = get_or_create_cursor(session, source.key)
+                                    update_cursor(
+                                        session,
+                                        cursor,
+                                        last_run_at=datetime.now(UTC),
+                                        last_error=str(exc),
+                                    )
+                            except Exception:
+                                logger.exception(
+                                    "Не удалось записать last_error для %s", source.key
+                                )
 
-            if any_backfill_pending:
-                # Не ждать час между пачками backfill — иначе кажется, что «остановились на 500».
-                logger.info("Backfill не завершён — следующий круг без длинной паузы")
-                await asyncio.sleep(1)
-            else:
-                logger.info(
-                    "Все источники в incremental — сон %d сек",
-                    cfg.poll_interval_seconds,
-                )
-                await asyncio.sleep(cfg.poll_interval_seconds)
+                    if not snapshot_dumped and not any_backfill_pending and cfg.mode == "bootstrap":
+                        try:
+                            with session_scope() as session:
+                                n = dump_events_snapshot(
+                                    session,
+                                    snap_path,
+                                    limit=max(100, cfg.bootstrap_articles_per_source * 6),
+                                )
+                            snapshot_dumped = n > 0
+                            logger.info(
+                                "Bootstrap snapshot сохранён: %d событий → %s",
+                                n,
+                                snap_path,
+                            )
+                        except Exception:
+                            logger.exception("Не удалось сохранить bootstrap snapshot")
+
+                    if any_backfill_pending:
+                        logger.info("Backfill не завершён — следующий круг без длинной паузы")
+                        await asyncio.sleep(1)
+                    else:
+                        logger.info(
+                            "Все источники в incremental — сон %d сек",
+                            cfg.poll_interval_seconds,
+                        )
+                        await asyncio.sleep(cfg.poll_interval_seconds)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Сбой HTTP-клиента парсера — пересоздаём через 5с")
+            await asyncio.sleep(5)

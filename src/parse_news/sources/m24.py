@@ -43,6 +43,7 @@ class M24Source(BaseNewsSource):
         mode: CollectMode,
         listing_cursor: str | None,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult:
         if mode == "incremental":
             return await self._collect_incremental(client, since=since, max_articles=max_articles)
@@ -59,6 +60,7 @@ class M24Source(BaseNewsSource):
         *,
         since: datetime,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult:
         feed_url = self.cfg.feed_url or _DEFAULT_FEED
         try:
@@ -89,6 +91,7 @@ class M24Source(BaseNewsSource):
         since: datetime,
         listing_cursor: str | None,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult:
         max_id, date_prefix_cache = await self._resolve_start_id(client, listing_cursor)
         if max_id <= 0:

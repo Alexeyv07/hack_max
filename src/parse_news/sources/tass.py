@@ -46,6 +46,7 @@ class TassSource(BaseNewsSource):
         mode: CollectMode,
         listing_cursor: str | None,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult:
         if mode == "incremental":
             return await self._collect_incremental(client, since=since, max_articles=max_articles)
@@ -62,6 +63,7 @@ class TassSource(BaseNewsSource):
         *,
         since: datetime,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult:
         feed_url = self.cfg.feed_url or _DEFAULT_FEED
         try:
@@ -84,6 +86,7 @@ class TassSource(BaseNewsSource):
         since: datetime,
         listing_cursor: str | None,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult:
         if listing_cursor and listing_cursor.startswith("gnews:"):
             return await self._backfill_google_news(
@@ -119,6 +122,7 @@ class TassSource(BaseNewsSource):
         since: datetime,
         listing_cursor: str | None,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult:
         sitemap_idx, offset = _parse_cursor(listing_cursor)
         articles: list[RawNewsArticle] = []
@@ -220,6 +224,7 @@ class TassSource(BaseNewsSource):
         since: datetime,
         listing_cursor: str | None,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult:
         days = max(1, (datetime.now(UTC) - since).days)
         query = quote_plus(f"site:tass.ru when:{days}d")

@@ -41,6 +41,7 @@ class Msk1Source(BaseNewsSource):
         mode: CollectMode,
         listing_cursor: str | None,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult:
         if mode == "incremental":
             return await self._collect_incremental(client, since=since, max_articles=max_articles)
@@ -49,6 +50,7 @@ class Msk1Source(BaseNewsSource):
             since=since,
             listing_cursor=listing_cursor,
             max_articles=max_articles,
+            max_pages=max_pages,
         )
 
     async def _collect_incremental(
@@ -79,19 +81,23 @@ class Msk1Source(BaseNewsSource):
         since: datetime,
         listing_cursor: str | None,
         max_articles: int,
+        max_pages: int,
     ) -> CollectResult:
         page = int(listing_cursor) if listing_cursor and listing_cursor.isdigit() else 1
         articles: list[RawNewsArticle] = []
         reached_since = False
         next_cursor: str | None = None
+        pages_done = 0
+        seen_ids: set[str] = set()
 
-        while len(articles) < max_articles:
-            page_url = (self.cfg.listing_url or _LISTING_URL).format(page=page)
+        while len(articles) < max_articles and pages_done < max_pages:
+            page_url = _listing_page_url(self.cfg.listing_url, page)
             status_html = await _fetch_listing(client, page_url)
             if status_html is None:
                 reached_since = True
                 break
             _, html = status_html
+            pages_done += 1
 
             links = find_links(html, base_url=page_url, href_pattern=_TEXT_LINK)
             if not links:
@@ -99,6 +105,7 @@ class Msk1Source(BaseNewsSource):
                 break
 
             page_all_old = True
+            added_on_page = 0
             for url, link_title in links:
                 if len(articles) >= max_articles:
                     next_cursor = str(page)
@@ -112,27 +119,29 @@ class Msk1Source(BaseNewsSource):
                     continue
 
                 external_id = extract_id_from_url(url)
-                if not external_id:
+                if not external_id or external_id in seen_ids:
                     continue
+                seen_ids.add(external_id)
 
-                article = await enrich_url(
-                    client,
-                    url,
-                    outlet=self.key,
-                    external_id=external_id,
-                    fallback_title=link_title,
-                    fallback_published=published,
-                )
-                if article is None:
-                    if link_title and published:
-                        article = RawNewsArticle(
-                            outlet=self.key,
-                            external_id=external_id,
-                            url=url,
-                            title=link_title,
-                            published_at=published,
-                        )
-                    else:
+                # Быстрый путь: title+дата из листинга — без тяжёлого enrich.
+                if link_title and published:
+                    article = RawNewsArticle(
+                        outlet=self.key,
+                        external_id=external_id,
+                        url=url,
+                        title=link_title.strip(),
+                        published_at=published,
+                    )
+                else:
+                    article = await enrich_url(
+                        client,
+                        url,
+                        outlet=self.key,
+                        external_id=external_id,
+                        fallback_title=link_title,
+                        fallback_published=published,
+                    )
+                    if article is None:
                         continue
 
                 pub = ensure_aware(article.published_at)
@@ -141,8 +150,18 @@ class Msk1Source(BaseNewsSource):
                 if pub and pub >= since:
                     page_all_old = False
                 articles.append(article)
+                added_on_page += 1
             else:
                 if page_all_old:
+                    reached_since = True
+                    break
+                if added_on_page == 0:
+                    # Та же страница / дубликаты — не крутимся бесконечно.
+                    logger.warning(
+                        "msk1 page=%s: 0 новых статей, стоп (url=%s)",
+                        page,
+                        page_url,
+                    )
                     reached_since = True
                     break
                 page += 1
@@ -150,8 +169,8 @@ class Msk1Source(BaseNewsSource):
             break
 
         articles.sort(key=lambda a: a.published_at, reverse=True)
-        if next_cursor is None and reached_since:
-            pass
+        if next_cursor is None and not reached_since and pages_done >= max_pages:
+            next_cursor = str(page + 1) if articles else str(page)
         elif next_cursor is None and not reached_since:
             next_cursor = str(page + 1) if articles else None
         return CollectResult(
@@ -159,6 +178,16 @@ class Msk1Source(BaseNewsSource):
             next_cursor=next_cursor if not reached_since else None,
             reached_since=reached_since,
         )
+
+
+def _listing_page_url(cfg_url: str | None, page: int) -> str:
+    """Поддержка и `...?page={page}`, и голого `https://msk1.ru/text/`."""
+    template = (cfg_url or _LISTING_URL).strip()
+    if "{page}" in template:
+        return template.format(page=page)
+    base = template.rstrip("/")
+    sep = "&" if "?" in base else "?"
+    return f"{base}{sep}page={page}"
 
 
 async def _fetch_listing(

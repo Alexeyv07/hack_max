@@ -39,9 +39,10 @@ class MskagencySource(BaseNewsSource):
         mode: CollectMode,
         listing_cursor: str | None,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult:
         start_page = 1
-        max_pages = 1 if mode == "incremental" else None
+        page_limit: int | None = 1 if mode == "incremental" else max_pages
         if mode == "backfill" and listing_cursor and listing_cursor.isdigit():
             start_page = max(1, int(listing_cursor))
         return await self._collect_pages(
@@ -49,7 +50,7 @@ class MskagencySource(BaseNewsSource):
             since=since,
             start_page=start_page,
             max_articles=max_articles,
-            max_pages=max_pages,
+            max_pages=page_limit,
         )
 
     async def _collect_pages(

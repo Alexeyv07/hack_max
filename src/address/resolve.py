@@ -35,7 +35,8 @@ class GeoBind:
     geo_by: GeoBy
 
 
-# Дефолт города по outlet (локальные московские СМИ).
+# Дефолт Москвы только у локальных СМИ. Федеральные (tass/ria/kommersant)
+# без явного места / при чужой географии → address_id=null.
 OUTLET_DEFAULT_CITY: dict[str, str] = {
     "m24": "Москва",
     "msk1": "Москва",

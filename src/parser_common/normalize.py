@@ -74,6 +74,7 @@ def normalize(
         source_msg_id=candidate.source_msg_id,
         source_url=candidate.source_url,
         image_url=candidate.image_url,
+        published_at=candidate.published_at,
         geo_scope=geo_scope,
         geo_method=geo_method,
     )
@@ -92,4 +93,5 @@ def to_event_create(draft: EventDraft) -> EventCreate:
         disaster_flag=draft.disaster_flag,
         source_url=draft.source_url,
         image_url=draft.image_url,
+        published_at=draft.published_at,
     )

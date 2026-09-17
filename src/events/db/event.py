@@ -62,6 +62,12 @@ class EventRow(Base):
         nullable=True,
         doc="Главная фото события; null → фронт показывает карту с меткой",
     )
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        doc="Время публикации у источника (для timeliness веса)",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

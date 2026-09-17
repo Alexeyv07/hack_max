@@ -43,6 +43,7 @@ class KommersantSource(BaseNewsSource):
         mode: CollectMode,
         listing_cursor: str | None,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult:
         if mode == "incremental":
             return await self._collect_incremental(client, since=since, max_articles=max_articles)
@@ -59,6 +60,7 @@ class KommersantSource(BaseNewsSource):
         *,
         since: datetime,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult:
         listing_url = self.cfg.listing_url or _DEFAULT_LISTING
         try:
@@ -86,6 +88,7 @@ class KommersantSource(BaseNewsSource):
         since: datetime,
         listing_cursor: str | None,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult:
         today = datetime.now(UTC).date()
         since_date = since.date()

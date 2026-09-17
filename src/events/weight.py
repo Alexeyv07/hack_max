@@ -3,20 +3,29 @@
 from __future__ import annotations
 
 import math
+from datetime import UTC, datetime
 
-# Бонус источника к весу (чем выше — тем заметнее в ленте).
-SOURCE_BONUS: dict[str, float] = {
-    "neighbors_chat": 30.0,
-    "news": 20.0,
-    "max_public": 10.0,
-    "manual": 15.0,
+# Базовая надёжность канала источника (0..1), если нет per-outlet в конфиге.
+SOURCE_RELIABILITY_DEFAULT: dict[str, float] = {
+    "neighbors_chat": 0.95,
+    "news": 0.70,
+    "max_public": 0.65,
+    "manual": 0.80,
 }
 
-# Шкала importance в продукте:
-#   1 — катастрофа / наивысший приоритет
-#   2 — важное городское (отключили воду в районе, …)
-#   3 — бытовуха / шум (пропала кошка, бельё на верёвке, …) — не на карту
-#   0 и ниже — мусор, не используем
+# Fallback по outlet новостей (перекрывается news_parser.sources.*.reliability).
+OUTLET_RELIABILITY_DEFAULT: dict[str, float] = {
+    "tass": 0.92,
+    "ria": 0.90,
+    "kommersant": 0.88,
+    "m24": 0.85,
+    "msk1": 0.82,
+    "mskagency": 0.80,
+}
+
+_IMPORTANCE_RELEVANCE = {1: 1.0, 2: 0.72, 3: 0.42}
+_GEO_BY_RELEVANCE = {"home": 1.0, "street": 0.78, "city": 0.48}
+_HALF_LIFE_HOURS = 24.0
 
 
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -29,31 +38,111 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * radius_m * math.asin(min(1.0, math.sqrt(a)))
 
 
+def outlet_from_source_msg_id(source_msg_id: str | None) -> str | None:
+    if not source_msg_id or ":" not in source_msg_id:
+        return None
+    return source_msg_id.split(":", 1)[0].strip() or None
+
+
+def resolve_source_reliability(
+    *,
+    source: str,
+    source_msg_id: str | None = None,
+    outlet_reliability: dict[str, float] | None = None,
+) -> float:
+    """Надёжность 0..1: outlet из конфига → дефолт outlet → дефолт канала."""
+    outlet = outlet_from_source_msg_id(source_msg_id)
+    if outlet and outlet_reliability and outlet in outlet_reliability:
+        return _clamp01(outlet_reliability[outlet])
+    if outlet and outlet in OUTLET_RELIABILITY_DEFAULT:
+        return OUTLET_RELIABILITY_DEFAULT[outlet]
+    return SOURCE_RELIABILITY_DEFAULT.get(source, 0.5)
+
+
+def relevance_score(
+    *,
+    importance: int,
+    distance_m: float | None = None,
+    geo_by: str | None = None,
+) -> float:
+    """
+    Актуальность для жителя ЖКХ / соседского чата (0..1).
+
+    Важно рядом и с точным адресом — выше; бытовуха далеко — ниже.
+    """
+    imp = _IMPORTANCE_RELEVANCE.get(importance, 0.3)
+    # Без дистанции (запись в БД) — нейтральный mid; в ленте пересчитаем.
+    dist = 0.55 if distance_m is None else max(0.0, 1.0 - min(distance_m, 5000.0) / 5000.0)
+    geo = _GEO_BY_RELEVANCE.get(geo_by or "", 0.30)
+    return _clamp01(0.50 * imp + 0.35 * dist + 0.15 * geo)
+
+
+def timeliness_score(
+    *,
+    published_at: datetime | None = None,
+    created_at: datetime | None = None,
+    now: datetime | None = None,
+) -> float:
+    """Свежесть 0..1: half-life 24 часа; возраст в целых часах (стабильный cursor)."""
+    anchor = published_at or created_at
+    if anchor is None:
+        return 0.5
+    current = now or datetime.now(UTC)
+    if anchor.tzinfo is None:
+        anchor = anchor.replace(tzinfo=UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+    age_h = max(0, int((current - anchor).total_seconds() // 3600))
+    return _clamp01(math.exp(-math.log(2) * age_h / _HALF_LIFE_HOURS))
+
+
 def compute_weight(
     *,
     importance: int,
     source: str,
     distance_m: float | None = None,
+    geo_by: str | None = None,
+    published_at: datetime | None = None,
+    created_at: datetime | None = None,
+    source_msg_id: str | None = None,
+    source_reliability: float | None = None,
+    outlet_reliability: dict[str, float] | None = None,
+    now: datetime | None = None,
 ) -> float:
     """
-    Вес для сортировки ленты.
+    Вес для TikTok-ленты (выше — выше в выдаче)::
 
-    importance 1 — самый важный → больший вклад.
-    Ближе к пользователю — чуть выше вес.
+        weight = 0.50 × relevance + 0.30 × timeliness + 0.20 × source_reliability
+
+    Все компоненты в [0, 1]; итог тоже в [0, 1].
     """
     if importance not in (1, 2, 3):
         raise ValueError(f"importance должен быть 1..3, получено {importance}")
 
-    importance_score = (4 - importance) * 100.0
-    source_score = SOURCE_BONUS.get(source, 0.0)
+    relevance = relevance_score(
+        importance=importance,
+        distance_m=distance_m,
+        geo_by=geo_by,
+    )
+    timeliness = timeliness_score(
+        published_at=published_at,
+        created_at=created_at,
+        now=now,
+    )
+    reliability = (
+        _clamp01(source_reliability)
+        if source_reliability is not None
+        else resolve_source_reliability(
+            source=source,
+            source_msg_id=source_msg_id,
+            outlet_reliability=outlet_reliability,
+        )
+    )
+    return 0.50 * relevance + 0.30 * timeliness + 0.20 * reliability
 
-    if distance_m is None:
-        distance_score = 0.0
-    else:
-        # Линейный спад: 0 м → +50, 5000 м → 0, дальше 0.
-        distance_score = max(0.0, 50.0 * (1.0 - min(distance_m, 5000.0) / 5000.0))
 
-    return importance_score + source_score + distance_score
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
 
 
 def allowed_in_city_feed(*, importance: int, disaster_flag: bool) -> bool:

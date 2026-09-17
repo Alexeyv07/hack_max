@@ -37,6 +37,7 @@ def article_to_candidate(
         image_url=article.image_url,
         address_id=resolved_id,
         geo_by=resolved_by,
+        published_at=article.published_at,
     )
 
 

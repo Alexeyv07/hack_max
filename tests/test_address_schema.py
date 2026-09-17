@@ -36,6 +36,7 @@ class AddressSchemaTests(unittest.TestCase):
         "0005_event_address_fk",
         "0006_news_parser",
         "0007_address_components_geo_by",
+        "0008_events_published_at",
     )
 
     def setUp(self):

@@ -32,6 +32,7 @@ class NewsSource(Protocol):
         mode: CollectMode,
         listing_cursor: str | None,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult: ...
 
 
@@ -47,4 +48,5 @@ class BaseNewsSource(ABC):
         mode: CollectMode,
         listing_cursor: str | None,
         max_articles: int,
+        max_pages: int = 5,
     ) -> CollectResult: ...
