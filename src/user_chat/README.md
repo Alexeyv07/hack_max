@@ -36,12 +36,15 @@ from user_chat.models import ChatCreate
 from project.database import session_scope
 
 with session_scope() as session:
-    chat = create_chat(session, ChatCreate(
-        chat_id=max_chat_id,
-        address_id=address_id,
-        title="Наш дом",
-        invite_link=invite_link,  # str или None
-    ))
+    chat = create_chat(
+        session,
+        ChatCreate(
+            chat_id=max_chat_id,
+            address_id=address_id,
+            title="Наш дом",
+            invite_link=invite_link,  # str или None
+        ),
+    )
     added = add_user_to_chat(session, chat.chat_id, max_user_id=max_user_id)
     memberships = list_memberships_for_user(session, max_user_id)
 ```
