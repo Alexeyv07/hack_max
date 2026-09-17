@@ -72,7 +72,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["project", "auth", "address", "events", "chats", "chat_link", "parser_common", "main", "max"]
+known-first-party = ["project", "auth", "address", "events", "chats", "chat_link", "user_chat", "parser_common", "main", "max"]
 
 [tool.ruff.format]
 quote-style = "double"

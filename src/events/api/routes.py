@@ -6,7 +6,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from chat_link.models.membership import ChatMembership
 from events.api.deps import DbSession, get_user_memberships
 from events.api.schemas import (
     FeedItemResponse,
@@ -16,6 +15,7 @@ from events.api.schemas import (
 )
 from events.handlers import crud
 from events.models.event import Event
+from user_chat.models.membership import ChatMembership
 
 router = APIRouter(prefix="/events", tags=["events"])
 

@@ -7,9 +7,9 @@ from decimal import Decimal
 import pytest
 
 from address.db.address import AddressRow
-from chat_link.models.membership import ChatMembership
 from events.handlers import crud
 from events.models.event import EventCreate, EventSource, EventUpdate
+from user_chat.models.membership import ChatMembership
 
 MOCK_MEMBERSHIPS = [
     ChatMembership(

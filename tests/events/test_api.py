@@ -1,4 +1,4 @@
-"""Тесты HTTP API: feed + map по X-Max-User-Id и mock-чатам."""
+"""Тесты HTTP API: feed + map по X-Max-User-Id и реальному членству в БД."""
 
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ from events.api.deps import get_db_session
 from events.handlers import crud
 from events.models.event import EventCreate
 from project.config import reset_settings_cache
+from user_chat.handlers import add_user_to_chat, create_chat
+from user_chat.models import ChatCreate
 
 USER_HEADERS = {"X-Max-User-Id": "4242"}
 
@@ -63,6 +65,8 @@ def _seed_user_and_events(session_factory) -> None:
             MaxUserPayload(max_user_id=4242, name="Demo", username="demo"),
         )
         nearby = _add_address(session, text="Москва, улица Тестовая, д. 1", lat=55.75, lon=37.62)
+        create_chat(session, ChatCreate(chat_id=900_001, address_id=nearby.id))
+        add_user_to_chat(session, 900_001, max_user_id=4242)
         cat = _add_address(session, text="Москва, улица Тестовая, д. 2", lat=55.751, lon=37.621)
         far = _add_address(session, text="Москва, улица Тестовая, д. 3", lat=55.90, lon=37.62)
         water = _add_address(session, text="Москва, улица Тестовая, д. 4", lat=55.80, lon=37.62)
@@ -173,6 +177,32 @@ def test_map_only_important(client) -> None:
     assert "Вода в районе" in titles
     assert "Пропала кошка" not in titles
     assert "Far city" not in titles
+
+
+def test_registered_user_without_membership_has_no_feed(client) -> None:
+    test_client, session_factory = client
+    _seed_user_and_events(session_factory)
+    with session_factory.begin() as session:
+        authorize_user(session, MaxUserPayload(max_user_id=999))
+    response = test_client.get("/events/feed", headers={"X-Max-User-Id": "999"})
+    assert response.status_code == 404
+
+
+def test_feed_uses_each_users_actual_chat_address(client) -> None:
+    test_client, session_factory = client
+    _seed_user_and_events(session_factory)
+    with session_factory.begin() as session:
+        authorize_user(session, MaxUserPayload(max_user_id=999))
+        address = _add_address(
+            session, text="Москва, дом второго пользователя", lat=55.90, lon=37.62
+        )
+        create_chat(session, ChatCreate(chat_id=900_002, address_id=address.id))
+        add_user_to_chat(session, 900_002, max_user_id=999)
+    response = test_client.get(
+        "/events/feed", params={"scope": "nearby"}, headers={"X-Max-User-Id": "999"}
+    )
+    assert response.status_code == 200
+    assert [item["title"] for item in response.json()["items"]] == ["Far city"]
 
 
 def test_write_endpoints_removed(client) -> None:
