@@ -31,5 +31,6 @@ class ParserCandidate:
     source_url: str | None = None
     image_url: str | None = None
     address_id: int | None = None
+    geo_by: str | None = None
     # Текст для геокодинга (если address_id ещё нет). Если None — берём raw_text/title.
     geo_text: str | None = None

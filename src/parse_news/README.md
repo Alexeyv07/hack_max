@@ -1,6 +1,6 @@
 # parse_news (KAN-11)
 
-Воркер новостных источников: fetch → `RawNewsArticle` → `ParserCandidate` → `persist_candidate` → `events`.
+Воркер новостных источников: fetch → `RawNewsArticle` → гео → `ParserCandidate` → `persist_candidate` → `events`.
 
 ## Поток
 
@@ -9,11 +9,13 @@
         │
         ▼
   RawNewsArticle           # outlet, external_id, url, title, published_at, body?
+        │                  # опционально: geo_city / geo_street / geo_house
+        ▼
+  resolve_article_geo      # → GeoBind(address_id, geo_by)
         │
-        ├─ resolve_article_address (только 6-значный индекс + GeoMatcher)
         ▼
   ParserCandidate          # source=news, source_msg_id=outlet:external_id
-        │
+        │                  # address_id + geo_by
         ▼
   persist_candidate → events
 ```
@@ -33,6 +35,7 @@
 
 - `mode`: `backfill` | `incremental`
 - `CollectResult`: `articles`, `next_cursor` (для пагинации backfill), `reached_since`
+- Если источник отдаёт структурированное место — заполнить `RawNewsArticle.geo_*`
 
 ## Backfill и курсоры
 
@@ -43,16 +46,37 @@
 - **Restart-safe**: `listing_cursor` сохраняется между poll-циклами; при рестарте backfill продолжается с сохранённой страницы.
 - Если `backfill_complete=true`, но событий outlet в `events` нет — снова backfill.
 
-## Гео
+## Геопривязка
 
-`address_id` выставляется только если в title/body есть **6-значный почтовый индекс** и `GeoMatcher` нашёл адрес **не через fallback**. Иначе `address_id=null`.
+Событие получает `address_id` + `geo_by` (`city` | `street` | `home`).
+
+Справочник `addresses` хранит компоненты `city` / `street` / `house`. Сопоставление:
+
+| Что известно | `geo_by` | Как выбирается адрес |
+|--------------|----------|----------------------|
+| город + улица + дом | `home` | точная строка в `addresses` |
+| город + улица | `street` | любой дом на улице (пин на карте) |
+| только город | `city` | city-адрес (street/house пустые; создаётся при необходимости) |
+
+### Каскад `resolve_article_geo`
+
+1. **Метаданные источника** — если адаптер заполнил `geo_city` / `geo_street` / `geo_house`, сразу `find_geo_bind`.
+2. **Анализ текста** (title + body):
+   - 6-значный индекс → `GeoMatcher` по домам индекса → обычно `geo_by=home`;
+   - упоминание улицы (+ опционально дом) → сопоставление по `city/street/house`, иначе fuzzy по индексу улиц Москвы;
+   - упоминание Москвы без улицы → `geo_by=city`.
+3. **Дефолт по outlet** — локальные московские СМИ без места в тексте:
+   - `m24`, `msk1`, `mskagency` → город Москва, `geo_by=city`;
+   - федеральные (`ria`, `tass`, `kommersant`) → без дефолта, `address_id=null`.
+
+Логика справочника и `find_geo_bind` — в `address.resolve` / `address.components`.
 
 ## Конфиг
 
 `conf/*.yaml` → секция `news_parser`:
 
 - `runtime.enable_news_parser` / env `ENABLE_NEWS_PARSER`
-- `lookback_days`, `poll_interval_seconds`, `max_articles_per_source_per_run`, …
+- `lookback_days`, `poll_interval_seconds`, `max_articles_per_source_per_run`, `insert_batch_size`, …
 - `sources.<outlet>.enabled`, `feed_url`, `listing_url`, …
 
 Включение: `main.py` запускает `run_news_parser()` рядом с ботом/API (`asyncio.gather`).

@@ -43,6 +43,7 @@ def normalize(
     classified = classify_importance(f"{title}\n{body}\n{candidate.raw_text}")
 
     address_id = candidate.address_id
+    geo_by = candidate.geo_by
     geo_scope: str | None = None
     geo_method: str | None = None
 
@@ -52,11 +53,14 @@ def normalize(
         address_id = geo.address_id
         geo_scope = geo.scope
         geo_method = geo.method
+        if address_id is not None and geo_by is None:
+            geo_by = "home" if geo.scope == "address" else None
         logger.debug(
-            "geo resolve method=%s scope=%s address_id=%s",
+            "geo resolve method=%s scope=%s address_id=%s geo_by=%s",
             geo.method,
             geo.scope,
             geo.address_id,
+            geo_by,
         )
 
     return EventDraft(
@@ -66,6 +70,7 @@ def normalize(
         source=str(candidate.source).strip(),
         disaster_flag=classified.disaster_flag,
         address_id=address_id,
+        geo_by=geo_by,
         source_msg_id=candidate.source_msg_id,
         source_url=candidate.source_url,
         image_url=candidate.image_url,
@@ -82,6 +87,7 @@ def to_event_create(draft: EventDraft) -> EventCreate:
         importance=draft.importance,
         source=draft.source,
         address_id=draft.address_id,
+        geo_by=draft.geo_by,
         source_msg_id=draft.source_msg_id,
         disaster_flag=draft.disaster_flag,
         source_url=draft.source_url,

@@ -25,6 +25,7 @@ class EventCreate:
     importance: int
     source: EventSource | str
     address_id: int | None = None
+    geo_by: str | None = None
     source_msg_id: str | None = None
     disaster_flag: bool = False
     source_url: str | None = None
@@ -41,6 +42,7 @@ class EventUpdate:
     importance: int | None = None
     source: EventSource | str | None = None
     address_id: int | None = None
+    geo_by: str | None = None
     source_msg_id: str | None = None
     disaster_flag: bool | None = None
     source_url: str | None = None
@@ -66,6 +68,7 @@ class Event:
     disaster_flag: bool
     source_url: str | None
     image_url: str | None
+    geo_by: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     distance_m: float | None = None

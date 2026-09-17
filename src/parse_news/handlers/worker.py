@@ -9,7 +9,7 @@ import httpx
 
 from events.handlers.crud import list_existing_source_msg_ids
 from events.models.event import EventSource
-from parse_news.handlers.geo import MoscowStreetIndex, resolve_article_address
+from parse_news.handlers.geo import MoscowStreetIndex, resolve_article_geo
 from parse_news.handlers.ingest import persist_article
 from parse_news.handlers.state import (
     count_events_for_outlet,
@@ -245,12 +245,12 @@ def _flush_batch(
             if article.source_msg_id in existing:
                 skipped += 1
                 continue
-            address_id = resolve_article_address(
+            geo = resolve_article_geo(
                 session,
                 article,
                 street_index=street_index,
             )
-            event = persist_article(session, article, address_id=address_id)
+            event = persist_article(session, article, geo=geo)
             if event is None:
                 skipped += 1
                 existing.add(article.source_msg_id)

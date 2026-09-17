@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from address.resolve import GeoBind
 from events.handlers.crud import list_existing_source_msg_ids
 from events.models.event import Event, EventSource
 from parse_news.models.article import RawNewsArticle
@@ -16,10 +17,16 @@ logger = get_logger(__name__)
 
 
 def article_to_candidate(
-    article: RawNewsArticle, *, address_id: int | None = None
+    article: RawNewsArticle,
+    *,
+    geo: GeoBind | None = None,
+    address_id: int | None = None,
+    geo_by: str | None = None,
 ) -> ParserCandidate:
     body = article.body or ""
     raw_text = f"{article.title}\n{body}".strip()
+    resolved_id = geo.address_id if geo is not None else address_id
+    resolved_by = geo.geo_by if geo is not None else geo_by
     return ParserCandidate(
         raw_text=raw_text,
         source=EventSource.NEWS.value,
@@ -28,7 +35,8 @@ def article_to_candidate(
         body=body or None,
         source_url=article.url,
         image_url=article.image_url,
-        address_id=address_id,
+        address_id=resolved_id,
+        geo_by=resolved_by,
     )
 
 
@@ -36,7 +44,9 @@ def persist_article(
     session: Session,
     article: RawNewsArticle,
     *,
+    geo: GeoBind | None = None,
     address_id: int | None = None,
+    geo_by: str | None = None,
 ) -> Event | None:
     existing = list_existing_source_msg_ids(
         session,
@@ -47,7 +57,12 @@ def persist_article(
         logger.debug("Дубликат новости %s — пропуск", article.source_msg_id)
         return None
 
-    candidate = article_to_candidate(article, address_id=address_id)
+    candidate = article_to_candidate(
+        article,
+        geo=geo,
+        address_id=address_id,
+        geo_by=geo_by,
+    )
     try:
         with session.begin_nested():
             return persist_candidate(session, candidate)

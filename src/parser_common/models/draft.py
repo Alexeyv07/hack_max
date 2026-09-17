@@ -15,6 +15,7 @@ class EventDraft:
     source: str
     disaster_flag: bool = False
     address_id: int | None = None
+    geo_by: str | None = None
     source_msg_id: str | None = None
     source_url: str | None = None
     image_url: str | None = None

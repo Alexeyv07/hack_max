@@ -31,6 +31,9 @@ def convert_element(element):
         private = False
     return {
         "address_text": ", ".join(parts),
+        "city": "Москва",
+        "street": street,
+        "house": house,
         "postal_code": postcode if re.fullmatch(r"[0-9]{6}", postcode) else None,
         "latitude": coordinates["lat"],
         "longitude": coordinates["lon"],

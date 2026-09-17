@@ -17,6 +17,10 @@ class RawNewsArticle:
     published_at: datetime
     body: str | None = None
     image_url: str | None = None
+    # Опциональная гео-метаданные с источника (если адаптер смог вытащить).
+    geo_city: str | None = None
+    geo_street: str | None = None
+    geo_house: str | None = None
 
     @property
     def source_msg_id(self) -> str:

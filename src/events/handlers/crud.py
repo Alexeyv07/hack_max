@@ -100,6 +100,7 @@ def _to_domain(row: EventRow, *, distance_m: float | None = None) -> Event:
         disaster_flag=row.disaster_flag,
         source_url=row.source_url,
         image_url=row.image_url,
+        geo_by=row.geo_by,
         created_at=row.created_at,
         updated_at=row.updated_at,
         distance_m=distance_m,
@@ -150,6 +151,7 @@ def create_event(session: Session, data: EventCreate) -> Event:
         importance=data.importance,
         source=source,
         address=_get_address(session, data.address_id),
+        geo_by=data.geo_by,
         weight=base_weight,
         source_msg_id=data.source_msg_id,
         disaster_flag=data.disaster_flag,
@@ -189,8 +191,13 @@ def update_event(session: Session, event_id: int, data: EventUpdate) -> Event | 
         row.source = _normalize_source(data.source)
     if data.clear_address:
         row.address = None
+        row.geo_by = None
     elif data.address_id is not None:
         row.address = _get_address(session, data.address_id)
+        if data.geo_by is not None:
+            row.geo_by = data.geo_by
+    elif data.geo_by is not None:
+        row.geo_by = data.geo_by
     if data.source_msg_id is not None:
         row.source_msg_id = data.source_msg_id
     if data.disaster_flag is not None:

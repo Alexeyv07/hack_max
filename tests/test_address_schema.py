@@ -22,6 +22,7 @@ from address.geocoding import GeoMatcher
 from address.seed import upsert_addresses
 from auth.db import UserRow  # noqa: F401 — зарегистрировать users в metadata
 from events.db import EventRow
+from parse_news.db import NewsParserCursorRow  # noqa: F401
 from project.database import Base
 
 
@@ -33,6 +34,8 @@ class AddressSchemaTests(unittest.TestCase):
         "0003_events_image_url",
         "0004_create_addresses",
         "0005_event_address_fk",
+        "0006_news_parser",
+        "0007_address_components_geo_by",
     )
 
     def setUp(self):

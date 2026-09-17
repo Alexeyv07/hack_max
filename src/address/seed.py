@@ -12,8 +12,22 @@ from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from address.components import parse_address_text
 from address.db.address import AddressRow
 from project.database import session_scope
+
+
+def _normalize_optional_str(value: object, *, field: str, max_len: int) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field} должен быть строкой или null")
+    text = value.strip()
+    if not text:
+        return None
+    if len(text) > max_len:
+        raise ValueError(f"{field} длиннее {max_len} символов")
+    return text
 
 
 def read_addresses(path: Path) -> list[dict]:
@@ -43,7 +57,21 @@ def read_addresses(path: Path) -> list[dict]:
                 private = item.get("is_private")
                 if private is not None and type(private) is not bool:
                     raise ValueError("is_private должен быть true, false или null")
-                row.update(postal_code=postcode, is_private=private)
+
+                city = _normalize_optional_str(item.get("city"), field="city", max_len=128)
+                street = _normalize_optional_str(item.get("street"), field="street", max_len=512)
+                house = _normalize_optional_str(item.get("house"), field="house", max_len=64)
+                if city is None and street is None and house is None:
+                    parsed = parse_address_text(row["address_text"])
+                    city, street, house = parsed.city, parsed.street, parsed.house
+
+                row.update(
+                    postal_code=postcode,
+                    is_private=private,
+                    city=city,
+                    street=street,
+                    house=house,
+                )
                 key = row["address_text"]
                 if key in addresses and addresses[key] != row:
                     raise ValueError(f"разные данные для одного address_text: {key}")
@@ -65,6 +93,9 @@ def upsert_addresses(session: Session, rows: list[dict]) -> None:
                 set_={
                     "latitude": statement.excluded.latitude,
                     "longitude": statement.excluded.longitude,
+                    "city": statement.excluded.city,
+                    "street": statement.excluded.street,
+                    "house": statement.excluded.house,
                     "postal_code": func.coalesce(
                         statement.excluded.postal_code, AddressRow.postal_code
                     ),
@@ -95,6 +126,7 @@ def main() -> None:
             {
                 "addresses": len(rows),
                 "with_postal_code": sum(r["postal_code"] is not None for r in rows),
+                "with_city": sum(r["city"] is not None for r in rows),
                 "written": not args.validate_only,
             }
         )

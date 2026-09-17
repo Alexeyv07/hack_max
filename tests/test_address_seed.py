@@ -32,6 +32,29 @@ class AddressFileTests(unittest.TestCase):
         self.write([self.row, dict(self.row, source_key="osm:way/1")])
         self.assertEqual(len(read_addresses(self.path)), 1)
 
+    def test_parses_city_street_house_from_address_text(self):
+        self.write([self.row])
+        loaded = read_addresses(self.path)[0]
+        self.assertEqual(loaded["city"], "Москва")
+        self.assertEqual(loaded["street"], "улица Тестовая")
+        self.assertEqual(loaded["house"], "1")
+
+    def test_explicit_components_override_parse(self):
+        self.write(
+            [
+                dict(
+                    self.row,
+                    city="Казань",
+                    street="ул. Баумана",
+                    house="2",
+                )
+            ]
+        )
+        loaded = read_addresses(self.path)[0]
+        self.assertEqual(loaded["city"], "Казань")
+        self.assertEqual(loaded["street"], "ул. Баумана")
+        self.assertEqual(loaded["house"], "2")
+
     def test_missing_postcode_and_unknown_house_type_are_allowed(self):
         self.write([dict(self.row, postal_code=None, is_private=None)])
         self.assertIsNone(read_addresses(self.path)[0]["postal_code"])

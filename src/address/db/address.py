@@ -23,6 +23,10 @@ class AddressRow(Base):
     postal_code: Mapped[str | None] = mapped_column(String(6), index=True, nullable=True)
     # Текст остаётся естественным уникальным ключом для идемпотентной загрузки справочника.
     address_text: Mapped[str] = mapped_column(String(1000), unique=True, nullable=False)
+    # Структурированные компоненты (для сопоставления city / street / home).
+    city: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    street: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    house: Mapped[str | None] = mapped_column(String(64), nullable=True)
     latitude: Mapped[Decimal] = mapped_column(Numeric(10, 7), nullable=False)
     longitude: Mapped[Decimal] = mapped_column(Numeric(10, 7), nullable=False)
     # None — тип дома неизвестен, False — многоквартирный, True — индивидуальный.

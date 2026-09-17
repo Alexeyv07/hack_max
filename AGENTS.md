@@ -60,15 +60,18 @@ sources → RawNewsArticle → ParserCandidate → persist_candidate → events
 
 - **6 outlets:** tass, ria (riaru.online), kommersant rubric/6, msk1, mskagency, m24.
 - **Restart-safe:** таблица `news_parser_cursors`; первый запуск / пустой outlet → backfill `lookback_days` (21), затем incremental.
-- **Geo:** `address_id` только при явном месте: 6-значный индекс или улица
-  (снимок `MoscowStreetIndex` + GeoMatcher); иначе `null` (без дефолтной «Москвы»).
+- **Geo:** каскад `resolve_article_geo` → `address_id` + `geo_by` (`city`|`street`|`home`):
+  1) гео-поля источника; 2) текст (индекс / улица / город); 3) дефолт outlet
+  (`m24`/`msk1`/`mskagency` → Москва, `geo_by=city`). Подробности: `src/parse_news/README.md`.
+  Справочник `addresses` — колонки `city`/`street`/`house`.
 - **Лимит:** `max_articles_per_source_per_run` — размер **одной пачки на один источник**
   за один `collect()`, не общий потолок. Backfill крутится без часовой паузы, пока
   `backfill_complete=false`. Вставка в `events` батчами `insert_batch_size` (25).
 - **ТАСС:** sitemap часто 403 → сразу Google News RSS `site:tass.ru when:Nd`.
 - **Запуск:** `run_news_parser()` в `main.py` рядом с bot/api (`asyncio.gather`).
 - Контракт адаптеров: `src/parse_news/README.md`.
-- Миграция: `alembic upgrade head` (таблица курсоров + unique `(source, source_msg_id)`).
+- Миграция: `alembic upgrade head` (курсоры, unique `(source, source_msg_id)`,
+  `addresses.city/street/house`, `events.geo_by`).
 
 KAN-10 (чаты) и KAN-12 — отдельные воркеры; общая середина — `parser_common` (KAN-13).
 
@@ -89,7 +92,9 @@ python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
 - Шкала `importance`: `1` высокий приоритет, `2` важное, `3` бытовуха (не на карту).
 - `disaster_flag` — отдельный признак ЧС, не алиас класса 1.
 - `image_url` — главная фотка; `null` → фронт рисует карту с меткой.
-- Гео события хранится через `events.address_id -> addresses.id`; `lat/lon` для API вычисляются из `Address`, в `events` не дублируются.
+- Гео события: `events.address_id -> addresses.id` + `events.geo_by`
+  (`city`|`street`|`home`); `lat/lon` для API из `Address`, в `events` не дублируются.
+  В `addresses` — компоненты `city` / `street` / `house`.
 - City feed: `importance=1` только с `disaster_flag=true`.
 - Map: `importance` 1–2; `category`: `catastrophe` | `important`.
 - Вес: `events.weight.compute_weight`. Дедуп (KAN-19) — хук в `create_event`.
