@@ -16,8 +16,9 @@ services:
       timeout: 5s
       retries: 10
 
-  # Полный стек в Docker. При локальном запуске бота на хосте этот сервис не поднимайте:
-  #   docker compose up -d postgres
+  # Веса classify: кладутся в образ при build (COPY artifacts) и дополнительно
+  # монтируются с хоста — после переобучения достаточно перезапустить bot,
+  # без полного rebuild (файл ml/classify/artifacts/importance_model.onnx).
   bot:
     build:
       context: .
@@ -27,17 +28,20 @@ services:
       - .env
     environment:
       APP_ENVIRONMENT: local
-      # Внутри сети compose хост БД — имя сервиса, не localhost
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_NAME: hack_max
       DATABASE_USER: hack_max
       DATABASE_PASSWORD: hack_max
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
     volumes:
       - ./src:/app/src
       - ./conf:/app/conf
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
+      - ./ml/classify/rules.yaml:/app/ml/classify/rules.yaml:ro
+      - ./ml/classify/artifacts:/app/ml/classify/artifacts:ro
     depends_on:
       postgres:
         condition: service_healthy
