@@ -11,7 +11,14 @@ from xml.etree import ElementTree as ET
 import httpx
 from bs4 import BeautifulSoup
 
-from parse_news.html_util import absolute_url, first_text, meta_content, soup_from, strip_html
+from parse_news.body_text import clean_article_body
+from parse_news.html_util import (
+    absolute_url,
+    first_text,
+    join_paragraphs,
+    meta_content,
+    soup_from,
+)
 from parse_news.http import fetch_text
 from parse_news.models.article import RawNewsArticle
 from parse_news.rss import RssItem, parse_rss
@@ -98,15 +105,33 @@ def article_from_rss(
         return None
     ext = str(ext)[:96]
     published = ensure_aware(item.published_at) or default_published or datetime.now(UTC)
+    title = item.title.strip()
+    body = clean_article_body(item.description, title=title)
     return RawNewsArticle(
         outlet=outlet,
         external_id=str(ext),
         url=item.link,
-        title=item.title.strip(),
+        title=title,
         published_at=published,
-        body=item.description,
+        body=body,
         image_url=item.image_url,
     )
+
+
+_ARTICLE_BODY_SELECTORS = (
+    ".doc__text",
+    ".doc__body",
+    ".article_text_wrapper",
+    ".article__text",
+    ".article_text",
+    ".b-article__text",
+    ".news-item__text",
+    ".js-mediator-article",
+    "[itemprop=articleBody]",
+    ".material-text",
+    ".article__content",
+    ".content__text",
+)
 
 
 def enrich_from_html(
@@ -126,24 +151,22 @@ def enrich_from_html(
         or fallback_title
         or ""
     )
-    body = (
-        meta_content(soup, "og:description", "description", "twitter:description")
-        or first_text(
-            soup,
-            "article",
-            ".article__text",
-            ".article_text",
-            ".news-item__text",
-            ".js-mediator-article",
-            "[itemprop=articleBody]",
-            ".doc__body",
-            ".material-text",
-            ".b-article__text",
-        )
-        or fallback_body
+    title = title.strip() or (fallback_title or url)
+
+    # Сначала текст статьи; og:description у Коммерсанта = «Подробнее на сайте».
+    body = clean_article_body(
+        join_paragraphs(soup, *_ARTICLE_BODY_SELECTORS, "article")
+        or first_text(soup, *_ARTICLE_BODY_SELECTORS, "article"),
+        title=title,
     )
-    if body:
-        body = strip_html(body)
+    if body is None:
+        body = clean_article_body(
+            meta_content(soup, "og:description", "description", "twitter:description"),
+            title=title,
+        )
+    if body is None:
+        body = clean_article_body(fallback_body, title=title)
+
     image = meta_content(soup, "og:image", "twitter:image")
     published = (
         parse_datetime(meta_content(soup, "article:published_time", "pubdate", "publish_date"))
@@ -156,7 +179,7 @@ def enrich_from_html(
         outlet=outlet,
         external_id=external_id,
         url=url,
-        title=title.strip() or (fallback_title or url),
+        title=title,
         published_at=ensure_aware(published) or datetime.now(UTC),
         body=body,
         image_url=image,

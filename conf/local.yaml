@@ -38,7 +38,7 @@ runtime:
 
 news_parser:
   # bootstrap — только RSS/incremental (быстро) + dump snapshot; production — полный backfill
-  mode: bootstrap
+  mode: production
   lookback_days: 7
   poll_interval_seconds: 5 # 120
   request_timeout_seconds: 10

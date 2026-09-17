@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from address.resolve import GeoBind
 from events.handlers.crud import list_existing_source_msg_ids
 from events.models.event import Event, EventSource
+from parse_news.body_text import clean_article_body
 from parse_news.models.article import RawNewsArticle
 from parser_common.ingest import persist_candidate
 from parser_common.models.candidate import ParserCandidate
@@ -23,15 +24,16 @@ def article_to_candidate(
     address_id: int | None = None,
     geo_by: str | None = None,
 ) -> ParserCandidate:
-    body = article.body or ""
-    raw_text = f"{article.title}\n{body}".strip()
+    title = article.title
+    body = clean_article_body(article.body, title=title) or ""
+    raw_text = f"{title}\n{body}".strip() if body else title
     resolved_id = geo.address_id if geo is not None else address_id
     resolved_by = geo.geo_by if geo is not None else geo_by
     return ParserCandidate(
         raw_text=raw_text,
         source=EventSource.NEWS.value,
         source_msg_id=article.source_msg_id,
-        title=article.title,
+        title=title,
         body=body or None,
         source_url=article.url,
         image_url=article.image_url,

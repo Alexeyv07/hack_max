@@ -25,11 +25,13 @@ Docker entrypoint (`scripts/bot_entrypoint.py`): addresses seed → events snaps
 
 ## Геопривязка
 
-Только **Москва**. Чужой город/страна (Донбасс, Украина, СПб, …) → `address_id=null`, без дефолта Москвы. Без адреса событие **не в ленте**.
+Только **Москва**. Иностранные государства и их области **не создают события**
+(воркер пропускает статью). Чужой город РФ / без места у федеральных СМИ →
+`address_id=null` (нет в ленте).
 
 - Локальные СМИ (`m24`/`msk1`/`mskagency`) без чужой гео → Москва city.
 - Федеральные (`tass`/`ria`/`kommersant`) — только при явном «Москва» / улице / индексе.
-- StreetCatalog: stemming + fuzzy (`address/street_catalog.py`).
+- StreetCatalog: stemming + fuzzy; топонимы вроде «Днепропетровск» в hints не идут.
 
 ## Поток
 

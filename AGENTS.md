@@ -69,7 +69,8 @@ sources → RawNewsArticle → ParserCandidate → persist_candidate → events
   1) гео-поля источника; 2) текст (индекс / **StreetCatalog** stem+fuzzy / город);
   3) дефолт Москва **только** у локальных СМИ (`m24`/`msk1`/`mskagency`).
   Федеральные (`tass`/`ria`/`kommersant`) без явного московского места → `address_id=null`.
-  Чужой город/страна → `null` (без подстановки Москвы). Без адреса событие **не в ленте**.
+  Чужой город РФ → `null`. **Иностранные государства/области — статья не пишется в events**
+  (не новостник по Украине/СНГ/дальнему зарубежью).
 - **Лимит:** `max_articles_per_source_per_run` + `max_pages_per_run`;
   `collect_timeout_seconds` — таймаут одного `collect` на outlet.
   Вставка батчами `insert_batch_size`.

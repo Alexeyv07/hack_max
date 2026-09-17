@@ -10,7 +10,7 @@ import httpx
 from address.street_catalog import StreetCatalog
 from events.handlers.crud import list_existing_source_msg_ids
 from events.models.event import EventSource
-from parse_news.handlers.geo import resolve_article_geo
+from parse_news.handlers.geo import resolve_article_geo, should_skip_foreign_article
 from parse_news.handlers.ingest import persist_article
 from parse_news.handlers.state import (
     count_events_for_outlet,
@@ -277,6 +277,15 @@ def _flush_batch(
         for article in batch:
             if article.source_msg_id in existing:
                 skipped += 1
+                continue
+            if should_skip_foreign_article(article):
+                logger.info(
+                    "Пропуск иностранной географии %s: %s",
+                    article.source_msg_id,
+                    (article.title or "")[:80],
+                )
+                skipped += 1
+                existing.add(article.source_msg_id)
                 continue
             geo = resolve_article_geo(
                 session,
