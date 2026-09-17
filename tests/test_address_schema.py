@@ -23,6 +23,7 @@ from address.seed import upsert_addresses
 from auth.db import UserRow  # noqa: F401 — зарегистрировать users в metadata
 from events.db import EventRow
 from project.database import Base
+from user_chat.db import ChatRow  # noqa: F401 — зарегистрировать chats + users_chat
 
 
 @unittest.skipUnless(os.getenv("ADDRESS_TEST_DATABASE_URL"), "Нужен ADDRESS_TEST_DATABASE_URL")
@@ -33,6 +34,7 @@ class AddressSchemaTests(unittest.TestCase):
         "0003_events_image_url",
         "0004_create_addresses",
         "0005_event_address_fk",
+        "0006_create_chats",
     )
 
     def setUp(self):

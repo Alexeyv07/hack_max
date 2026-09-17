@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import address.db  # noqa: F401
 import auth.db  # noqa: F401
 import events.db  # noqa: F401
+import user_chat.db  # noqa: F401
 from project.database import Base
 
 
@@ -21,6 +22,11 @@ def engine():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+    @event.listens_for(engine, "connect")
+    def enable_foreign_keys(connection, _record):
+        connection.execute("PRAGMA foreign_keys=ON")
+
     Base.metadata.create_all(engine)
     try:
         yield engine

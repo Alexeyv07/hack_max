@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "src"))
 import address.db  # noqa: E402, F401
 import auth.db  # noqa: E402, F401
 import events.db  # noqa: E402, F401
+import user_chat.db  # noqa: E402, F401
 from project.config import get_settings  # noqa: E402
 from project.database import Base  # noqa: E402
 
