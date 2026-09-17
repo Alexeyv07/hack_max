@@ -106,7 +106,12 @@ def _to_domain(row: EventRow, *, distance_m: float | None = None) -> Event:
 
 def create_event(session: Session, data: EventCreate) -> Event:
     """
-    Создать финальное событие (только in-process: парсеры / бот / скрипты).
+    Создать финальное событие (только in-process: воркеры парсеров / бот / скрипты).
+
+    Типичный вход с парсера::
+
+        from parser_common import persist_candidate
+        # или: create_event(session, to_event_create(normalize(candidate)))
 
     Геопозиция хранится ссылкой на Address, а не копией latitude/longitude.
     KAN-19 ml_dedup: сюда же позже вставить merge до insert.

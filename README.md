@@ -33,12 +33,43 @@ src/
     api/               # FastAPI routes → handlers
     weight.py          # чистый расчёт веса
   chats/               # членство в чатах (пока mock handlers)
+  parser_common/       # KAN-13: Candidate→Draft→EventCreate (+ ingest); парсеры-воркеры — отдельно
   max.py               # run_max_bot() — см. project/max.py
   main.py              # bot и/или API в одном процессе
 tests/                 # pytest (API + handlers)
+ml/                    # обучение classify (KAN-13) и dedup (KAN-19); НЕ src
+scripts/               # утилиты (entrypoint бота, ручной classify)
+
 webapp/                # SvelteKit mini-app
 AGENTS.md              # гайд для агентов
 ```
+
+## Скрипты (`scripts/`)
+
+| скрипт | зачем |
+|--------|--------|
+| `bot_entrypoint.py` | контейнер бота: `alembic upgrade head`, затем `python -m main` |
+| `classify_try.py` | REPL для importance-классификатора (ONNX → rules) |
+
+### `classify_try.py`
+
+Нужны артефакты после `train_torch.py` и deps `pip install -e ".[ml]"`.
+
+```bash
+set PYTHONPATH=src
+python scripts/classify_try.py
+```
+
+Ввод — одна строка текста (заголовок/пост). Пустая строка / `q` — выход.
+Многострочный режим: `:m`, конец блока — строка с одной точкой `.`
+
+На каждый запрос печатает raw ONNX (`p1/p2/p3`), ответ rules и итоговый каскад
+(`importance`, `disaster_flag`, `method`).
+
+### `bot_entrypoint.py`
+
+Точка входа Docker-образа бота (см. compose). Локально обычно не нужен —
+достаточно `alembic upgrade head` и `python -m main`.
 
 ## Режимы запуска
 
@@ -76,13 +107,30 @@ pytest
 
 ### B. Всё в Docker
 
+Перед сборкой нужны веса classify (ONNX ~110MB, в git не лежат):
+
+```bash
+# один раз на машине с GPU:
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install -e ".[ml]"
+python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
+# → ml/classify/artifacts/importance_model.onnx (+ tokenizer, meta)
+```
+
 ```bash
 copy .env.example .env          # указать MAX_BOT_TOKEN
 docker compose up --build
 ```
 
-Контейнер бота перед стартом сам делает `alembic upgrade head`. Если таблица `addresses` пустая, он автоматически загружает московский справочник из `src/address/data/moscow.jsonl.gz`; при следующих запусках повторный импорт не выполняется.
-В контейнере бота `DATABASE_HOST=postgres` задаётся через env и перекрывает `local.yaml`.
+Контейнер бота:
+- ставит `.[ml-runtime]` (onnxruntime + transformers, без torch);
+- копирует `ml/classify/artifacts` в образ и монтирует тот же каталог с хоста (`:ro`) —
+  после переобучения достаточно `docker compose restart bot`;
+- перед стартом проверяет наличие ONNX и делает `alembic upgrade head`;
+- если таблица `addresses` пустая, автоматически загружает московский справочник из
+  `src/address/data/moscow.jsonl.gz`; при следующих запусках повторный импорт не выполняется.
+
+`DATABASE_HOST=postgres` в compose перекрывает `local.yaml`.
 
 - Postgres: `localhost:5432`
 - WebApp: http://localhost:5173

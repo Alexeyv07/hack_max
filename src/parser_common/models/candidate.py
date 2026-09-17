@@ -1,0 +1,35 @@
+"""Вход парсерного пайплайна.
+
+Продюсеры (пока нет в репо — появятся в своих тасках):
+  - KAN-10 ``parse_chat`` — сообщения соседских чатов
+  - KAN-11 ``parse_news`` — RSS / локальные СМИ
+  - KAN-12 ``parse_max_public`` — публичные каналы Max
+
+Воркер собирает только сырьё в этот DTO, дальше — ``parser_common.normalize`` /
+``persist_candidate``. Classify и запись в events внутри парсера не дублировать.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class ParserCandidate:
+    """
+    Кандидат на событие до classify/normalize.
+
+    Новости обычно уже кладут title/body;
+    чат — чаще только raw_text (+ опционально geo_text / address_id чата).
+    """
+
+    raw_text: str
+    source: str
+    source_msg_id: str | None = None
+    title: str | None = None
+    body: str | None = None
+    source_url: str | None = None
+    image_url: str | None = None
+    address_id: int | None = None
+    # Текст для геокодинга (если address_id ещё нет). Если None — берём raw_text/title.
+    geo_text: str | None = None
