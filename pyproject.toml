@@ -27,13 +27,19 @@ dev = [
     "pytest>=8.0,<9",
     "httpx>=0.27,<1",
 ]
-ml = [
-    "scikit-learn>=1.5,<2",
+ml-runtime = [
+    # инференс classify в Docker / prod (без torch)
+    "onnxruntime>=1.19,<2",
     "transformers>=4.44,<5",
+]
+ml = [
+    "onnxruntime>=1.19,<2",
+    "transformers>=4.44,<5",
+    "scikit-learn>=1.5,<2",
     "datasets>=2.21,<4",
     "accelerate>=0.34,<2",
-    "onnxruntime>=1.19,<2",
     "onnx>=1.16,<2",
+    # torch ставь отдельно под CUDA, см. AGENTS.md / ml/classify/README.md
 ]
 
 

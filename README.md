@@ -107,13 +107,28 @@ pytest
 
 ### B. Всё в Docker
 
+Перед сборкой нужны веса classify (ONNX ~110MB, в git не лежат):
+
+```bash
+# один раз на машине с GPU:
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install -e ".[ml]"
+python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
+# → ml/classify/artifacts/importance_model.onnx (+ tokenizer, meta)
+```
+
 ```bash
 copy .env.example .env          # указать MAX_BOT_TOKEN
 docker compose up --build
 ```
 
-Контейнер бота перед стартом сам делает `alembic upgrade head`.
-В контейнере бота `DATABASE_HOST=postgres` задаётся через env и перекрывает `local.yaml`.
+Контейнер бота:
+- ставит `.[ml-runtime]` (onnxruntime + transformers, без torch);
+- копирует `ml/classify/artifacts` в образ и монтирует тот же каталог с хоста (`:ro`) —
+  после переобучения достаточно `docker compose restart bot`;
+- перед стартом делает `alembic upgrade head` и логирует наличие ONNX.
+
+`DATABASE_HOST=postgres` в compose перекрывает `local.yaml`.
 
 - Postgres: `localhost:5432`
 - WebApp: http://localhost:5173

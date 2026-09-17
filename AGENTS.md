@@ -47,6 +47,8 @@ fetch → ParserCandidate  ──normalize──▶ EventDraft
 - Контракт для авторов парсеров: `src/parser_common/README.md`.
 - Обучение: `ml/classify/train_torch.py` (GPU). Пакет `ml/` из `src` не импортировать.
 - Ручной прогон classify: `python scripts/classify_try.py` (`PYTHONPATH=src`).
+- Docker bot: extra `ml-runtime` (onnxruntime + transformers); веса из
+  `ml/classify/artifacts` копируются в образ и монтируются в compose.
 
 Парсеров в репо пока нет — мокать кандидатами / сидом events для ленты ок.
 Сквозной флоу «источник → events» закрывается в тасках KAN-10/11/12.
