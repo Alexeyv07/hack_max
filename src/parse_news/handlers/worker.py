@@ -117,23 +117,27 @@ async def _process_source(
     )
 
     try:
-        result = await source.collect(
-            client,
-            since=since,
-            mode=mode,
-            listing_cursor=listing_cursor,
-            max_articles=max_per_run,
-            max_pages=cfg.max_pages_per_run,
+        result = await asyncio.wait_for(
+            source.collect(
+                client,
+                since=since,
+                mode=mode,
+                listing_cursor=listing_cursor,
+                max_articles=max_per_run,
+                max_pages=cfg.max_pages_per_run,
+            ),
+            timeout=float(cfg.collect_timeout_seconds),
         )
-    except NotImplementedError:
-        logger.warning("Адаптер %s ещё не реализован — пропуск", source_key)
+    except TimeoutError:
+        msg = f"collect timeout after {cfg.collect_timeout_seconds}s"
+        logger.error("Таймаут collect для %s: %s", source_key, msg)
         with session_scope() as session:
             cursor = get_or_create_cursor(session, source_key)
             update_cursor(
                 session,
                 cursor,
                 last_run_at=datetime.now(UTC),
-                last_error="NotImplementedError: адаптер не реализован",
+                last_error=msg,
             )
         return False
     except Exception as exc:

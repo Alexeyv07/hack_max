@@ -39,13 +39,13 @@ runtime:
 news_parser:
   # bootstrap — только RSS/incremental (быстро) + dump snapshot; production — полный backfill
   mode: bootstrap
-  lookback_days: 3
-  poll_interval_seconds: 120
+  lookback_days: 7
+  poll_interval_seconds: 5 # 120
   request_timeout_seconds: 10
   collect_timeout_seconds: 60
-  max_articles_per_source_per_run: 15
+  max_articles_per_source_per_run: 30
   max_pages_per_run: 1
-  bootstrap_articles_per_source: 15
+  bootstrap_articles_per_source: 100
   bootstrap_snapshot_path: src/parse_news/data/bootstrap_events.jsonl.gz
   insert_batch_size: 25
   early_stop_known_streak: 10

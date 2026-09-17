@@ -39,6 +39,7 @@ news_parser:
   lookback_days: 21
   poll_interval_seconds: 3600
   request_timeout_seconds: 30
+  collect_timeout_seconds: 180
   max_articles_per_source_per_run: 30
   max_pages_per_run: 10
   bootstrap_articles_per_source: 40

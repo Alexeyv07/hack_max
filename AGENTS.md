@@ -58,26 +58,29 @@ fetch → ParserCandidate  ──normalize──▶ EventDraft
 sources → RawNewsArticle → ParserCandidate → persist_candidate → events
 ```
 
-- **6 outlets:** tass, ria (riaru.online), kommersant rubric/6, msk1, mskagency, m24.
-- **Restart-safe:** таблица `news_parser_cursors`; первый запуск / пустой outlet → backfill `lookback_days` (21), затем incremental.
-- **Режимы:** `news_parser.mode=bootstrap` (быстро N статей на демо → incremental) или
-  `production` (полный backfill + realtime). См. `src/parse_news/README.md`.
-- **Geo:** каскад `resolve_article_geo` → `address_id` + `geo_by` (`city`|`street`|`home`):
+- **6 outlets:** tass, ria (`ria.ru` export RSS), kommersant `/rubric/6`, msk1, mskagency, m24.
+- **Restart-safe:** таблица `news_parser_cursors`; unique `(source, source_msg_id)` на `events`.
+- **Режимы** (`news_parser.mode`):
+  - `bootstrap` — только RSS/incremental (без HTML-архивов), лимит `bootstrap_articles_per_source`;
+    после первого круга dump в `bootstrap_events.jsonl.gz`. **Не** делает 21d backfill.
+  - `production` — полный backfill до `lookback_days` (обычно 21), затем incremental.
+- **Geo:** только Москва. Каскад `resolve_article_geo` → `address_id` + `geo_by`
+  (`city`|`street`|`home`):
   1) гео-поля источника; 2) текст (индекс / **StreetCatalog** stem+fuzzy / город);
-  3) дефолт Москва для всех outlet (иначе NULL → нет в ленте).
-- **Лимит:** `max_articles_per_source_per_run` + `max_pages_per_run`; backfill в bootstrap
-  завершается после одной пачки. Вставка батчами `insert_batch_size`.
-- **ТАСС:** sitemap часто 403 → сразу Google News RSS `site:tass.ru when:Nd`.
-- **Запуск:** `run_news_parser()` в `main.py` рядом с bot/api (`asyncio.gather`).
-- Контракт: `src/parse_news/README.md`. Миграции: курсоры, addresses components, `events.geo_by` / `published_at`.
+  3) дефолт Москва **только** у локальных СМИ (`m24`/`msk1`/`mskagency`).
+  Федеральные (`tass`/`ria`/`kommersant`) без явного московского места → `address_id=null`.
+  Чужой город/страна → `null` (без подстановки Москвы). Без адреса событие **не в ленте**.
+- **Лимит:** `max_articles_per_source_per_run` + `max_pages_per_run`;
+  `collect_timeout_seconds` — таймаут одного `collect` на outlet.
+  Вставка батчами `insert_batch_size`.
+- **ТАСС:** sitemap часто 403 → Google News RSS `site:tass.ru when:Nd`.
+- **Запуск:** `run_news_parser()` в `main.py` рядом с bot/api (supervised task).
+- **Smoke live:** `python scripts/smoke_news_collect.py` (`PYTHONPATH=src`) —
+  incremental, 1 страница по каждому enabled outlet.
+- Контракт: `src/parse_news/README.md`. Миграции: курсоры, addresses components,
+  `events.geo_by` / `published_at`.
 
 KAN-10 (чаты) и KAN-12 — отдельные воркеры; общая середина — `parser_common` (KAN-13).
-
-```bash
-pip install torch --index-url https://download.pytorch.org/whl/cu124
-pip install -e ".[ml]"
-python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
-```
 
 ## Events (KAN-14)
 
@@ -118,7 +121,9 @@ pip install torch --index-url https://download.pytorch.org/whl/cu124
 pip install -e ".[ml]"
 python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
 # данные: ml/classify/DATA.md
-# ручной прогон: set PYTHONPATH=src & python scripts/classify_try.py
+# ручные утилиты:
+#   set PYTHONPATH=src & python scripts/classify_try.py
+#   set PYTHONPATH=src & python scripts/smoke_news_collect.py
 
 pytest
 ruff check src tests

@@ -6,8 +6,8 @@
 
 | mode | Назначение | Поведение |
 |------|------------|-----------|
-| `bootstrap` | Хакатон / демо | **Только RSS/incremental** (без HTML-архивов) → быстро; после первого круга dump в `bootstrap_events.jsonl.gz` |
-| `production` | Боевой realtime | Полный backfill до lookback, затем incremental |
+| `bootstrap` | Хакатон / демо | **Только RSS/incremental** (без HTML-архивов) → быстро; после первого круга dump в `bootstrap_events.jsonl.gz`. Критерий «~21 день истории» **не** применяется. |
+| `production` | Боевой realtime | Полный backfill до `lookback_days`, затем incremental |
 
 ### Snapshot событий (как addresses)
 
@@ -49,7 +49,7 @@ Docker entrypoint (`scripts/bot_entrypoint.py`): addresses seed → events snaps
 | outlet | key | listing / feed |
 |--------|-----|----------------|
 | ТАСС | `tass` | RSS; backfill sitemap / Google News |
-| РИА | `ria` | RSS; архив |
+| РИА | `ria` | `ria.ru` export RSS; архив |
 | Коммерсант | `kommersant` | `/rubric/6`, archive |
 | MSK1 | `msk1` | RSS; listing `text/?page={page}` |
 | МСК Агентство | `mskagency` | `/lenta?page=` |
@@ -71,19 +71,33 @@ weight = 0.50 × relevance + 0.30 × timeliness + 0.20 × source_reliability
 
 ## Конфиг
 
+Числа ниже — **пример** (см. актуальные `conf/local.yaml` / `conf/prod.yaml`;
+лимиты и таймауты часто меняются под демо/нагрузку):
+
 ```yaml
 news_parser:
   mode: bootstrap          # или production
-  bootstrap_articles_per_source: 40
-  max_articles_per_source_per_run: 40
-  max_pages_per_run: 3
-  lookback_days: 7
+  bootstrap_articles_per_source: 15
+  max_articles_per_source_per_run: 15
+  max_pages_per_run: 1
+  lookback_days: 21        # имеет смысл в production
+  collect_timeout_seconds: 90
   poll_interval_seconds: 60
   sources.msk1.listing_url: "https://msk1.ru/text/?page={page}"
   sources.msk1.reliability: 0.82
 ```
 
-## Тесты
+## Smoke live
+
+Проверка, что все enabled-адаптеры живы (сеть, 1 страница, без записи в БД):
+
+```bash
+set PYTHONPATH=src
+python scripts/smoke_news_collect.py
+# опционально: --outlet m24  или  RUN_LIVE_NEWS=1 pytest tests/parse_news/test_live_smoke.py -q
+```
+
+## Тесты (офлайн)
 
 ```bash
 set PYTHONPATH=src

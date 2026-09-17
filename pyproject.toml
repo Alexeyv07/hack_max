@@ -85,3 +85,6 @@ line-ending = "auto"
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    "network: live HTTP to external news outlets (opt-in via RUN_LIVE_NEWS=1)",
+]
