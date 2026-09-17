@@ -60,7 +60,7 @@ set PYTHONPATH=src
 python scripts/classify_try.py
 ```
 
-Ввод — одна строка текста (заголовок/пост). Пустая строка / `q` — выход.  
+Ввод — одна строка текста (заголовок/пост). Пустая строка / `q` — выход.
 Многострочный режим: `:m`, конец блока — строка с одной точкой `.`
 
 На каждый запрос печатает raw ONNX (`p1/p2/p3`), ответ rules и итоговый каскад
@@ -85,8 +85,8 @@ pip install -e ".[dev]"
 pre-commit install
 copy .env.example .env          # указать MAX_BOT_TOKEN
 
-set PYTHONPATH=src
 alembic upgrade head
+python -m address.seed src/address/data/moscow.jsonl.gz
 python -m main
 
 # HTTP API: http://localhost:8000/docs  (если runtime.enable_api=true)
@@ -126,7 +126,9 @@ docker compose up --build
 - ставит `.[ml-runtime]` (onnxruntime + transformers, без torch);
 - копирует `ml/classify/artifacts` в образ и монтирует тот же каталог с хоста (`:ro`) —
   после переобучения достаточно `docker compose restart bot`;
-- перед стартом делает `alembic upgrade head` и логирует наличие ONNX.
+- перед стартом проверяет наличие ONNX и делает `alembic upgrade head`;
+- если таблица `addresses` пустая, автоматически загружает московский справочник из
+  `src/address/data/moscow.jsonl.gz`; при следующих запусках повторный импорт не выполняется.
 
 `DATABASE_HOST=postgres` в compose перекрывает `local.yaml`.
 
@@ -137,8 +139,6 @@ docker compose up --build
 ## Миграции (Alembic)
 
 ```bash
-set PYTHONPATH=src
-
 # применить все миграции
 alembic upgrade head
 
