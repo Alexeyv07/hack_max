@@ -6,6 +6,7 @@ import asyncio
 import sys
 
 from events.api.server import run_api_server
+from parse_news import run_news_parser
 from project.config import get_settings
 from project.database import check_connection
 from project.logging_setup import get_logger, setup_logging
@@ -18,17 +19,23 @@ async def run() -> None:
     settings = get_settings()
 
     log.info(
-        "Запуск %s (environment=%s, debug=%s, bot=%s, api=%s)",
+        "Запуск %s (environment=%s, debug=%s, bot=%s, api=%s, news_parser=%s)",
         settings.app.name,
         settings.environment,
         settings.app.debug,
         settings.runtime.enable_bot,
         settings.runtime.enable_api,
+        settings.runtime.enable_news_parser,
     )
 
-    if not settings.runtime.enable_bot and not settings.runtime.enable_api:
+    if (
+        not settings.runtime.enable_bot
+        and not settings.runtime.enable_api
+        and not settings.runtime.enable_news_parser
+    ):
         log.error(
-            "Нечего запускать: включите runtime.enable_bot и/или runtime.enable_api в конфиге"
+            "Нечего запускать: включите runtime.enable_bot, runtime.enable_api "
+            "и/или runtime.enable_news_parser в конфиге"
         )
         sys.exit(1)
 
@@ -42,6 +49,8 @@ async def run() -> None:
         tasks.append(asyncio.create_task(run_api_server(), name="api"))
     if settings.runtime.enable_bot:
         tasks.append(asyncio.create_task(run_max_bot(), name="max-bot"))
+    if settings.runtime.enable_news_parser:
+        tasks.append(asyncio.create_task(run_news_parser(), name="news-parser"))
 
     assert tasks
     results = await asyncio.gather(*tasks, return_exceptions=True)

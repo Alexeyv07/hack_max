@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Test Feed</title>
+    <link>https://example.com/</link>
+    <description>Minimal RSS fixture</description>
+    <item>
+      <title>Первая новость</title>
+      <link>https://tass.ru/obschestvo/1234567</link>
+      <guid>https://tass.ru/obschestvo/1234567</guid>
+      <pubDate>Wed, 17 Sep 2026 07:00:00 +0000</pubDate>
+      <description>&lt;p&gt;Краткое описание первой новости.&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>Вторая новость</title>
+      <link>https://ria.ru/20260917/vtoraya-7654321.html</link>
+      <pubDate>Wed, 17 Sep 2026 08:30:00 +0000</pubDate>
+      <description>Вторая новость без HTML.</description>
+    </item>
+  </channel>
+</rss>

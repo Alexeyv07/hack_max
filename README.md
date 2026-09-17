@@ -33,7 +33,8 @@ src/
     api/               # FastAPI routes → handlers
     weight.py          # чистый расчёт веса
   chats/               # членство в чатах (пока mock handlers)
-  parser_common/       # KAN-13: Candidate→Draft→EventCreate (+ ingest); парсеры-воркеры — отдельно
+  parse_news/          # KAN-11: новостной воркер (RSS/HTML → events)
+  parser_common/       # KAN-13: Candidate→Draft→EventCreate (+ ingest)
   max.py               # run_max_bot() — см. project/max.py
   main.py              # bot и/или API в одном процессе
 tests/                 # pytest (API + handlers)

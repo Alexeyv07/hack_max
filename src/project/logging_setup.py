@@ -95,10 +95,23 @@ def setup_logging(*, force: bool = False) -> None:
     root.addHandler(handler)
     root.setLevel(level)
 
-    # Приглушаем шумные сторонние логгеры
-    logging.getLogger("sqlalchemy.engine").setLevel(
-        logging.INFO if settings.database.echo else logging.WARNING
-    )
+    # Приглушаем шумные сторонние логгеры (даже при DEBUG корня).
+    noisy_level = logging.WARNING
+    for name in (
+        "httpx",
+        "httpcore",
+        "httpcore.connection",
+        "httpcore.http11",
+        "urllib3",
+        "asyncio",
+        "hpack",
+    ):
+        logging.getLogger(name).setLevel(noisy_level)
+
+    # SQL: echo=true включает engine INFO — при DEBUG приложения всё равно режем до WARNING,
+    # иначе парсер заливает консоль каждым SELECT.
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
 
     _configured = True
     logging.getLogger(__name__).debug(

@@ -50,8 +50,27 @@ fetch → ParserCandidate  ──normalize──▶ EventDraft
 - Docker bot: extra `ml-runtime` (onnxruntime + transformers); веса из
   `ml/classify/artifacts` копируются в образ и монтируются в compose.
 
-Парсеров в репо пока нет — мокать кандидатами / сидом events для ленты ок.
-Сквозной флоу «источник → events» закрывается в тасках KAN-10/11/12.
+## News parser (KAN-11)
+
+Модуль `src/parse_news/` — воркер новостных RSS/HTML-источников.
+
+```
+sources → RawNewsArticle → ParserCandidate → persist_candidate → events
+```
+
+- **6 outlets:** tass, ria (riaru.online), kommersant rubric/6, msk1, mskagency, m24.
+- **Restart-safe:** таблица `news_parser_cursors`; первый запуск / пустой outlet → backfill `lookback_days` (21), затем incremental.
+- **Geo:** `address_id` только при явном месте: 6-значный индекс или улица
+  (снимок `MoscowStreetIndex` + GeoMatcher); иначе `null` (без дефолтной «Москвы»).
+- **Лимит:** `max_articles_per_source_per_run` — размер **одной пачки на один источник**
+  за один `collect()`, не общий потолок. Backfill крутится без часовой паузы, пока
+  `backfill_complete=false`. Вставка в `events` батчами `insert_batch_size` (25).
+- **ТАСС:** sitemap часто 403 → сразу Google News RSS `site:tass.ru when:Nd`.
+- **Запуск:** `run_news_parser()` в `main.py` рядом с bot/api (`asyncio.gather`).
+- Контракт адаптеров: `src/parse_news/README.md`.
+- Миграция: `alembic upgrade head` (таблица курсоров + unique `(source, source_msg_id)`).
+
+KAN-10 (чаты) и KAN-12 — отдельные воркеры; общая середина — `parser_common` (KAN-13).
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu124

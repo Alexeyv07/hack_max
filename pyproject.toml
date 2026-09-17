@@ -18,6 +18,8 @@ dependencies = [
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.32,<1",
     "pydantic>=2.9,<3",
+    "httpx>=0.27,<1",
+    "beautifulsoup4>=4.12,<5",
 ]
 
 [project.optional-dependencies]
@@ -72,7 +74,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["project", "auth", "address", "events", "chats", "chat_link", "parser_common", "main", "max"]
+known-first-party = ["project", "auth", "address", "events", "chats", "chat_link", "parser_common", "parse_news", "main", "max"]
 
 [tool.ruff.format]
 quote-style = "double"

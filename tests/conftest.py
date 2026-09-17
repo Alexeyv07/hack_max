@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 import address.db  # noqa: F401
 import auth.db  # noqa: F401
 import events.db  # noqa: F401
+import parse_news.db  # noqa: F401
 from project.database import Base
 
 

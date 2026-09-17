@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
+from itertools import batched
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -104,6 +106,28 @@ def _to_domain(row: EventRow, *, distance_m: float | None = None) -> Event:
     )
 
 
+def list_existing_source_msg_ids(
+    session: Session,
+    *,
+    source: EventSource | str,
+    source_msg_ids: Iterable[str],
+) -> set[str]:
+    normalized = _normalize_source(source)
+    unique_ids = list(dict.fromkeys(source_msg_ids))
+    if not unique_ids:
+        return set()
+    found: set[str] = set()
+    for batch in batched(unique_ids, 1000):
+        rows = session.scalars(
+            select(EventRow.source_msg_id).where(
+                EventRow.source == normalized,
+                EventRow.source_msg_id.in_(batch),
+            )
+        ).all()
+        found.update(row for row in rows if row is not None)
+    return found
+
+
 def create_event(session: Session, data: EventCreate) -> Event:
     """
     Создать финальное событие (только in-process: воркеры парсеров / бот / скрипты).
@@ -134,7 +158,7 @@ def create_event(session: Session, data: EventCreate) -> Event:
     )
     session.add(row)
     session.flush()
-    logger.info(
+    logger.debug(
         "Событие создано id=%s importance=%s source=%s address_id=%s",
         row.id,
         row.importance,

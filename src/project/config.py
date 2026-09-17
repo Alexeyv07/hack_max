@@ -74,6 +74,7 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "API_PORT": "api.port",
         "ENABLE_BOT": "runtime.enable_bot",
         "ENABLE_API": "runtime.enable_api",
+        "ENABLE_NEWS_PARSER": "runtime.enable_news_parser",
         "EVENTS_NEARBY_RADIUS_M": "events.nearby_radius_m",
         "EVENTS_CITY_RADIUS_M": "events.city_radius_m",
     }
@@ -150,11 +151,32 @@ class EventsConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class NewsSourceConfig:
+    enabled: bool = True
+    feed_url: str | None = None
+    listing_url: str | None = None
+    archive_url: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NewsParserConfig:
+    lookback_days: int = 21
+    poll_interval_seconds: int = 3600
+    request_timeout_seconds: int = 30
+    max_articles_per_source_per_run: int = 500
+    insert_batch_size: int = 25
+    early_stop_known_streak: int = 15
+    user_agent: str = "HackMaxNewsBot/1.0 (+https://github.com/hack-max)"
+    sources: dict[str, NewsSourceConfig] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeConfig:
     """Какие сервисы поднимать в одном процессе main."""
 
     enable_bot: bool = True
     enable_api: bool = True
+    enable_news_parser: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,7 +188,26 @@ class Settings:
     max: MaxConfig = field(default_factory=MaxConfig)
     api: ApiConfig = field(default_factory=ApiConfig)
     events: EventsConfig = field(default_factory=EventsConfig)
+    news_parser: NewsParserConfig = field(default_factory=NewsParserConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+
+
+def _parse_news_sources(raw: Any) -> dict[str, NewsSourceConfig]:
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        raise TypeError("news_parser.sources должен быть словарём")
+    sources: dict[str, NewsSourceConfig] = {}
+    for key, value in raw.items():
+        if not isinstance(value, dict):
+            raise TypeError(f"news_parser.sources.{key} должен быть словарём")
+        sources[str(key)] = NewsSourceConfig(
+            enabled=bool(value.get("enabled", True)),
+            feed_url=value.get("feed_url"),
+            listing_url=value.get("listing_url"),
+            archive_url=value.get("archive_url"),
+        )
+    return sources
 
 
 def _resolve_environment() -> str:
@@ -201,6 +242,7 @@ def load_settings() -> Settings:
     max_raw = raw.get("max") or {}
     api_raw = raw.get("api") or {}
     events_raw = raw.get("events") or {}
+    news_parser_raw = raw.get("news_parser") or {}
     runtime_raw = raw.get("runtime") or {}
 
     return Settings(
@@ -235,9 +277,27 @@ def load_settings() -> Settings:
             nearby_radius_m=float(events_raw.get("nearby_radius_m", 3000)),
             city_radius_m=float(events_raw.get("city_radius_m", 30000)),
         ),
+        news_parser=NewsParserConfig(
+            lookback_days=int(news_parser_raw.get("lookback_days", 21)),
+            poll_interval_seconds=int(news_parser_raw.get("poll_interval_seconds", 3600)),
+            request_timeout_seconds=int(news_parser_raw.get("request_timeout_seconds", 30)),
+            max_articles_per_source_per_run=int(
+                news_parser_raw.get("max_articles_per_source_per_run", 500)
+            ),
+            insert_batch_size=int(news_parser_raw.get("insert_batch_size", 25)),
+            early_stop_known_streak=int(news_parser_raw.get("early_stop_known_streak", 15)),
+            user_agent=str(
+                news_parser_raw.get(
+                    "user_agent",
+                    "HackMaxNewsBot/1.0 (+https://github.com/hack-max)",
+                )
+            ),
+            sources=_parse_news_sources(news_parser_raw.get("sources")),
+        ),
         runtime=RuntimeConfig(
             enable_bot=bool(runtime_raw.get("enable_bot", True)),
             enable_api=bool(runtime_raw.get("enable_api", True)),
+            enable_news_parser=bool(runtime_raw.get("enable_news_parser", True)),
         ),
     )
 

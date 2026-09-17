@@ -7,13 +7,13 @@
 
 | кто | делает |
 |-----|--------|
-| **KAN-10/11/12** (воркеры парсеров) | fetch источника → `ParserCandidate` → вызов `normalize` / `persist_candidate` → `create_event` |
+| **KAN-11** (`parse_news`) | fetch RSS/HTML → `RawNewsArticle` → `ParserCandidate` → `persist_candidate` |
+| **KAN-10/12** (другие воркеры) | fetch источника → `ParserCandidate` → `normalize` / `persist_candidate` → `create_event` |
 | **KAN-13** (этот пакет) | title/body, importance, `disaster_flag`, optional geo → `EventDraft` / `EventCreate` |
 | **KAN-19** (`ml_dedup`) | merge дублей **до** insert (хук в `create_event` или перед ним) |
 | **KAN-14** (`events`) | хранение + read API ленты/карты |
 
-Парсеров в репо пока нет — это нормально. KAN-13 закрыт как **библиотека**;
-сквозной «кандидат → строка в `events`» появляется в тасках парсеров.
+KAN-11 (`src/parse_news/`) реализует новостной воркер; KAN-13 — общая **библиотека** normalize/classify между воркерами и `events`.
 
 ## Контракт для воркера парсера
 

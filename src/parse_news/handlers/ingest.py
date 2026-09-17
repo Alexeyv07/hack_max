@@ -1,0 +1,56 @@
+"""Преобразование RawNewsArticle → events через parser_common."""
+
+from __future__ import annotations
+
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from events.handlers.crud import list_existing_source_msg_ids
+from events.models.event import Event, EventSource
+from parse_news.models.article import RawNewsArticle
+from parser_common.ingest import persist_candidate
+from parser_common.models.candidate import ParserCandidate
+from project.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
+
+def article_to_candidate(
+    article: RawNewsArticle, *, address_id: int | None = None
+) -> ParserCandidate:
+    body = article.body or ""
+    raw_text = f"{article.title}\n{body}".strip()
+    return ParserCandidate(
+        raw_text=raw_text,
+        source=EventSource.NEWS.value,
+        source_msg_id=article.source_msg_id,
+        title=article.title,
+        body=body or None,
+        source_url=article.url,
+        image_url=article.image_url,
+        address_id=address_id,
+    )
+
+
+def persist_article(
+    session: Session,
+    article: RawNewsArticle,
+    *,
+    address_id: int | None = None,
+) -> Event | None:
+    existing = list_existing_source_msg_ids(
+        session,
+        source=EventSource.NEWS.value,
+        source_msg_ids=[article.source_msg_id],
+    )
+    if article.source_msg_id in existing:
+        logger.debug("Дубликат новости %s — пропуск", article.source_msg_id)
+        return None
+
+    candidate = article_to_candidate(article, address_id=address_id)
+    try:
+        with session.begin_nested():
+            return persist_candidate(session, candidate)
+    except IntegrityError:
+        logger.debug("Дубликат новости %s (IntegrityError) — пропуск", article.source_msg_id)
+        return None
