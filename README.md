@@ -36,7 +36,7 @@ src/
   parse_news/          # KAN-11: новостной воркер (RSS/HTML → events)
   parser_common/       # KAN-13: Candidate→Draft→EventCreate (+ ingest)
   user_chat/           # KAN-5: хранение чатов, address_id и User <-> Chat
-  chat_link/           # KAN-7: заготовка onboarding-flow подключения чата
+  chat_link/           # KAN-7: onboarding-flow подключения чата
   parser_common/       # KAN-13: Candidate→Draft→EventCreate (+ ingest); парсеры-воркеры — отдельно
   max.py               # run_max_bot() — см. project/max.py
   main.py              # bot и/или API в одном процессе
@@ -154,6 +154,7 @@ docker compose up --build
 ## Миграции (Alembic)
 
 Чаты соседей (KAN-5): [модели, handlers и пример вызова](src/user_chat/README.md).
+Подключение чата (KAN-7): [бизнес-flow, ChatLinks и auto-approve mock](src/chat_link/README.md).
 После `/start` пользователь зарегистрирован, но его нужно отдельно связать с чатом:
 лента и карта используют только реальные записи `users_chat`.
 
