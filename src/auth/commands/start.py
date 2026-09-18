@@ -12,8 +12,8 @@ from maxapi.types import CallbackButton, OpenAppButton
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
 from auth.handlers.authorize import authorize_from_event
+from project.config import get_settings
 
-DOCS_URL = "https://alexeyv07.github.io/hack_max/"
 CHAT_LINK_START_PAYLOAD = "chat_link:start"
 CHAT_LINK_MOCK_NOTIFICATION = "Подключение чата скоро появится."
 
@@ -21,11 +21,12 @@ CHAT_LINK_MOCK_NOTIFICATION = "Подключение чата скоро поя
 def build_welcome_text(name: str) -> str:
     """Текст первого экрана."""
     safe_name = escape(name)
+    docs_url = get_settings().docs.url
 
     return (
         f"Привет, {safe_name}! Я помогу следить за важными событиями "
         "рядом с вашим домом и в районе.\n\n"
-        f'🔗 <a href="{DOCS_URL}"><b>Подробнее о проекте</b></a>'
+        f'🔗 <a href="{docs_url}"><b>Подробнее о проекте</b></a>'
     )
 
 

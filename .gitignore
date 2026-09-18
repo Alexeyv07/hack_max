@@ -36,6 +36,9 @@ webapp/.output/
 .DS_Store
 Thumbs.db
 
+# mdBook build output
+docs/book/
+
 # Logs
 *.log
 logs/
