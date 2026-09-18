@@ -39,7 +39,7 @@ runtime:
 news_parser:
   # bootstrap|production: оба делают backfill до lookback_days; bootstrap ещё пишет snapshot.
   # soft-cap на outlet: bootstrap_articles_per_source (0 = без потолка, весь lookback).
-  mode: bootstrap
+  mode: production
   lookback_days: 7
   poll_interval_seconds: 120
   request_timeout_seconds: 15
