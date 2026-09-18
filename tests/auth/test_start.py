@@ -40,9 +40,10 @@ def _bot():
 def test_welcome_text_contains_product_description_and_docs() -> None:
     text = start.build_welcome_text("Алексей")
     assert text.startswith("Привет, Алексей!")
-    assert "районных чатов" in text
-    assert "городских источников" in text
+    assert "важными событиями" in text
+    assert "рядом с вашим домом" in text
     assert start.DOCS_URL in text
+    assert "Подробнее о проекте" in text
 
 
 def test_welcome_keyboard_has_fixed_button_copy() -> None:
