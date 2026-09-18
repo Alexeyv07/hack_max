@@ -178,6 +178,9 @@ class NewsParserConfig:
     collect_timeout_seconds: int = 90
     insert_batch_size: int = 25
     early_stop_known_streak: int = 15
+    # Паузы, чтобы не голодать API/бот в том же event loop (нет «джиттера» — только sleep).
+    source_pause_seconds: float = 0.5
+    backfill_pause_seconds: float = 2.0
     user_agent: str = "HackMaxNewsBot/1.0 (+https://github.com/hack-max)"
     sources: dict[str, NewsSourceConfig] = field(default_factory=dict)
 
@@ -321,6 +324,8 @@ def load_settings() -> Settings:
             collect_timeout_seconds=int(news_parser_raw.get("collect_timeout_seconds", 90)),
             insert_batch_size=int(news_parser_raw.get("insert_batch_size", 25)),
             early_stop_known_streak=int(news_parser_raw.get("early_stop_known_streak", 15)),
+            source_pause_seconds=float(news_parser_raw.get("source_pause_seconds", 0.5)),
+            backfill_pause_seconds=float(news_parser_raw.get("backfill_pause_seconds", 2.0)),
             user_agent=str(
                 news_parser_raw.get(
                     "user_agent",

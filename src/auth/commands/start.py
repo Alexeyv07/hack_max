@@ -31,7 +31,7 @@ def build_welcome_text(name: str) -> str:
 
 
 def build_welcome_keyboard(bot: Any) -> Any:
-    """Две кнопки первого экрана."""
+    """Две кнопки первого экрана на одной строке."""
     me = getattr(bot, "me", None)
     username = getattr(me, "username", None)
     user_id = getattr(me, "user_id", None)

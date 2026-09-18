@@ -36,14 +36,14 @@ events:
   city_radius_m: 30000
 
 runtime:
-  enable_bot: false
+  enable_bot: true
   enable_api: true
   enable_news_parser: true
 
 news_parser:
   # bootstrap|production: оба делают backfill до lookback_days; bootstrap ещё пишет snapshot.
   # soft-cap на outlet: bootstrap_articles_per_source (0 = без потолка, весь lookback).
-  mode: production
+  mode: bootstrap
   lookback_days: 7
   poll_interval_seconds: 120
   request_timeout_seconds: 15
@@ -54,6 +54,8 @@ news_parser:
   bootstrap_snapshot_path: src/parse_news/data/bootstrap_events.jsonl.gz
   insert_batch_size: 25
   early_stop_known_streak: 10
+  source_pause_seconds: 0.5
+  backfill_pause_seconds: 2.0
   user_agent: "HackMaxNewsBot/1.0"
   sources:
     tass:

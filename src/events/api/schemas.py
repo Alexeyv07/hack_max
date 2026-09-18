@@ -21,11 +21,19 @@ class FeedItemResponse(BaseModel):
     disaster_flag: bool
     source_url: str | None
     image_url: str | None = Field(
-        description="Главная фото; null → фронт ставит превью карты с меткой",
+        description="Главная фото; null → фронт ставит чёрный плейсхолдер / карту",
     )
     geo_by: str | None = Field(
         default=None,
         description="Точность гео: city | street | home",
+    )
+    location: str | None = Field(
+        default=None,
+        description="Текст адреса события (Address.address_text)",
+    )
+    published_at: datetime | None = Field(
+        default=None,
+        description="Время публикации у источника; иначе смотри created_at",
     )
     created_at: datetime | None = None
     updated_at: datetime | None = None

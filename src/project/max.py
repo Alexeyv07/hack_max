@@ -19,6 +19,17 @@ async def run_max_bot() -> None:
         raise RuntimeError("MAX_BOT_TOKEN не задан — бот не может стартовать")
 
     bot = Bot(settings.max.bot_token)
+    # Нужен для OpenAppButton (username / contact_id).
+    try:
+        bot.me = await bot.get_me()
+        logger.info(
+            "Max bot identity: id=%s username=%s",
+            getattr(bot.me, "user_id", None),
+            getattr(bot.me, "username", None),
+        )
+    except Exception:
+        logger.exception("Не удалось получить GET /me — open_app возьмёт fallback из конфига")
+
     dp = Dispatcher()
     register_auth_commands(dp, bot)
 

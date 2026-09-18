@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -26,6 +27,11 @@ from project.database import session_scope
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
+
+
+async def _in_thread[**P, T](fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> T:
+    """Синхронный CPU/DB/ONNX — вне event loop, чтобы API и бот не голодали."""
+    return await asyncio.to_thread(fn, *args, **kwargs)
 
 
 def _aware(dt: datetime | None) -> datetime | None:
@@ -83,6 +89,81 @@ def _backfill_done_after_collect(
     return result.next_cursor is None
 
 
+def _load_source_plan(
+    source_key: str,
+    *,
+    lookback_days: int,
+) -> tuple[CollectMode, str | None, bool, int, datetime]:
+    """Курсор + режим collect (синхронно, для to_thread)."""
+    since = datetime.now(UTC) - timedelta(days=max(1, lookback_days))
+    with session_scope() as session:
+        cursor = get_or_create_cursor(session, source_key)
+        outlet_count = count_events_for_outlet(session, source_key)
+        need_backfill = _need_backfill(
+            backfill_complete=cursor.backfill_complete,
+            outlet_event_count=outlet_count,
+            oldest_seen_at=cursor.oldest_seen_at,
+            lookback_since=since,
+        )
+        mode: CollectMode = "backfill" if need_backfill else "incremental"
+        listing_cursor = cursor.listing_cursor
+        previous_complete = cursor.backfill_complete
+        if need_backfill and previous_complete:
+            listing_cursor = None
+            previous_complete = False
+        return mode, listing_cursor, previous_complete, outlet_count, since
+
+
+def _mark_backfill_complete(source_key: str) -> None:
+    with session_scope() as session:
+        cursor = get_or_create_cursor(session, source_key)
+        update_cursor(
+            session,
+            cursor,
+            backfill_complete=True,
+            last_run_at=datetime.now(UTC),
+            clear_error=True,
+        )
+
+
+def _record_source_error(source_key: str, message: str) -> None:
+    with session_scope() as session:
+        cursor = get_or_create_cursor(session, source_key)
+        update_cursor(
+            session,
+            cursor,
+            last_run_at=datetime.now(UTC),
+            last_error=message,
+        )
+
+
+def _commit_source_progress(
+    source_key: str,
+    *,
+    listing_cursor: str | None,
+    backfill_complete: bool,
+    oldest_seen_at: datetime | None,
+    newest_seen_at: datetime | None,
+) -> None:
+    with session_scope() as session:
+        cursor = get_or_create_cursor(session, source_key)
+        cursor.listing_cursor = listing_cursor
+        update_cursor(
+            session,
+            cursor,
+            backfill_complete=backfill_complete,
+            oldest_seen_at=oldest_seen_at,
+            newest_seen_at=newest_seen_at,
+            last_run_at=datetime.now(UTC),
+            clear_error=True,
+        )
+
+
+def _load_street_index() -> StreetCatalog | None:
+    with session_scope() as session:
+        return StreetCatalog.load(session)
+
+
 async def _process_source(
     client: httpx.AsyncClient,
     source: NewsSource,
@@ -97,23 +178,11 @@ async def _process_source(
     source_key = source.key
     logger.info("Запуск источника %s", source_key)
 
-    with session_scope() as session:
-        cursor = get_or_create_cursor(session, source_key)
-        outlet_count = count_events_for_outlet(session, source_key)
-        since = datetime.now(UTC) - timedelta(days=max(1, cfg.lookback_days))
-        need_backfill = _need_backfill(
-            backfill_complete=cursor.backfill_complete,
-            outlet_event_count=outlet_count,
-            oldest_seen_at=cursor.oldest_seen_at,
-            lookback_since=since,
-        )
-        mode: CollectMode = "backfill" if need_backfill else "incremental"
-        listing_cursor = cursor.listing_cursor
-        previous_complete = cursor.backfill_complete
-        # Если снова открыли backfill после ложного complete — сбросить watermark листинга.
-        if need_backfill and previous_complete:
-            listing_cursor = None
-            previous_complete = False
+    mode, listing_cursor, previous_complete, outlet_count, since = await _in_thread(
+        _load_source_plan,
+        source_key,
+        lookback_days=cfg.lookback_days,
+    )
 
     max_per_run = max(1, cfg.max_articles_per_source_per_run)
     soft_cap = max(0, cfg.bootstrap_articles_per_source)
@@ -135,15 +204,7 @@ async def _process_source(
     )
 
     if max_per_run == 0:
-        with session_scope() as session:
-            cursor = get_or_create_cursor(session, source_key)
-            update_cursor(
-                session,
-                cursor,
-                backfill_complete=True,
-                last_run_at=datetime.now(UTC),
-                clear_error=True,
-            )
+        await _in_thread(_mark_backfill_complete, source_key)
         return False
 
     try:
@@ -161,28 +222,16 @@ async def _process_source(
     except TimeoutError:
         msg = f"collect timeout after {cfg.collect_timeout_seconds}s"
         logger.error("Таймаут collect для %s: %s", source_key, msg)
-        with session_scope() as session:
-            cursor = get_or_create_cursor(session, source_key)
-            update_cursor(
-                session,
-                cursor,
-                last_run_at=datetime.now(UTC),
-                last_error=msg,
-            )
+        await _in_thread(_record_source_error, source_key, msg)
         return False
     except Exception as exc:
         logger.exception("Ошибка collect для %s: %s", source_key, exc)
-        with session_scope() as session:
-            cursor = get_or_create_cursor(session, source_key)
-            update_cursor(
-                session,
-                cursor,
-                last_run_at=datetime.now(UTC),
-                last_error=str(exc),
-            )
+        await _in_thread(_record_source_error, source_key, str(exc))
         return False
 
-    created, skipped, oldest_at, newest_at = _persist_articles_batched(
+    # ONNX classify + geo + INSERT — главная причина «заморозки» HTTP.
+    created, skipped, oldest_at, newest_at = await _in_thread(
+        _persist_articles_batched,
         result.articles,
         cfg=cfg,
         mode=mode,
@@ -205,18 +254,14 @@ async def _process_source(
     else:
         new_cursor = None if backfill_done else result.next_cursor
 
-    with session_scope() as session:
-        cursor = get_or_create_cursor(session, source_key)
-        cursor.listing_cursor = new_cursor
-        update_cursor(
-            session,
-            cursor,
-            backfill_complete=backfill_done,
-            oldest_seen_at=oldest_at,
-            newest_seen_at=newest_at,
-            last_run_at=datetime.now(UTC),
-            clear_error=True,
-        )
+    await _in_thread(
+        _commit_source_progress,
+        source_key,
+        listing_cursor=new_cursor,
+        backfill_complete=backfill_done,
+        oldest_seen_at=oldest_at,
+        newest_seen_at=newest_at,
+    )
 
     logger.info(
         "Источник %s: создано=%d пропущено=%d fetched=%d backfill_complete=%s next_cursor=%s",
@@ -350,28 +395,33 @@ async def run_news_parser() -> None:
         snap_path = DEFAULT_SNAPSHOT
 
     try:
-        if ensure_events_seeded(snap_path):
+        if await _in_thread(ensure_events_seeded, snap_path):
             logger.info("События загружены из snapshot %s", snap_path)
     except Exception:
         logger.exception("Не удалось загрузить snapshot событий — продолжаем парсинг")
 
     sources = get_sources(cfg)
     logger.info(
-        "Старт парсера новостей: mode=%s источников=%d max_per_run=%d poll=%ds",
+        "Старт парсера новостей: mode=%s источников=%d max_per_run=%d poll=%ds "
+        "source_pause=%.2fs backfill_pause=%.2fs",
         cfg.mode,
         len(sources),
         cfg.max_articles_per_source_per_run,
         cfg.poll_interval_seconds,
+        cfg.source_pause_seconds,
+        cfg.backfill_pause_seconds,
     )
 
     street_index: StreetCatalog | None = None
     try:
-        with session_scope() as session:
-            street_index = StreetCatalog.load(session)
+        street_index = await _in_thread(_load_street_index)
     except Exception:
         logger.exception("Не удалось загрузить индекс улиц — geo только по индексу")
 
     snapshot_dumped = snap_path.is_file()
+    source_pause = max(0.0, float(cfg.source_pause_seconds))
+    backfill_pause = max(0.0, float(cfg.backfill_pause_seconds))
+
     while True:
         try:
             async with make_client(settings) as client:
@@ -395,32 +445,31 @@ async def run_news_parser() -> None:
                                 exc,
                             )
                             try:
-                                with session_scope() as session:
-                                    cursor = get_or_create_cursor(session, source.key)
-                                    update_cursor(
-                                        session,
-                                        cursor,
-                                        last_run_at=datetime.now(UTC),
-                                        last_error=str(exc),
-                                    )
+                                await _in_thread(_record_source_error, source.key, str(exc))
                             except Exception:
                                 logger.exception(
                                     "Не удалось записать last_error для %s", source.key
                                 )
+                        if source_pause > 0:
+                            await asyncio.sleep(source_pause)
 
                     if not snapshot_dumped and not any_backfill_pending and cfg.mode == "bootstrap":
                         try:
-                            with session_scope() as session:
-                                n = dump_events_snapshot(
-                                    session,
-                                    snap_path,
-                                    limit=max(
-                                        2000,
-                                        cfg.bootstrap_articles_per_source * 6
-                                        if cfg.bootstrap_articles_per_source > 0
-                                        else cfg.lookback_days * 400,
-                                    ),
-                                )
+
+                            def _dump() -> int:
+                                with session_scope() as session:
+                                    return dump_events_snapshot(
+                                        session,
+                                        snap_path,
+                                        limit=max(
+                                            2000,
+                                            cfg.bootstrap_articles_per_source * 6
+                                            if cfg.bootstrap_articles_per_source > 0
+                                            else cfg.lookback_days * 400,
+                                        ),
+                                    )
+
+                            n = await _in_thread(_dump)
                             snapshot_dumped = n > 0
                             logger.info(
                                 "Bootstrap snapshot сохранён: %d событий → %s",
@@ -431,8 +480,12 @@ async def run_news_parser() -> None:
                             logger.exception("Не удалось сохранить bootstrap snapshot")
 
                     if any_backfill_pending:
-                        logger.info("Backfill не завершён — следующий круг без длинной паузы")
-                        await asyncio.sleep(1)
+                        logger.info(
+                            "Backfill не завершён — пауза %.1fs (API/бот приоритетнее)",
+                            backfill_pause,
+                        )
+                        if backfill_pause > 0:
+                            await asyncio.sleep(backfill_pause)
                     else:
                         logger.info(
                             "Все источники в incremental — сон %d сек",
