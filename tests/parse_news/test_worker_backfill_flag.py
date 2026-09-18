@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from events.handlers.crud import create_event
 from events.models.event import EventCreate, EventSource
@@ -18,7 +18,6 @@ def test_need_backfill_new_cursor(db_session) -> None:
         _need_backfill(
             backfill_complete=cursor.backfill_complete,
             outlet_event_count=count_events_for_outlet(db_session, "tass"),
-            parser_mode="production",
         )
         is True
     )
@@ -32,7 +31,6 @@ def test_need_backfill_complete_but_no_events(db_session) -> None:
         _need_backfill(
             backfill_complete=True,
             outlet_event_count=0,
-            parser_mode="production",
         )
         is True
     )
@@ -58,20 +56,32 @@ def test_need_backfill_complete_with_events(db_session) -> None:
         _need_backfill(
             backfill_complete=True,
             outlet_event_count=count_events_for_outlet(db_session, "msk1"),
-            parser_mode="production",
         )
         is False
     )
 
 
-def test_bootstrap_never_backfills() -> None:
+def test_bootstrap_also_backfills() -> None:
     assert (
         _need_backfill(
             backfill_complete=False,
             outlet_event_count=0,
-            parser_mode="bootstrap",
         )
-        is False
+        is True
+    )
+
+
+def test_reopen_backfill_if_oldest_newer_than_lookback() -> None:
+    since = datetime.now(UTC) - timedelta(days=7)
+    oldest = datetime.now(UTC) - timedelta(days=1)
+    assert (
+        _need_backfill(
+            backfill_complete=True,
+            outlet_event_count=10,
+            oldest_seen_at=oldest,
+            lookback_since=since,
+        )
+        is True
     )
 
 
@@ -93,15 +103,14 @@ def test_production_max_batch_does_not_complete_backfill() -> None:
             mode="backfill",
             result=result,
             max_articles=30,
-            parser_mode="production",
             outlet_event_count=30,
-            bootstrap_target=40,
+            soft_cap=0,
         )
         is False
     )
 
 
-def test_bootstrap_completes_after_one_batch() -> None:
+def test_bootstrap_soft_cap_completes() -> None:
     articles = [
         RawNewsArticle(
             outlet="msk1",
@@ -118,11 +127,21 @@ def test_bootstrap_completes_after_one_batch() -> None:
             mode="backfill",
             result=result,
             max_articles=40,
-            parser_mode="bootstrap",
-            outlet_event_count=1,
-            bootstrap_target=40,
+            outlet_event_count=40,
+            soft_cap=40,
         )
         is True
+    )
+    assert (
+        _backfill_done_after_collect(
+            previous_complete=False,
+            mode="backfill",
+            result=result,
+            max_articles=40,
+            outlet_event_count=1,
+            soft_cap=0,
+        )
+        is False
     )
 
 
@@ -134,9 +153,8 @@ def test_backfill_complete_when_reached_since() -> None:
             mode="backfill",
             result=result,
             max_articles=500,
-            parser_mode="production",
             outlet_event_count=0,
-            bootstrap_target=40,
+            soft_cap=0,
         )
         is True
     )
@@ -159,9 +177,8 @@ def test_backfill_complete_when_short_batch_without_cursor() -> None:
             mode="backfill",
             result=result,
             max_articles=500,
-            parser_mode="production",
             outlet_event_count=1,
-            bootstrap_target=40,
+            soft_cap=0,
         )
         is True
     )

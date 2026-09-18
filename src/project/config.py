@@ -162,14 +162,15 @@ class NewsSourceConfig:
 
 @dataclass(frozen=True, slots=True)
 class NewsParserConfig:
-    # bootstrap — быстро набрать N статей на демо; production — полный backfill + realtime.
+    # bootstrap — backfill до lookback + dump snapshot; production — то же + долгий poll.
     mode: str = "bootstrap"
-    lookback_days: int = 3
+    lookback_days: int = 7
     poll_interval_seconds: int = 3600
     request_timeout_seconds: int = 12
-    max_articles_per_source_per_run: int = 15
-    max_pages_per_run: int = 1
-    bootstrap_articles_per_source: int = 15
+    max_articles_per_source_per_run: int = 40
+    max_pages_per_run: int = 5
+    # Потолок статей на outlet в bootstrap (0 = без потолка, весь lookback_days).
+    bootstrap_articles_per_source: int = 0
     # После bootstrap сохранить события в файл (как address seed).
     bootstrap_snapshot_path: str = "src/parse_news/data/bootstrap_events.jsonl.gz"
     collect_timeout_seconds: int = 90
@@ -289,15 +290,15 @@ def load_settings() -> Settings:
         ),
         news_parser=NewsParserConfig(
             mode=str(news_parser_raw.get("mode", "bootstrap")).strip().lower(),
-            lookback_days=int(news_parser_raw.get("lookback_days", 3)),
+            lookback_days=int(news_parser_raw.get("lookback_days", 7)),
             poll_interval_seconds=int(news_parser_raw.get("poll_interval_seconds", 3600)),
             request_timeout_seconds=int(news_parser_raw.get("request_timeout_seconds", 12)),
             max_articles_per_source_per_run=int(
-                news_parser_raw.get("max_articles_per_source_per_run", 15)
+                news_parser_raw.get("max_articles_per_source_per_run", 40)
             ),
-            max_pages_per_run=int(news_parser_raw.get("max_pages_per_run", 1)),
+            max_pages_per_run=int(news_parser_raw.get("max_pages_per_run", 5)),
             bootstrap_articles_per_source=int(
-                news_parser_raw.get("bootstrap_articles_per_source", 15)
+                news_parser_raw.get("bootstrap_articles_per_source", 0)
             ),
             bootstrap_snapshot_path=str(
                 news_parser_raw.get(

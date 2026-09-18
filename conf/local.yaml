@@ -37,15 +37,16 @@ runtime:
   enable_news_parser: true
 
 news_parser:
-  # bootstrap — только RSS/incremental (быстро) + dump snapshot; production — полный backfill
-  mode: production
+  # bootstrap|production: оба делают backfill до lookback_days; bootstrap ещё пишет snapshot.
+  # soft-cap на outlet: bootstrap_articles_per_source (0 = без потолка, весь lookback).
+  mode: bootstrap
   lookback_days: 7
-  poll_interval_seconds: 5 # 120
-  request_timeout_seconds: 10
-  collect_timeout_seconds: 60
-  max_articles_per_source_per_run: 30
-  max_pages_per_run: 1
-  bootstrap_articles_per_source: 100
+  poll_interval_seconds: 120
+  request_timeout_seconds: 15
+  collect_timeout_seconds: 180
+  max_articles_per_source_per_run: 80
+  max_pages_per_run: 7
+  bootstrap_articles_per_source: 0
   bootstrap_snapshot_path: src/parse_news/data/bootstrap_events.jsonl.gz
   insert_batch_size: 25
   early_stop_known_streak: 10
@@ -62,7 +63,7 @@ news_parser:
     kommersant:
       enabled: true
       listing_url: "https://www.kommersant.ru/rubric/6"
-      archive_url: "https://www.kommersant.ru/archive/"
+      archive_url: "https://www.kommersant.ru/archive/?date={date}"
       reliability: 0.88
     msk1:
       enabled: true

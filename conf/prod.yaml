@@ -42,7 +42,7 @@ news_parser:
   collect_timeout_seconds: 180
   max_articles_per_source_per_run: 30
   max_pages_per_run: 10
-  bootstrap_articles_per_source: 40
+  bootstrap_articles_per_source: 0
   insert_batch_size: 25
   early_stop_known_streak: 15
   user_agent: "HackMaxNewsBot/1.0"
@@ -58,7 +58,7 @@ news_parser:
     kommersant:
       enabled: true
       listing_url: "https://www.kommersant.ru/rubric/6"
-      archive_url: "https://www.kommersant.ru/archive/"
+      archive_url: "https://www.kommersant.ru/archive/?date={date}"
       reliability: 0.75
     msk1:
       enabled: true

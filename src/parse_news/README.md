@@ -6,8 +6,12 @@
 
 | mode | Назначение | Поведение |
 |------|------------|-----------|
-| `bootstrap` | Хакатон / демо | **Только RSS/incremental** (без HTML-архивов) → быстро; после первого круга dump в `bootstrap_events.jsonl.gz`. Критерий «~21 день истории» **не** применяется. |
-| `production` | Боевой realtime | Полный backfill до `lookback_days`, затем incremental |
+| `bootstrap` | Хакатон / демо | Backfill до `lookback_days`, затем incremental; после завершения dump в `bootstrap_events.jsonl.gz` |
+| `production` | Боевой realtime | Тот же backfill до `lookback_days`, затем incremental (без обязательного snapshot) |
+
+`lookback_days` — главное окно истории (например `7`). Пока `reached_since` не достигнут, воркер крутит backfill без длинной паузы.
+
+`bootstrap_articles_per_source`: опциональный потолок на outlet в bootstrap (`0` = без потолка, весь lookback).
 
 ### Snapshot событий (как addresses)
 
@@ -79,11 +83,11 @@ weight = 0.50 × relevance + 0.30 × timeliness + 0.20 × source_reliability
 ```yaml
 news_parser:
   mode: bootstrap          # или production
-  bootstrap_articles_per_source: 15
-  max_articles_per_source_per_run: 15
-  max_pages_per_run: 1
-  lookback_days: 21        # имеет смысл в production
-  collect_timeout_seconds: 90
+  lookback_days: 7         # окно истории для backfill
+  bootstrap_articles_per_source: 0   # 0 = весь lookback; >0 = soft-cap на outlet
+  max_articles_per_source_per_run: 80
+  max_pages_per_run: 7
+  collect_timeout_seconds: 180
   poll_interval_seconds: 60
   sources.msk1.listing_url: "https://msk1.ru/text/?page={page}"
   sources.msk1.reliability: 0.82

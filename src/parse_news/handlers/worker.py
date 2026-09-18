@@ -28,16 +28,30 @@ from project.logging_setup import get_logger
 logger = get_logger(__name__)
 
 
+def _aware(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
 def _need_backfill(
     *,
     backfill_complete: bool,
     outlet_event_count: int,
-    parser_mode: str,
+    oldest_seen_at: datetime | None = None,
+    lookback_since: datetime | None = None,
 ) -> bool:
-    # bootstrap: только быстрый RSS/incremental, без HTML-архивов.
-    if parser_mode == "bootstrap":
-        return False
-    return (not backfill_complete) or outlet_event_count == 0
+    """Нужен HTML/archive backfill до lookback_since (и bootstrap, и production)."""
+    if outlet_event_count == 0:
+        return True
+    if not backfill_complete:
+        return True
+    # Курсор помечен complete слишком рано (старый bootstrap) — ещё не дотянули lookback.
+    oldest = _aware(oldest_seen_at)
+    since = _aware(lookback_since)
+    return oldest is not None and since is not None and oldest > since
 
 
 def _backfill_done_after_collect(
@@ -46,27 +60,22 @@ def _backfill_done_after_collect(
     mode: CollectMode,
     result: CollectResult,
     max_articles: int,
-    parser_mode: str,
     outlet_event_count: int,
-    bootstrap_target: int,
+    soft_cap: int,
 ) -> bool:
     """
-    backfill_complete:
+    backfill_complete, когда реально дошли до lookback (reached_since / архив исчерпан).
 
-    - bootstrap: после одной пачки (или когда уже >= N событий) — хватит для демо;
-    - production: только когда реально дошли до lookback (reached_since / архив исчерпан).
+    soft_cap > 0 (bootstrap_articles_per_source) — опциональный потолок на outlet для демо;
+    0 = без потолка, тянем весь lookback_days.
     """
     if previous_complete and mode != "backfill":
         return True
     if mode != "backfill":
         return previous_complete
 
-    if parser_mode == "bootstrap":
-        if outlet_event_count >= bootstrap_target:
-            return True
-        # Одна успешная пачка backfill → дальше incremental (realtime).
-        return bool(result.articles) or result.reached_since or result.next_cursor is None
-
+    if soft_cap > 0 and outlet_event_count >= soft_cap:
+        return True
     if result.reached_since:
         return True
     if len(result.articles) >= max_articles:
@@ -91,22 +100,30 @@ async def _process_source(
     with session_scope() as session:
         cursor = get_or_create_cursor(session, source_key)
         outlet_count = count_events_for_outlet(session, source_key)
+        since = datetime.now(UTC) - timedelta(days=max(1, cfg.lookback_days))
         need_backfill = _need_backfill(
             backfill_complete=cursor.backfill_complete,
             outlet_event_count=outlet_count,
-            parser_mode=cfg.mode,
+            oldest_seen_at=cursor.oldest_seen_at,
+            lookback_since=since,
         )
         mode: CollectMode = "backfill" if need_backfill else "incremental"
         listing_cursor = cursor.listing_cursor
         previous_complete = cursor.backfill_complete
+        # Если снова открыли backfill после ложного complete — сбросить watermark листинга.
+        if need_backfill and previous_complete:
+            listing_cursor = None
+            previous_complete = False
 
-    since = datetime.now(UTC) - timedelta(days=cfg.lookback_days)
-    max_per_run = cfg.max_articles_per_source_per_run
-    if cfg.mode == "bootstrap":
-        max_per_run = min(max_per_run, cfg.bootstrap_articles_per_source)
+    max_per_run = max(1, cfg.max_articles_per_source_per_run)
+    soft_cap = max(0, cfg.bootstrap_articles_per_source)
+    # В bootstrap soft_cap ограничивает объём на outlet; за прогон не берём больше остатка.
+    if cfg.mode == "bootstrap" and soft_cap > 0:
+        remaining = max(0, soft_cap - outlet_count)
+        max_per_run = 0 if remaining == 0 else min(max_per_run, remaining)
 
     logger.info(
-        "Источник %s: mode=%s parser=%s since=%s cursor=%s max_per_run=%d pages=%d",
+        "Источник %s: mode=%s parser=%s since=%s cursor=%s max_per_run=%d pages=%d soft_cap=%d",
         source_key,
         mode,
         cfg.mode,
@@ -114,7 +131,20 @@ async def _process_source(
         listing_cursor,
         max_per_run,
         cfg.max_pages_per_run,
+        soft_cap,
     )
+
+    if max_per_run == 0:
+        with session_scope() as session:
+            cursor = get_or_create_cursor(session, source_key)
+            update_cursor(
+                session,
+                cursor,
+                backfill_complete=True,
+                last_run_at=datetime.now(UTC),
+                clear_error=True,
+            )
+        return False
 
     try:
         result = await asyncio.wait_for(
@@ -165,9 +195,8 @@ async def _process_source(
         mode=mode,
         result=result,
         max_articles=max_per_run,
-        parser_mode=cfg.mode,
         outlet_event_count=outlet_count + created,
-        bootstrap_target=cfg.bootstrap_articles_per_source,
+        soft_cap=soft_cap if cfg.mode == "bootstrap" else 0,
     )
     # Если упёрлись в лимит, а курсора нет — сохраняем listing_cursor как был,
     # чтобы не потерять прогресс; иначе пишем next_cursor.
@@ -385,7 +414,12 @@ async def run_news_parser() -> None:
                                 n = dump_events_snapshot(
                                     session,
                                     snap_path,
-                                    limit=max(100, cfg.bootstrap_articles_per_source * 6),
+                                    limit=max(
+                                        2000,
+                                        cfg.bootstrap_articles_per_source * 6
+                                        if cfg.bootstrap_articles_per_source > 0
+                                        else cfg.lookback_days * 400,
+                                    ),
                                 )
                             snapshot_dumped = n > 0
                             logger.info(

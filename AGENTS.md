@@ -61,9 +61,9 @@ sources → RawNewsArticle → ParserCandidate → persist_candidate → events
 - **6 outlets:** tass, ria (`ria.ru` export RSS), kommersant `/rubric/6`, msk1, mskagency, m24.
 - **Restart-safe:** таблица `news_parser_cursors`; unique `(source, source_msg_id)` на `events`.
 - **Режимы** (`news_parser.mode`):
-  - `bootstrap` — только RSS/incremental (без HTML-архивов), лимит `bootstrap_articles_per_source`;
-    после первого круга dump в `bootstrap_events.jsonl.gz`. **Не** делает 21d backfill.
-  - `production` — полный backfill до `lookback_days` (обычно 21), затем incremental.
+  - `bootstrap` / `production` — оба делают **backfill до `lookback_days`**, затем incremental;
+    bootstrap после завершения ещё пишет `bootstrap_events.jsonl.gz`.
+  - `bootstrap_articles_per_source: 0` — без потолка (весь lookback); `>0` — soft-cap на outlet.
 - **Geo:** только Москва. Каскад `resolve_article_geo` → `address_id` + `geo_by`
   (`city`|`street`|`home`):
   1) гео-поля источника; 2) текст (индекс / **StreetCatalog** stem+fuzzy / город);

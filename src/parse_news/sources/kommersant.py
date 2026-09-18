@@ -109,9 +109,10 @@ class KommersantSource(BaseNewsSource):
                 next_cursor = current_day.isoformat()
                 break
 
-            archive_url = (self.cfg.archive_url or _ARCHIVE_URL).format(
-                date=current_day.isoformat()
-            )
+            archive_tpl = self.cfg.archive_url or _ARCHIVE_URL
+            if "{date}" not in archive_tpl:
+                archive_tpl = _ARCHIVE_URL
+            archive_url = archive_tpl.format(date=current_day.isoformat())
             status, html = await fetch_optional(client, archive_url)
             if status != 200 or not html:
                 logger.warning("Коммерсант архив %s: HTTP %s", archive_url, status)
