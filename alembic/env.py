@@ -16,7 +16,6 @@ sys.path.insert(0, str(ROOT / "src"))
 # Импорт ORM-моделей — иначе metadata пустая и autogenerate ничего не увидит.
 import address.db  # noqa: E402, F401
 import auth.db  # noqa: E402, F401
-import chat_link.db  # noqa: E402, F401
 import events.db  # noqa: E402, F401
 import parse_news.db  # noqa: E402, F401
 import user_chat.db  # noqa: E402, F401

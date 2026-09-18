@@ -21,7 +21,6 @@ from address.db.queries import load_addresses
 from address.geocoding import GeoMatcher
 from address.seed import upsert_addresses
 from auth.db import UserRow  # noqa: F401 — зарегистрировать users в metadata
-from chat_link.db import ChatLinkRow  # noqa: F401 — зарегистрировать chat_links
 from events.db import EventRow
 from parse_news.db import NewsParserCursorRow  # noqa: F401
 from project.database import Base
@@ -40,7 +39,6 @@ class AddressSchemaTests(unittest.TestCase):
         "0007_address_components_geo_by",
         "0008_events_published_at",
         "0009_create_chats",
-        "0010_create_chat_links",
     )
 
     def setUp(self):

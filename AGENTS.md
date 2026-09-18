@@ -91,7 +91,7 @@ KAN-10 (чаты) и KAN-12 — отдельные воркеры; общая с
   - `GET /events/map?limit=` — точки карты по чатам пользователя.
 - Запись событий — **только handlers in-process** (`create_event` / …).
 - **Чаты (KAN-5):** модуль `user_chat`, таблицы `chats` + `users_chat`. `list_memberships_for_user` читает реальное членство и координаты из `Address`; `/start` сам по себе не добавляет пользователя в чат. Контракт: `src/user_chat/README.md`.
-- **Подключение чата (KAN-7):** `chat_link` содержит чистый onboarding-flow без MAX UI: адрес → существующий чат или заявка `chat_links`; admin approve в MVP auto-accept. Хранение чатов и membership остаётся в `user_chat`.
+- **Подключение чата (KAN-7):** отдельный модуль `chat_link` для onboarding; хранение чатов и membership относится к `user_chat`.
 - Шкала `importance`: `1` высокий приоритет, `2` важное, `3` бытовуха (не на карту).
 - `disaster_flag` — отдельный признак ЧС, не алиас класса 1.
 - `image_url` — главная фотка; `null` → фронт рисует карту с меткой.
