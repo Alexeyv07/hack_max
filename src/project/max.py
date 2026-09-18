@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sys
-
 from maxapi import Bot, Dispatcher
 
 from auth.commands import register_auth_commands
@@ -18,8 +16,7 @@ async def run_max_bot() -> None:
     settings = get_settings()
 
     if not settings.max.bot_token:
-        logger.error("MAX_BOT_TOKEN не задан — бот не может стартовать")
-        sys.exit(1)
+        raise RuntimeError("MAX_BOT_TOKEN не задан — бот не может стартовать")
 
     bot = Bot(settings.max.bot_token)
     dp = Dispatcher()

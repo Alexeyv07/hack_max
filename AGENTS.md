@@ -50,14 +50,38 @@ fetch → ParserCandidate  ──normalize──▶ EventDraft
 - Docker bot: extra `ml-runtime` (onnxruntime + transformers); веса из
   `ml/classify/artifacts` копируются в образ и монтируются в compose.
 
-Парсеров в репо пока нет — мокать кандидатами / сидом events для ленты ок.
-Сквозной флоу «источник → events» закрывается в тасках KAN-10/11/12.
+## News parser (KAN-11)
 
-```bash
-pip install torch --index-url https://download.pytorch.org/whl/cu124
-pip install -e ".[ml]"
-python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
+Модуль `src/parse_news/` — воркер новостных RSS/HTML-источников.
+
 ```
+sources → RawNewsArticle → ParserCandidate → persist_candidate → events
+```
+
+- **6 outlets:** tass, ria (`ria.ru` export RSS), kommersant `/rubric/6`, msk1, mskagency, m24.
+- **Restart-safe:** таблица `news_parser_cursors`; unique `(source, source_msg_id)` на `events`.
+- **Режимы** (`news_parser.mode`):
+  - `bootstrap` / `production` — оба делают **backfill до `lookback_days`**, затем incremental;
+    bootstrap после завершения ещё пишет `bootstrap_events.jsonl.gz`.
+  - `bootstrap_articles_per_source: 0` — без потолка (весь lookback); `>0` — soft-cap на outlet.
+- **Geo:** только Москва. Каскад `resolve_article_geo` → `address_id` + `geo_by`
+  (`city`|`street`|`home`):
+  1) гео-поля источника; 2) текст (индекс / **StreetCatalog** stem+fuzzy / город);
+  3) дефолт Москва **только** у локальных СМИ (`m24`/`msk1`/`mskagency`).
+  Федеральные (`tass`/`ria`/`kommersant`) без явного московского места → `address_id=null`.
+  Чужой город РФ → `null`. **Иностранные государства/области — статья не пишется в events**
+  (не новостник по Украине/СНГ/дальнему зарубежью).
+- **Лимит:** `max_articles_per_source_per_run` + `max_pages_per_run`;
+  `collect_timeout_seconds` — таймаут одного `collect` на outlet.
+  Вставка батчами `insert_batch_size`.
+- **ТАСС:** sitemap часто 403 → Google News RSS `site:tass.ru when:Nd`.
+- **Запуск:** `run_news_parser()` в `main.py` рядом с bot/api (supervised task).
+- **Smoke live:** `python scripts/smoke_news_collect.py` (`PYTHONPATH=src`) —
+  incremental, 1 страница по каждому enabled outlet.
+- Контракт: `src/parse_news/README.md`. Миграции: курсоры, addresses components,
+  `events.geo_by` / `published_at`.
+
+KAN-10 (чаты) и KAN-12 — отдельные воркеры; общая середина — `parser_common` (KAN-13).
 
 ## Events (KAN-14)
 
@@ -71,10 +95,14 @@ python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
 - Шкала `importance`: `1` высокий приоритет, `2` важное, `3` бытовуха (не на карту).
 - `disaster_flag` — отдельный признак ЧС, не алиас класса 1.
 - `image_url` — главная фотка; `null` → фронт рисует карту с меткой.
-- Гео события хранится через `events.address_id -> addresses.id`; `lat/lon` для API вычисляются из `Address`, в `events` не дублируются.
+- Гео события: `events.address_id -> addresses.id` + `events.geo_by`
+  (`city`|`street`|`home`); `lat/lon` для API из `Address`, в `events` не дублируются.
+  В `addresses` — компоненты `city` / `street` / `house`.
 - City feed: `importance=1` только с `disaster_flag=true`.
 - Map: `importance` 1–2; `category`: `catastrophe` | `important`.
-- Вес: `events.weight.compute_weight`. Дедуп (KAN-19) — хук в `create_event`.
+- Вес ленты: `0.5×relevance + 0.3×timeliness + 0.2×source_reliability`
+  (`events.weight`); reliability — в `news_parser.sources.*.reliability`.
+- Дедуп (KAN-19) — хук в `create_event`.
 
 ## Конфиг
 
@@ -95,7 +123,9 @@ pip install torch --index-url https://download.pytorch.org/whl/cu124
 pip install -e ".[ml]"
 python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
 # данные: ml/classify/DATA.md
-# ручной прогон: set PYTHONPATH=src & python scripts/classify_try.py
+# ручные утилиты:
+#   set PYTHONPATH=src & python scripts/classify_try.py
+#   set PYTHONPATH=src & python scripts/smoke_news_collect.py
 
 pytest
 ruff check src tests

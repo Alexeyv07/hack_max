@@ -16,7 +16,7 @@ database:
   name: hack_max
   user: hack_max
   password: hack_max
-  echo: true
+  echo: false
   pool_size: 5
   max_overflow: 10
 
@@ -32,5 +32,50 @@ events:
   city_radius_m: 30000
 
 runtime:
-  enable_bot: true
+  enable_bot: false
   enable_api: true
+  enable_news_parser: true
+
+news_parser:
+  # bootstrap|production: оба делают backfill до lookback_days; bootstrap ещё пишет snapshot.
+  # soft-cap на outlet: bootstrap_articles_per_source (0 = без потолка, весь lookback).
+  mode: production
+  lookback_days: 7
+  poll_interval_seconds: 120
+  request_timeout_seconds: 15
+  collect_timeout_seconds: 180
+  max_articles_per_source_per_run: 80
+  max_pages_per_run: 7
+  bootstrap_articles_per_source: 0
+  bootstrap_snapshot_path: src/parse_news/data/bootstrap_events.jsonl.gz
+  insert_batch_size: 25
+  early_stop_known_streak: 10
+  user_agent: "HackMaxNewsBot/1.0"
+  sources:
+    tass:
+      enabled: true
+      feed_url: "https://tass.ru/rss/v2.xml"
+      reliability: 0.92
+    ria:
+      enabled: true
+      feed_url: "https://ria.ru/export/rss2/index.xml"
+      reliability: 0.90
+    kommersant:
+      enabled: true
+      listing_url: "https://www.kommersant.ru/rubric/6"
+      archive_url: "https://www.kommersant.ru/archive/?date={date}"
+      reliability: 0.88
+    msk1:
+      enabled: true
+      feed_url: "https://msk1.ru/rss-feeds/rss.xml"
+      listing_url: "https://msk1.ru/text/?page={page}"
+      reliability: 0.82
+    mskagency:
+      enabled: true
+      listing_url: "https://www.mskagency.ru/lenta"
+      reliability: 0.80
+    m24:
+      enabled: true
+      feed_url: "https://www.m24.ru/rss.xml"
+      listing_url: "https://www.m24.ru/news"
+      reliability: 0.85

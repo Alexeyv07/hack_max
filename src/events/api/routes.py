@@ -34,6 +34,7 @@ def _to_feed_item(event: Event) -> FeedItemResponse:
         disaster_flag=event.disaster_flag,
         source_url=event.source_url,
         image_url=event.image_url,
+        geo_by=event.geo_by,
         created_at=event.created_at,
         updated_at=event.updated_at,
         distance_m=event.distance_m,

@@ -16,7 +16,7 @@ class FeedCursor:
 
 
 def encode_feed_cursor(cursor: FeedCursor) -> str:
-    raw = f"{cursor.weight:.6f}:{cursor.event_id}"
+    raw = f"{cursor.weight:.12f}:{cursor.event_id}"
     return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii").rstrip("=")
 
 
@@ -32,6 +32,9 @@ def decode_feed_cursor(token: str) -> FeedCursor:
 
 def is_after_cursor(*, weight: float, event_id: int, cursor: FeedCursor) -> bool:
     """True, если элемент идёт строго после cursor в порядке weight DESC, id DESC."""
-    if weight < cursor.weight:
+    # Допуск: weight в [0,1], курсор кодируется с конечной точностью.
+    if weight < cursor.weight - 1e-12:
         return True
-    return weight == cursor.weight and event_id < cursor.event_id
+    if abs(weight - cursor.weight) <= 1e-12:
+        return event_id < cursor.event_id
+    return False

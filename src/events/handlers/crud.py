@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
+from itertools import batched
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -77,11 +80,31 @@ def _get_address(session: Session, address_id: int | None) -> AddressRow | None:
     return address
 
 
-def _to_domain(row: EventRow, *, distance_m: float | None = None) -> Event:
+def _outlet_reliability_map() -> dict[str, float]:
+    try:
+        from project.config import get_settings
+
+        return {key: src.reliability for key, src in get_settings().news_parser.sources.items()}
+    except Exception:
+        return {}
+
+
+def _to_domain(
+    row: EventRow,
+    *,
+    distance_m: float | None = None,
+    now: datetime | None = None,
+) -> Event:
     weight = compute_weight(
         importance=row.importance,
         source=row.source,
         distance_m=distance_m,
+        geo_by=row.geo_by,
+        published_at=row.published_at,
+        created_at=row.created_at,
+        source_msg_id=row.source_msg_id,
+        outlet_reliability=_outlet_reliability_map(),
+        now=now,
     )
     address = row.address
     return Event(
@@ -98,10 +121,34 @@ def _to_domain(row: EventRow, *, distance_m: float | None = None) -> Event:
         disaster_flag=row.disaster_flag,
         source_url=row.source_url,
         image_url=row.image_url,
+        geo_by=row.geo_by,
+        published_at=row.published_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
         distance_m=distance_m,
     )
+
+
+def list_existing_source_msg_ids(
+    session: Session,
+    *,
+    source: EventSource | str,
+    source_msg_ids: Iterable[str],
+) -> set[str]:
+    normalized = _normalize_source(source)
+    unique_ids = list(dict.fromkeys(source_msg_ids))
+    if not unique_ids:
+        return set()
+    found: set[str] = set()
+    for batch in batched(unique_ids, 1000):
+        rows = session.scalars(
+            select(EventRow.source_msg_id).where(
+                EventRow.source == normalized,
+                EventRow.source_msg_id.in_(batch),
+            )
+        ).all()
+        found.update(row for row in rows if row is not None)
+    return found
 
 
 def create_event(session: Session, data: EventCreate) -> Event:
@@ -118,7 +165,15 @@ def create_event(session: Session, data: EventCreate) -> Event:
     """
     _validate_importance(data.importance)
     source = _normalize_source(data.source)
-    base_weight = compute_weight(importance=data.importance, source=source, distance_m=None)
+    base_weight = compute_weight(
+        importance=data.importance,
+        source=source,
+        distance_m=None,
+        geo_by=data.geo_by,
+        published_at=data.published_at,
+        source_msg_id=data.source_msg_id,
+        outlet_reliability=_outlet_reliability_map(),
+    )
 
     row = EventRow(
         title=data.title.strip(),
@@ -126,15 +181,17 @@ def create_event(session: Session, data: EventCreate) -> Event:
         importance=data.importance,
         source=source,
         address=_get_address(session, data.address_id),
+        geo_by=data.geo_by,
         weight=base_weight,
         source_msg_id=data.source_msg_id,
         disaster_flag=data.disaster_flag,
         source_url=data.source_url,
         image_url=data.image_url,
+        published_at=data.published_at,
     )
     session.add(row)
     session.flush()
-    logger.info(
+    logger.debug(
         "Событие создано id=%s importance=%s source=%s address_id=%s",
         row.id,
         row.importance,
@@ -165,8 +222,13 @@ def update_event(session: Session, event_id: int, data: EventUpdate) -> Event | 
         row.source = _normalize_source(data.source)
     if data.clear_address:
         row.address = None
+        row.geo_by = None
     elif data.address_id is not None:
         row.address = _get_address(session, data.address_id)
+        if data.geo_by is not None:
+            row.geo_by = data.geo_by
+    elif data.geo_by is not None:
+        row.geo_by = data.geo_by
     if data.source_msg_id is not None:
         row.source_msg_id = data.source_msg_id
     if data.disaster_flag is not None:
@@ -177,11 +239,18 @@ def update_event(session: Session, event_id: int, data: EventUpdate) -> Event | 
         row.image_url = None
     elif data.image_url is not None:
         row.image_url = data.image_url
+    if data.published_at is not None:
+        row.published_at = data.published_at
 
     row.weight = compute_weight(
         importance=row.importance,
         source=row.source,
         distance_m=None,
+        geo_by=row.geo_by,
+        published_at=row.published_at,
+        created_at=row.created_at,
+        source_msg_id=row.source_msg_id,
+        outlet_reliability=_outlet_reliability_map(),
     )
     session.flush()
     logger.info("Событие обновлено id=%s", row.id)
@@ -251,6 +320,7 @@ def list_feed(
 
     parsed: FeedCursor | None = decode_feed_cursor(cursor) if cursor else None
     scored: list[Event] = []
+    now = datetime.now(UTC)
 
     for row in _event_rows_with_address(session):
         distance_m = _distance_for_scope(row, memberships, scope=scope_value)
@@ -261,7 +331,7 @@ def list_feed(
             disaster_flag=row.disaster_flag,
         ):
             continue
-        event = _to_domain(row, distance_m=distance_m)
+        event = _to_domain(row, distance_m=distance_m, now=now)
         if parsed is not None and not is_after_cursor(
             weight=event.weight,
             event_id=event.id,

@@ -23,6 +23,10 @@ class FeedItemResponse(BaseModel):
     image_url: str | None = Field(
         description="Главная фото; null → фронт ставит превью карты с меткой",
     )
+    geo_by: str | None = Field(
+        default=None,
+        description="Точность гео: city | street | home",
+    )
     created_at: datetime | None = None
     updated_at: datetime | None = None
     distance_m: float | None = None
