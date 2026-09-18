@@ -80,6 +80,7 @@ def _seed_user_and_events(session_factory) -> None:
                 source="news",
                 address_id=nearby.id,
                 image_url="https://cdn.example/nearby.jpg",
+                geo_by="street",
             ),
         )
         crud.create_event(
@@ -90,6 +91,7 @@ def _seed_user_and_events(session_factory) -> None:
                 importance=3,
                 source="neighbors_chat",
                 address_id=cat.id,
+                geo_by="street",
             ),
         )
         crud.create_event(
@@ -97,9 +99,10 @@ def _seed_user_and_events(session_factory) -> None:
             EventCreate(
                 title="Far city",
                 body="b",
-                importance=3,
+                importance=2,
                 source="news",
                 address_id=far.id,
+                geo_by="city",
             ),
         )
         crud.create_event(
@@ -110,6 +113,7 @@ def _seed_user_and_events(session_factory) -> None:
                 importance=2,
                 source="news",
                 address_id=water.id,
+                geo_by="home",
             ),
         )
         # Без адреса — не должно попасть в ленту.
@@ -121,6 +125,7 @@ def _seed_user_and_events(session_factory) -> None:
                 importance=2,
                 source="news",
                 address_id=None,
+                geo_by="city",
             ),
         )
         session.commit()
@@ -153,7 +158,9 @@ def test_feed_shared_for_any_user_id(client) -> None:
     assert response.status_code == 200
     titles = {item["title"] for item in response.json()["items"]}
     assert "Nearby ok" in titles
-    assert "Far city" in titles
+    assert "Вода в районе" in titles
+    assert "Far city" not in titles
+    assert "Пропала кошка" not in titles
     assert "Без локации" not in titles
 
 

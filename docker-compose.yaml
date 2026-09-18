@@ -80,6 +80,8 @@ services:
     command:
       - "http"
       - "${NGROK_UPSTREAM:-webapp:5173}"
+      - "--request-header-add"
+      - "ngrok-skip-browser-warning:true"
       - "--log=stdout"
     ports:
       - "4040:4040"

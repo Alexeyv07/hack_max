@@ -21,10 +21,11 @@ from events.cursor import (
 from events.db.event import EventRow
 from events.models.event import Event, EventCreate, EventSource, EventUpdate
 from events.weight import (
-    allowed_in_city_feed,
+    allowed_in_feed,
     allowed_on_map,
     compute_weight,
     map_icon_category,
+    matches_feed_geo,
 )
 from project.logging_setup import get_logger
 
@@ -291,7 +292,11 @@ def list_feed(
     """
     TikTok-лента: одна выдача всем, keyset (weight DESC, id DESC).
 
-    Только события с address_id + непустым Address.address_text.
+    Правила:
+    - только события с address_id + непустым Address.address_text;
+    - importance 1|2 (3 не показываем ни в одной ленте);
+    - nearby → geo_by street|home; city → geo_by city;
+    - порядок по weight (затем id).
     """
     scope_value = EventScope(scope)
     if limit < 1:
@@ -302,10 +307,9 @@ def list_feed(
     now = datetime.now(UTC)
 
     for row in _event_rows_with_address(session):
-        if scope_value is EventScope.CITY and not allowed_in_city_feed(
-            importance=row.importance,
-            disaster_flag=row.disaster_flag,
-        ):
+        if not allowed_in_feed(importance=row.importance):
+            continue
+        if not matches_feed_geo(scope=scope_value.value, geo_by=row.geo_by):
             continue
         event = _to_domain(row, distance_m=None, now=now)
         if parsed is not None and not is_after_cursor(

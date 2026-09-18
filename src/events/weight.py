@@ -145,11 +145,34 @@ def _clamp01(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
 
 
+def allowed_in_feed(*, importance: int) -> bool:
+    """В лентах (nearby/city) нет бытовухи (importance=3)."""
+    return importance in (1, 2)
+
+
+def matches_feed_geo(*, scope: str, geo_by: str | None) -> bool:
+    """
+    Nearby — только street|home; city — только city.
+
+    Персонализация по чатам пока не используется.
+    """
+    if geo_by is None:
+        return False
+    value = geo_by.strip().lower()
+    if scope == "nearby":
+        return value in ("street", "home")
+    if scope == "city":
+        return value == "city"
+    return False
+
+
 def allowed_in_city_feed(*, importance: int, disaster_flag: bool) -> bool:
-    """В городской ленте importance=1 только при disaster_flag."""
+    """Устарело для ленты: см. allowed_in_feed + matches_feed_geo. Оставлено для тестов веса."""
+    if importance == 3:
+        return False
     if importance == 1:
         return disaster_flag
-    return importance in (2, 3)
+    return importance == 2
 
 
 def allowed_on_map(*, importance: int, disaster_flag: bool) -> bool:

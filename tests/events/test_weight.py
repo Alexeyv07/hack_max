@@ -8,10 +8,12 @@ import pytest
 
 from events.weight import (
     allowed_in_city_feed,
+    allowed_in_feed,
     allowed_on_map,
     compute_weight,
     haversine_m,
     map_icon_category,
+    matches_feed_geo,
     resolve_source_reliability,
     timeliness_score,
 )
@@ -82,6 +84,19 @@ def test_city_feed_hides_importance_1_unless_disaster() -> None:
     assert not allowed_in_city_feed(importance=1, disaster_flag=False)
     assert allowed_in_city_feed(importance=1, disaster_flag=True)
     assert allowed_in_city_feed(importance=2, disaster_flag=False)
+    assert not allowed_in_city_feed(importance=3, disaster_flag=False)
+
+
+def test_feed_rules_importance_and_geo() -> None:
+    assert allowed_in_feed(importance=1)
+    assert allowed_in_feed(importance=2)
+    assert not allowed_in_feed(importance=3)
+    assert matches_feed_geo(scope="nearby", geo_by="street")
+    assert matches_feed_geo(scope="nearby", geo_by="home")
+    assert not matches_feed_geo(scope="nearby", geo_by="city")
+    assert matches_feed_geo(scope="city", geo_by="city")
+    assert not matches_feed_geo(scope="city", geo_by="street")
+    assert not matches_feed_geo(scope="city", geo_by=None)
 
 
 def test_map_rules_and_categories() -> None:

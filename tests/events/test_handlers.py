@@ -140,6 +140,7 @@ def test_feed_nearby_city_and_cursor(db_session) -> None:
                 importance=2,
                 source="news",
                 address_id=address.id,
+                geo_by="street",
             ),
         )
 
@@ -152,9 +153,10 @@ def test_feed_nearby_city_and_cursor(db_session) -> None:
             importance=3,
             source="news",
             address_id=far_trivia.id,
+            geo_by="street",
         ),
     )
-    disaster = add_address(db_session, lat=55.84, lon=37.62, suffix="21")
+    city_only = add_address(db_session, lat=55.84, lon=37.62, suffix="21")
     crud.create_event(
         db_session,
         EventCreate(
@@ -162,8 +164,9 @@ def test_feed_nearby_city_and_cursor(db_session) -> None:
             body="x",
             importance=1,
             source="news",
-            address_id=disaster.id,
+            address_id=city_only.id,
             disaster_flag=True,
+            geo_by="city",
         ),
     )
     # Без адреса — не в ленте.
@@ -175,6 +178,20 @@ def test_feed_nearby_city_and_cursor(db_session) -> None:
             importance=2,
             source="news",
             address_id=None,
+            geo_by="city",
+        ),
+    )
+    # home тоже в nearby
+    home_addr = add_address(db_session, lat=55.76, lon=37.63, suffix="22")
+    crud.create_event(
+        db_session,
+        EventCreate(
+            title="Дом рядом",
+            body="x",
+            importance=2,
+            source="news",
+            address_id=home_addr.id,
+            geo_by="home",
         ),
     )
 
@@ -185,16 +202,22 @@ def test_feed_nearby_city_and_cursor(db_session) -> None:
     )
     assert len(page1.items) == 2
     assert page1.next_cursor is not None
+    assert all(item.geo_by in ("street", "home") for item in page1.items)
+    assert all(item.importance != 3 for item in page1.items)
 
     page2 = crud.list_feed(
         db_session,
         scope="nearby",
-        limit=2,
+        limit=4,
         cursor=page1.next_cursor,
     )
     ids1 = {item.id for item in page1.items}
     ids2 = {item.id for item in page2.items}
     assert ids1.isdisjoint(ids2)
+    nearby_titles = {item.title for item in page1.items} | {item.title for item in page2.items}
+    assert "Дом рядом" in nearby_titles
+    assert "Катастрофа город" not in nearby_titles
+    assert "Бытовуха далеко" not in nearby_titles
 
     city = crud.list_feed(
         db_session,
@@ -202,9 +225,11 @@ def test_feed_nearby_city_and_cursor(db_session) -> None:
         limit=50,
     )
     titles = {item.title for item in city.items}
-    assert "Бытовуха далеко" in titles
+    assert "Бытовуха далеко" not in titles
     assert "Катастрофа город" in titles
     assert "Нет адреса" not in titles
+    assert "Дом рядом" not in titles
+    assert all(item.geo_by == "city" for item in city.items)
 
 
 def test_feed_same_for_all(db_session) -> None:
@@ -217,6 +242,7 @@ def test_feed_same_for_all(db_session) -> None:
             importance=2,
             source="news",
             address_id=address.id,
+            geo_by="street",
         ),
     )
     assert created.location == address.address_text

@@ -8,6 +8,9 @@
 	let { event }: Props = $props();
 
 	let imageExpanded = $state(false);
+	let bodyExpanded = $state(false);
+	let needsMore = $state(false);
+	let descriptionEl: HTMLParagraphElement | undefined = $state();
 
 	const importanceColor = $derived(
 		event.disaster_flag || event.importance === 1
@@ -45,6 +48,32 @@
 			manual: 'Вручную'
 		};
 		return map[source] ?? source;
+	}
+
+	function measureOverflow() {
+		const el = descriptionEl;
+		if (!el || bodyExpanded) {
+			needsMore = false;
+			return;
+		}
+		needsMore = el.scrollHeight > el.clientHeight + 1;
+	}
+
+	$effect(() => {
+		// Сброс при смене карточки / текста.
+		void event.id;
+		void event.body;
+		bodyExpanded = false;
+		needsMore = false;
+		const id = requestAnimationFrame(() => {
+			requestAnimationFrame(measureOverflow);
+		});
+		return () => cancelAnimationFrame(id);
+	});
+
+	function expandBody() {
+		bodyExpanded = true;
+		needsMore = false;
 	}
 
 	function closeLightbox() {
@@ -93,7 +122,18 @@
 			{event.title}
 		</h2>
 
-		<p class="description">{event.body}</p>
+		<div class="description-wrap">
+			<p
+				class="description"
+				class:expanded={bodyExpanded}
+				bind:this={descriptionEl}
+			>
+				{event.body}
+			</p>
+			{#if needsMore && !bodyExpanded}
+				<button type="button" class="more" onclick={expandBody}>ещё</button>
+			{/if}
+		</div>
 
 		<footer class="meta">
 			<span class="meta-line">
@@ -194,6 +234,7 @@
 		display: flex;
 		align-items: flex-start;
 		gap: 0.45rem;
+		flex-shrink: 0;
 	}
 
 	.disaster {
@@ -202,14 +243,46 @@
 		margin-top: 0.1rem;
 	}
 
+	.description-wrap {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+		position: relative;
+	}
+
 	.description {
 		margin: 0;
 		flex: 1;
-		overflow: auto;
+		min-height: 0;
+		overflow: hidden;
 		font-size: 0.95rem;
 		line-height: 1.45;
 		opacity: 0.88;
 		white-space: pre-wrap;
+	}
+
+	.description.expanded {
+		overflow: auto;
+	}
+
+	.more {
+		align-self: flex-start;
+		margin-top: 0.35rem;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: #4da3ff;
+		font: inherit;
+		font-size: 0.95rem;
+		font-weight: 600;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.more:hover {
+		text-decoration: underline;
+		text-underline-offset: 2px;
 	}
 
 	.meta {
@@ -217,6 +290,7 @@
 		opacity: 0.72;
 		padding-top: 0.35rem;
 		border-top: 1px solid rgba(255, 255, 255, 0.08);
+		flex-shrink: 0;
 	}
 
 	.meta-line {
