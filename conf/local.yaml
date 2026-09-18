@@ -50,6 +50,8 @@ news_parser:
   bootstrap_snapshot_path: src/parse_news/data/bootstrap_events.jsonl.gz
   insert_batch_size: 25
   early_stop_known_streak: 10
+  source_pause_seconds: 0.5
+  backfill_pause_seconds: 2.0
   user_agent: "HackMaxNewsBot/1.0"
   sources:
     tass:

@@ -45,6 +45,8 @@ news_parser:
   bootstrap_articles_per_source: 0
   insert_batch_size: 25
   early_stop_known_streak: 15
+  source_pause_seconds: 0.5
+  backfill_pause_seconds: 2.0
   user_agent: "HackMaxNewsBot/1.0"
   sources:
     tass:
