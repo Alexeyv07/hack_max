@@ -1,7 +1,7 @@
 """Чаты соседей и участники.
 
-Revision ID: 0006_create_chats
-Revises: 0005_event_address_fk
+Revision ID: 0009_create_chats
+Revises: 0008_events_published_at
 """
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0006_create_chats"
-down_revision: str | None = "0005_event_address_fk"
+revision: str = "0009_create_chats"
+down_revision: str | None = "0008_events_published_at"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

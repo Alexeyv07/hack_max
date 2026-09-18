@@ -26,7 +26,7 @@ users.id  ← users_chat.user_id
 - `users.chat_id` из auth — контекст взаимодействия с ботом. Он не используется
   для автоматического создания membership и не переносится миграцией в `users_chat`.
 
-Миграция: `0005_event_address_fk → 0006_create_chats`.
+Миграция: `0008_events_published_at → 0009_create_chats`.
 
 ## Вызовы
 
