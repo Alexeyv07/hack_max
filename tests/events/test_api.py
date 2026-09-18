@@ -1,4 +1,4 @@
-"""Тесты HTTP API: feed + map по X-Max-User-Id и реальному членству в БД."""
+"""Тесты HTTP API: feed + map по X-Max-User-Id (общая лента)."""
 
 from __future__ import annotations
 
@@ -80,6 +80,7 @@ def _seed_user_and_events(session_factory) -> None:
                 source="news",
                 address_id=nearby.id,
                 image_url="https://cdn.example/nearby.jpg",
+                geo_by="street",
             ),
         )
         crud.create_event(
@@ -90,6 +91,7 @@ def _seed_user_and_events(session_factory) -> None:
                 importance=3,
                 source="neighbors_chat",
                 address_id=cat.id,
+                geo_by="street",
             ),
         )
         crud.create_event(
@@ -97,9 +99,10 @@ def _seed_user_and_events(session_factory) -> None:
             EventCreate(
                 title="Far city",
                 body="b",
-                importance=3,
+                importance=2,
                 source="news",
                 address_id=far.id,
+                geo_by="city",
             ),
         )
         crud.create_event(
@@ -110,6 +113,19 @@ def _seed_user_and_events(session_factory) -> None:
                 importance=2,
                 source="news",
                 address_id=water.id,
+                geo_by="home",
+            ),
+        )
+        # Без адреса — не должно попасть в ленту.
+        crud.create_event(
+            session,
+            EventCreate(
+                title="Без локации",
+                body="skip",
+                importance=2,
+                source="news",
+                address_id=None,
+                geo_by="city",
             ),
         )
         session.commit()
@@ -130,14 +146,22 @@ def test_feed_requires_user_header(client) -> None:
     assert response.status_code == 401
 
 
-def test_feed_unknown_user(client) -> None:
-    test_client, _ = client
+def test_feed_shared_for_any_user_id(client) -> None:
+    """Header обязателен, чаты не нужны — одна лента всем."""
+    test_client, session_factory = client
+    _seed_user_and_events(session_factory)
     response = test_client.get(
         "/events/feed",
         params={"scope": "nearby"},
         headers={"X-Max-User-Id": "999"},
     )
-    assert response.status_code == 404
+    assert response.status_code == 200
+    titles = {item["title"] for item in response.json()["items"]}
+    assert "Nearby ok" in titles
+    assert "Вода в районе" in titles
+    assert "Far city" not in titles
+    assert "Пропала кошка" not in titles
+    assert "Без локации" not in titles
 
 
 def test_feed_and_cursor(client) -> None:
@@ -153,9 +177,21 @@ def test_feed_and_cursor(client) -> None:
     body = first.json()
     assert body["count"] == 1
     assert body["next_cursor"] is not None
-    assert body["items"][0]["image_url"] == "https://cdn.example/nearby.jpg"
-    assert body["items"][0]["lat"] == 55.75
-    assert body["items"][0]["lon"] == 37.62
+    item = body["items"][0]
+    assert item["lat"] is not None
+    assert item["lon"] is not None
+    assert item["location"]
+    assert "published_at" in item
+
+    full = test_client.get(
+        "/events/feed",
+        params={"scope": "nearby", "limit": 50},
+        headers=USER_HEADERS,
+    )
+    assert full.status_code == 200
+    by_title = {i["title"]: i for i in full.json()["items"]}
+    assert by_title["Nearby ok"]["image_url"] == "https://cdn.example/nearby.jpg"
+    assert "Без локации" not in by_title
 
     second = test_client.get(
         "/events/feed",
@@ -176,19 +212,9 @@ def test_map_only_important(client) -> None:
     assert "Nearby ok" in titles
     assert "Вода в районе" in titles
     assert "Пропала кошка" not in titles
-    assert "Far city" not in titles
 
 
-def test_registered_user_without_membership_has_no_feed(client) -> None:
-    test_client, session_factory = client
-    _seed_user_and_events(session_factory)
-    with session_factory.begin() as session:
-        authorize_user(session, MaxUserPayload(max_user_id=999))
-    response = test_client.get("/events/feed", headers={"X-Max-User-Id": "999"})
-    assert response.status_code == 404
-
-
-def test_feed_uses_each_users_actual_chat_address(client) -> None:
+def test_same_feed_for_different_users(client) -> None:
     test_client, session_factory = client
     _seed_user_and_events(session_factory)
     with session_factory.begin() as session:
@@ -198,11 +224,13 @@ def test_feed_uses_each_users_actual_chat_address(client) -> None:
         )
         create_chat(session, ChatCreate(chat_id=900_002, address_id=address.id))
         add_user_to_chat(session, 900_002, max_user_id=999)
-    response = test_client.get(
+
+    a = test_client.get("/events/feed", params={"scope": "nearby"}, headers=USER_HEADERS)
+    b = test_client.get(
         "/events/feed", params={"scope": "nearby"}, headers={"X-Max-User-Id": "999"}
     )
-    assert response.status_code == 200
-    assert [item["title"] for item in response.json()["items"]] == ["Far city"]
+    assert a.status_code == 200 and b.status_code == 200
+    assert [i["id"] for i in a.json()["items"]] == [i["id"] for i in b.json()["items"]]
 
 
 def test_write_endpoints_removed(client) -> None:

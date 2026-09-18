@@ -7,9 +7,8 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
-	<title>Умный город · Max</title>
+	<meta name="theme-color" content="#0a1014" />
+	<title>Новости · Умный город</title>
 </svelte:head>
 
-<div class="app-shell">
-	{@render children()}
-</div>
+{@render children()}
