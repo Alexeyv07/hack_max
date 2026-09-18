@@ -21,6 +21,10 @@ database:
 max:
   api_base_url: https://botapi.max.ru
 
+docs:
+  url: https://alexeyv07.github.io/hack_max/docs/
+  github_url: https://github.com/Alexeyv07/hack_max
+
 api:
   host: 0.0.0.0
   port: 8000

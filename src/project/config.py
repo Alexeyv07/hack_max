@@ -77,6 +77,8 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "ENABLE_NEWS_PARSER": "runtime.enable_news_parser",
         "EVENTS_NEARBY_RADIUS_M": "events.nearby_radius_m",
         "EVENTS_CITY_RADIUS_M": "events.city_radius_m",
+        "DOCS_URL": "docs.url",
+        "DOCS_GITHUB_URL": "docs.github_url",
     }
 
     for env_key, dotted in alias_map.items():
@@ -190,6 +192,14 @@ class RuntimeConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class DocsConfig:
+    """Публичные ссылки проекта (Pages + GitHub)."""
+
+    url: str = "https://alexeyv07.github.io/hack_max/docs/"
+    github_url: str = "https://github.com/Alexeyv07/hack_max"
+
+
+@dataclass(frozen=True, slots=True)
 class Settings:
     environment: str
     app: AppConfig = field(default_factory=AppConfig)
@@ -200,6 +210,7 @@ class Settings:
     events: EventsConfig = field(default_factory=EventsConfig)
     news_parser: NewsParserConfig = field(default_factory=NewsParserConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    docs: DocsConfig = field(default_factory=DocsConfig)
 
 
 def _parse_news_sources(raw: Any) -> dict[str, NewsSourceConfig]:
@@ -255,6 +266,7 @@ def load_settings() -> Settings:
     events_raw = raw.get("events") or {}
     news_parser_raw = raw.get("news_parser") or {}
     runtime_raw = raw.get("runtime") or {}
+    docs_raw = raw.get("docs") or {}
 
     return Settings(
         environment=environment,
@@ -321,6 +333,10 @@ def load_settings() -> Settings:
             enable_bot=bool(runtime_raw.get("enable_bot", True)),
             enable_api=bool(runtime_raw.get("enable_api", True)),
             enable_news_parser=bool(runtime_raw.get("enable_news_parser", True)),
+        ),
+        docs=DocsConfig(
+            url=str(docs_raw.get("url", "https://alexeyv07.github.io/hack_max/docs/")),
+            github_url=str(docs_raw.get("github_url", "https://github.com/Alexeyv07/hack_max")),
         ),
     )
 

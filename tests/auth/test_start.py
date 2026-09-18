@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import auth.commands.start as start
+from project.config import get_settings
 
 
 class FakeDispatcher:
@@ -42,7 +43,7 @@ def test_welcome_text_contains_product_description_and_docs() -> None:
     assert text.startswith("Привет, Алексей!")
     assert "важными событиями" in text
     assert "рядом с вашим домом" in text
-    assert start.DOCS_URL in text
+    assert get_settings().docs.url in text
     assert "Подробнее о проекте" in text
 
 

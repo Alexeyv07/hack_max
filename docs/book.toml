@@ -1,0 +1,20 @@
+[book]
+title = "Умный город"
+authors = ["hack_max"]
+description = "Документация бота и WebApp «Умный город» для мессенджера Max"
+language = "ru"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/Alexeyv07/hack_max"
+edit-url-template = "https://github.com/Alexeyv07/hack_max/edit/main/docs/{path}"
+site-url = "/hack_max/docs/"
+additional-js = ["mermaid.min.js", "mermaid-init.js"]

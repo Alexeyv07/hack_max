@@ -1,0 +1,51 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/mdbook.yaml"
+  workflow_dispatch:
+
+jobs:
+  publish-docs:
+    name: Build and Deploy Documentation
+    runs-on: ubuntu-latest
+    concurrency:
+      group: gh-pages-deploy
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install mdBook
+        run: |
+          cargo install mdbook --locked
+          cargo install mdbook-mermaid
+
+      - name: Install mermaid theme assets
+        run: mdbook-mermaid install docs
+
+      - name: Build documentation
+        run: mdbook build docs
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.PAT }}
+          publish_dir: docs/book
+          publish_branch: gh-pages
+          destination_dir: docs
+          keep_files: true
+          enable_jekyll: false
+          commit_message: "DOCS: Deploy mdBook documentation to GitHub Pages"
+
+      - name: Output deployment URL
+        run: |
+          echo "✅ Документация опубликована!"
+          echo "📖 Доступна по адресу: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/docs"
