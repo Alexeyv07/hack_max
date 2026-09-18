@@ -79,9 +79,10 @@ def test_new_migration_reversible_and_does_not_infer_membership(engine) -> None:
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
     scripts = ScriptDirectory.from_config(config)
     revision = scripts.get_revision("0009_create_chats")
-    assert scripts.get_current_head() == revision.revision
     assert revision.down_revision == "0008_events_published_at"
     with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
+        chat_links_revision = scripts.get_revision("0010_create_chat_links")
+        chat_links_revision.module.downgrade()
         revision.module.downgrade()
         connection.execute(insert(UserRow).values(max_user_id=7, chat_id=42))
         revision.module.upgrade()
@@ -92,6 +93,8 @@ def test_new_migration_reversible_and_does_not_infer_membership(engine) -> None:
             "user_id",
             "chat_id",
         ]
+        chat_links_revision.module.upgrade()
+        chat_links_revision.module.downgrade()
         revision.module.downgrade()
         assert "users_chat" not in inspect(connection).get_table_names()
         assert "chats" not in inspect(connection).get_table_names()
