@@ -6,7 +6,17 @@ from typing import Any
 
 from maxapi.filters.command import CommandStart
 
+from auth.commands.webapp_keyboard import build_webapp_keyboard
 from auth.handlers.authorize import authorize_from_event
+
+
+def _welcome_text(name: str, *, returning: bool) -> str:
+    if returning:
+        return f"Снова привет, {name}!\n\nОткрой ленту новостей района — кнопка ниже."
+    return (
+        f"Привет, {name}! Вы авторизованы.\n\n"
+        "Нажми кнопку, чтобы открыть мини-приложение «Умный город»."
+    )
 
 
 def register_auth_commands(dp: Any, bot: Any) -> None:
@@ -19,9 +29,11 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             return
 
         name = user.name or user.username or "друг"
+        keyboard = await build_webapp_keyboard(bot)
         await bot.send_message(
             chat_id=event.chat_id,
-            text=f"Привет, {name}! Вы авторизованы.",
+            text=_welcome_text(name, returning=False),
+            attachments=[keyboard],
         )
 
     @dp.message_created(CommandStart())
@@ -31,4 +43,8 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             return
 
         name = user.name or user.username or "друг"
-        await event.message.answer(f"Снова привет, {name}!")
+        keyboard = await build_webapp_keyboard(bot)
+        await event.message.answer(
+            text=_welcome_text(name, returning=True),
+            attachments=[keyboard],
+        )

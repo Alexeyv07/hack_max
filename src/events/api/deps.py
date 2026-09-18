@@ -9,8 +9,6 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from project.database import get_session_factory
-from user_chat.handlers.membership import list_memberships_for_user
-from user_chat.models.membership import ChatMembership
 
 
 def get_db_session() -> Generator[Session, None, None]:
@@ -41,8 +39,7 @@ def get_max_user_id(
     """
     Идентификация пользователя для webapp.
 
-    Пока без проверки initData Max: фронт передаёт max_user_id в заголовке.
-    Бот уже пишет того же пользователя в `users` на /start.
+    Фронт берёт id из Max Bridge (initDataUnsafe.user.id) и шлёт в заголовке.
     """
     if x_max_user_id is None:
         raise HTTPException(
@@ -50,17 +47,3 @@ def get_max_user_id(
             detail="Нужен заголовок X-Max-User-Id",
         )
     return x_max_user_id
-
-
-def get_user_memberships(
-    session: DbSession,
-    max_user_id: Annotated[int, Depends(get_max_user_id)],
-) -> list[ChatMembership]:
-    """Чаты пользователя → гео из Address для feed/map."""
-    memberships = list_memberships_for_user(session, max_user_id)
-    if not memberships:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Пользователь не найден или не состоит в чатах. Зарегистрируйтесь в боте и подключите чат.",
-        )
-    return memberships

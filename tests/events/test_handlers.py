@@ -1,4 +1,4 @@
-"""Тесты handlers: CRUD in-process + feed/map по memberships."""
+"""Тесты handlers: CRUD in-process + feed/map."""
 
 from __future__ import annotations
 
@@ -9,18 +9,6 @@ import pytest
 from address.db.address import AddressRow
 from events.handlers import crud
 from events.models.event import EventCreate, EventSource, EventUpdate
-from user_chat.models.membership import ChatMembership
-
-MOCK_MEMBERSHIPS = [
-    ChatMembership(
-        chat_id=1,
-        title="demo",
-        lat=55.75,
-        lon=37.62,
-        nearby_radius_m=3000,
-        city_radius_m=30000,
-    )
-]
 
 
 def add_address(db_session, *, lat: float, lon: float, suffix: str) -> AddressRow:
@@ -178,11 +166,21 @@ def test_feed_nearby_city_and_cursor(db_session) -> None:
             disaster_flag=True,
         ),
     )
+    # Без адреса — не в ленте.
+    crud.create_event(
+        db_session,
+        EventCreate(
+            title="Нет адреса",
+            body="x",
+            importance=2,
+            source="news",
+            address_id=None,
+        ),
+    )
 
     page1 = crud.list_feed(
         db_session,
         scope="nearby",
-        memberships=MOCK_MEMBERSHIPS,
         limit=2,
     )
     assert len(page1.items) == 2
@@ -191,7 +189,6 @@ def test_feed_nearby_city_and_cursor(db_session) -> None:
     page2 = crud.list_feed(
         db_session,
         scope="nearby",
-        memberships=MOCK_MEMBERSHIPS,
         limit=2,
         cursor=page1.next_cursor,
     )
@@ -202,12 +199,35 @@ def test_feed_nearby_city_and_cursor(db_session) -> None:
     city = crud.list_feed(
         db_session,
         scope="city",
-        memberships=MOCK_MEMBERSHIPS,
         limit=50,
     )
     titles = {item.title for item in city.items}
     assert "Бытовуха далеко" in titles
     assert "Катастрофа город" in titles
+    assert "Нет адреса" not in titles
+
+
+def test_feed_same_for_all(db_session) -> None:
+    address = add_address(db_session, lat=55.75, lon=37.62, suffix="40")
+    created = crud.create_event(
+        db_session,
+        EventCreate(
+            title="Общее",
+            body="x",
+            importance=2,
+            source="news",
+            address_id=address.id,
+        ),
+    )
+    assert created.location == address.address_text
+
+    page = crud.list_feed(
+        db_session,
+        scope="nearby",
+        limit=20,
+    )
+    assert [item.id for item in page.items] == [created.id]
+    assert page.items[0].location
 
 
 def test_map_excludes_trivia(db_session) -> None:
@@ -247,7 +267,7 @@ def test_map_excludes_trivia(db_session) -> None:
         ),
     )
 
-    points = crud.list_map_points(db_session, memberships=MOCK_MEMBERSHIPS)
+    points = crud.list_map_points(db_session)
     titles = {p.title for p in points}
     assert "Отключили воду" in titles
     assert "ЧС" in titles

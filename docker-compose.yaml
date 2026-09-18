@@ -35,6 +35,9 @@ services:
       DATABASE_PASSWORD: hack_max
       TRANSFORMERS_OFFLINE: "1"
       HF_HUB_OFFLINE: "1"
+    ports:
+      # API из main (runtime.enable_api) — для webapp proxy / локального :8000
+      - "8000:8000"
     volumes:
       - ./src:/app/src
       - ./conf:/app/conf
@@ -47,7 +50,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # Полный стек в Docker. Локально: npm run dev в webapp/
   webapp:
     image: node:22-alpine
     container_name: hack_max_webapp
@@ -60,7 +62,31 @@ services:
       - webapp_node_modules:/app/node_modules
     environment:
       NODE_ENV: development
+      # По умолчанию API на хосте (python -m main). Для bot в compose:
+      #   API_PROXY_TARGET=http://bot:8000
+      API_PROXY_TARGET: ${API_PROXY_TARGET:-http://host.docker.internal:8000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: hack_max_ngrok
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK:?Set NGROK=... in .env (ngrok authtoken)}
+    command:
+      - "http"
+      - "${NGROK_UPSTREAM:-webapp:5173}"
+      - "--log=stdout"
+    ports:
+      - "4040:4040"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - webapp
 
 volumes:
   postgres_data:

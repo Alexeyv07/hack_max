@@ -71,6 +71,8 @@ class Event:
     source_url: str | None
     image_url: str | None
     geo_by: str | None = None
+    # Текст адреса для UI (из Address.address_text); None если нет привязки.
+    location: str | None = None
     published_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

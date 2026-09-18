@@ -88,7 +88,89 @@ python scripts/smoke_news_collect.py --outlet m24
 
 ## Режимы запуска
 
-### A. Локально: bot + webapp на хосте, Postgres в Docker
+Нужен `.env` из `.env.example` (`MAX_BOT_TOKEN`, для туннеля Max — `NGROK`).
+
+### Postgres (общий для всех флоу)
+
+```bash
+docker compose up -d postgres
+```
+
+`conf/local.yaml` → `localhost:5432`.
+
+---
+
+### WebApp: два флоу
+
+Публичный HTTPS для мини-приложения Max даёт сервис **ngrok** в Compose  
+(локально ставить ngrok **не нужно**). Секрет: `NGROK=` в `.env`  
+(токен: https://dashboard.ngrok.com/get-started/your-authtoken).
+
+Актуальный URL после старта туннеля:
+
+```bash
+python scripts/ngrok_url.py
+# или инспектор http://localhost:4040
+```
+
+URL вида `https://….ngrok-free.dev` вставляется в настройки бота на платформе MAX.  
+Если туннель не запущен — ссылка отвечает 404 (это нормально).
+
+#### Флоу 1 — webapp в Docker
+
+API/бот на хосте, webapp + ngrok в контейнерах:
+
+```bash
+# терминал 1 — API (и опционально бот)
+python -m venv .venv
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate     # Linux/macOS
+pip install -e ".[dev]"
+alembic upgrade head
+python -m main
+# → http://localhost:8000
+
+# терминал 2 — webapp + публичный туннель
+docker compose up -d webapp ngrok
+# локально: http://localhost:5173
+# публично: python scripts/ngrok_url.py
+```
+
+Compose webapp проксирует `/api` на `host.docker.internal:8000`  
+(хостовый `python -m main`). Переопределение: `API_PROXY_TARGET=…`.
+
+#### Флоу 2 — webapp локально в терминале
+
+Всё на хосте, в Docker только Postgres (+ при необходимости только ngrok):
+
+```bash
+# терминал 1 — API
+python -m main
+
+# терминал 2 — webapp
+cd webapp
+npm install
+npm run dev
+# → http://localhost:5173  (прокси /api → :8000)
+```
+
+Публичный URL для Max (опционально), пока Vite уже слушает `:5173`:
+
+```bash
+# Windows PowerShell
+$env:NGROK_UPSTREAM="host.docker.internal:5173"
+docker compose up -d ngrok
+python scripts/ngrok_url.py
+```
+
+```bash
+# Linux/macOS
+NGROK_UPSTREAM=host.docker.internal:5173 docker compose up -d ngrok
+```
+
+---
+
+### A. Локально: bot + API на хосте (без webapp-Docker)
 
 ```bash
 docker compose up -d postgres
@@ -98,17 +180,14 @@ python -m venv .venv
 # source .venv/bin/activate     # Linux/macOS
 pip install -e ".[dev]"
 pre-commit install
-copy .env.example .env          # указать MAX_BOT_TOKEN
+copy .env.example .env          # MAX_BOT_TOKEN, при необходимости NGROK
 
 alembic upgrade head
 python -m address.seed src/address/data/moscow.jsonl.gz
 python -m main
 
-# HTTP API: http://localhost:8000/docs  (если runtime.enable_api=true)
-# Отключить бот или API: conf/local.yaml → runtime.enable_bot / enable_api
-
-# в другом терминале
-cd webapp && npm install && npm run dev
+# HTTP API: http://localhost:8000/docs  (runtime.enable_api=true)
+# Дальше — флоу 1 или флоу 2 для webapp (см. выше)
 ```
 
 Тесты:
@@ -117,8 +196,6 @@ cd webapp && npm install && npm run dev
 pip install -e ".[dev]"
 pytest
 ```
-
-`conf/local.yaml` смотрит на `localhost:5432` — это порт Postgres из Docker.
 
 ### B. Всё в Docker
 

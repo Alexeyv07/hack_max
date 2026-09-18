@@ -1,4 +1,4 @@
-"""HTTP-роуты событий — GET по пользователю и его чатам (без lat/lon/radius в query)."""
+"""HTTP-роуты событий — GET лента/карта (общая выдача всем, только с адресом)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from events.api.deps import DbSession, get_user_memberships
+from events.api.deps import DbSession, get_max_user_id
 from events.api.schemas import (
     FeedItemResponse,
     FeedResponse,
@@ -15,7 +15,6 @@ from events.api.schemas import (
 )
 from events.handlers import crud
 from events.models.event import Event
-from user_chat.models.membership import ChatMembership
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -35,6 +34,8 @@ def _to_feed_item(event: Event) -> FeedItemResponse:
         source_url=event.source_url,
         image_url=event.image_url,
         geo_by=event.geo_by,
+        location=event.location,
+        published_at=event.published_at,
         created_at=event.created_at,
         updated_at=event.updated_at,
         distance_m=event.distance_m,
@@ -45,19 +46,23 @@ def _to_feed_item(event: Event) -> FeedItemResponse:
 def get_feed(
     scope: Annotated[crud.EventScope, Query()],
     session: DbSession,
-    memberships: Annotated[list[ChatMembership], Depends(get_user_memberships)],
+    max_user_id: Annotated[int, Depends(get_max_user_id)],
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     cursor: Annotated[
         str | None,
         Query(description="Opaque cursor с предыдущей страницы (не offset)"),
     ] = None,
 ) -> FeedResponse:
-    """TikTok-лента nearby|city: гео из чатов пользователя (X-Max-User-Id)."""
+    """
+    TikTok-лента nearby|city: одна выдача всем.
+
+    Только события с определённым адресом. X-Max-User-Id обязателен (идентификация).
+    """
+    _ = max_user_id
     try:
         page = crud.list_feed(
             session,
             scope=scope,
-            memberships=memberships,
             limit=limit,
             cursor=cursor,
         )
@@ -78,16 +83,13 @@ def get_feed(
 @router.get("/map", response_model=MapResponse)
 def get_map(
     session: DbSession,
-    memberships: Annotated[list[ChatMembership], Depends(get_user_memberships)],
+    max_user_id: Annotated[int, Depends(get_max_user_id)],
     limit: Annotated[int, Query(ge=1, le=1000)] = 500,
 ) -> MapResponse:
-    """Точки карты по чатам пользователя: title, importance, category для Yandex."""
+    """Точки карты: все события с адресом (правила importance/map)."""
+    _ = max_user_id
     try:
-        points = crud.list_map_points(
-            session,
-            memberships=memberships,
-            limit=limit,
-        )
+        points = crud.list_map_points(session, limit=limit)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

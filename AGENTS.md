@@ -86,15 +86,21 @@ KAN-10 (чаты) и KAN-12 — отдельные воркеры; общая с
 ## Events (KAN-14)
 
 - Финальные события в таблице `events` (не сырые кандидаты парсеров).
-- **HTTP только чтение** для webapp; идентификация: заголовок `X-Max-User-Id` (тот же Max user, что знает бот).
-  - `GET /events/feed?scope=nearby|city&cursor=&limit=` — TikTok-лента; гео из **чатов пользователя**, не из query.
-  - `GET /events/map?limit=` — точки карты по чатам пользователя.
+- **HTTP только чтение** для webapp; идентификация: заголовок `X-Max-User-Id`
+  (фронт берёт id из Max Bridge `initDataUnsafe.user.id`).
+  - `GET /events/feed?scope=nearby|city&cursor=&limit=` — TikTok-лента.
+  - `GET /events/map?limit=` — точки карты.
+- Лента/карта **общие для всех** (без фильтра по чатам пользователя).
+- В ленту попадают **только** события с `address_id` и непустым `Address.address_text`.
+- Ответ feed item: `title`, `body`, `importance`, `disaster_flag`, `image_url`,
+  `source` / `source_url`, `location` (текст адреса), `published_at` / `created_at`,
+  `lat`/`lon`, `geo_by`, `weight`.
 - Запись событий — **только handlers in-process** (`create_event` / …).
 - **Чаты (KAN-5):** модуль `user_chat`, таблицы `chats` + `users_chat`. `list_memberships_for_user` читает реальное членство и координаты из `Address`; `/start` сам по себе не добавляет пользователя в чат. Контракт: `src/user_chat/README.md`.
 - **Подключение чата (KAN-7):** отдельный модуль `chat_link` для onboarding; хранение чатов и membership относится к `user_chat`.
 - Шкала `importance`: `1` высокий приоритет, `2` важное, `3` бытовуха (не на карту).
 - `disaster_flag` — отдельный признак ЧС, не алиас класса 1.
-- `image_url` — главная фотка; `null` → фронт рисует карту с меткой.
+- `image_url` — главная фотка; `null` → фронт рисует чёрный плейсхолдер (карта — KAN-17).
 - Гео события: `events.address_id -> addresses.id` + `events.geo_by`
   (`city`|`street`|`home`); `lat/lon` для API из `Address`, в `events` не дублируются.
   В `addresses` — компоненты `city` / `street` / `house`.
@@ -104,6 +110,39 @@ KAN-10 (чаты) и KAN-12 — отдельные воркеры; общая с
   (`events.weight`); reliability — в `news_parser.sources.*.reliability`.
 - Дедуп (KAN-19) — хук в `create_event`.
 
+## WebApp (KAN-16)
+
+- SvelteKit mini-app в `webapp/`: TikTok-лента nearby | city.
+- Данные **только** с API (`GET /events/feed`) → БД.
+- API base захардкожен: `/api` (Vite proxy → backend).
+- User id: Max Bridge (`https://max.ru/js/max-web-app.js`) →
+  `window.WebApp.initDataUnsafe.user.id` → заголовок `X-Max-User-Id`.
+- Dev-прокси: `/api` → `http://127.0.0.1:8000` (`webapp/vite.config.ts`,
+  в Docker — `API_PROXY_TARGET`).
+- UI: full-height snap-карточки, табы «Новости рядом / города», свайп вправо → город,
+  картинка с lightbox, цветовая полоса по importance, SVG при `disaster_flag`,
+  дата / источник (ссылка) / локация в одну строку.
+
+### Кнопка webapp в боте
+
+- Приветствие (`bot_started` / `/start`) шлёт inline-кнопку типа **`open_app`**
+  (`OpenAppButton`, текст «Открыть новости»).
+- Мини-приложение привязывается к боту на платформе MAX
+  ([docs/webapps](https://dev.max.ru/docs/webapps/introduction)): HTTPS URL webapp.
+- Identity кнопки: `GET /me` → `web_app` (username) + `contact_id`.
+
+### Ngrok (HTTPS для Max, без локальной установки)
+
+- Секрет в корневом `.env`: **`NGROK=`** (authtoken). Не коммитить.
+- Compose-сервис `ngrok` (`ngrok/ngrok`): `NGROK` → `NGROK_AUTHTOKEN`.
+- Два флоу webapp — см. README «WebApp: два флоу» (Docker vs `npm run dev`).
+- URL: `python scripts/ngrok_url.py` или http://localhost:4040  
+  (если туннель выключен — публичная ссылка даёт 404).
+- Upstream по умолчанию `webapp:5173`; для host Vite:
+  `NGROK_UPSTREAM=host.docker.internal:5173`.
+- Webapp proxy `/api` → `API_PROXY_TARGET` (host: `127.0.0.1:8000`,
+  в compose webapp по умолчанию `host.docker.internal:8000`).
+- Vite: `server.allowedHosts: true` (иначе Host от ngrok → 403).
 ## Конфиг
 
 - `APP_ENVIRONMENT=local|prod` → `conf/local.yaml` / `conf/prod.yaml`.
@@ -117,6 +156,10 @@ pip install -e ".[dev]"
 set PYTHONPATH=src
 alembic upgrade head
 python -m main
+
+# WebApp (KAN-16), в другом терминале — данные с API/БД:
+# cd webapp && npm install && npm run dev
+# → http://localhost:5173  (прокси /api → :8000)
 
 # ML classify (KAN-13), отдельно от runtime:
 pip install torch --index-url https://download.pytorch.org/whl/cu124
