@@ -8,6 +8,9 @@ on:
       - ".github/workflows/mdbook.yaml"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   publish-docs:
     name: Build and Deploy Documentation
@@ -35,17 +38,12 @@ jobs:
         run: mdbook build docs
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          github_token: ${{ secrets.PAT }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: docs/book
           publish_branch: gh-pages
           destination_dir: docs
           keep_files: true
           enable_jekyll: false
           commit_message: "DOCS: Deploy mdBook documentation to GitHub Pages"
-
-      - name: Output deployment URL
-        run: |
-          echo "✅ Документация опубликована!"
-          echo "📖 Доступна по адресу: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/docs"
