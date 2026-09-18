@@ -10,7 +10,8 @@ class ChatMembership:
     """
     Чат, в котором состоит пользователь, и его «дом» на карте.
 
-    Позже придёт из таблицы users_chat + address (KAN-5 / KAN-6).
+    Проекция users_chat + chats + addresses для ленты и карты.
+    Координаты не хранятся в таблице чатов.
     """
 
     chat_id: int

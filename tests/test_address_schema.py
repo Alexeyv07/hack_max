@@ -24,6 +24,7 @@ from auth.db import UserRow  # noqa: F401 — зарегистрировать u
 from events.db import EventRow
 from parse_news.db import NewsParserCursorRow  # noqa: F401
 from project.database import Base
+from user_chat.db import ChatRow  # noqa: F401 — зарегистрировать chats + users_chat
 
 
 @unittest.skipUnless(os.getenv("ADDRESS_TEST_DATABASE_URL"), "Нужен ADDRESS_TEST_DATABASE_URL")
@@ -37,6 +38,7 @@ class AddressSchemaTests(unittest.TestCase):
         "0006_news_parser",
         "0007_address_components_geo_by",
         "0008_events_published_at",
+        "0009_create_chats",
     )
 
     def setUp(self):

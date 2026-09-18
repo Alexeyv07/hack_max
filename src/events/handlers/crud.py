@@ -12,7 +12,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from address.db.address import AddressRow
-from chat_link.models.membership import ChatMembership
 from events.cursor import (
     FeedCursor,
     decode_feed_cursor,
@@ -29,6 +28,7 @@ from events.weight import (
     map_icon_category,
 )
 from project.logging_setup import get_logger
+from user_chat.models.membership import ChatMembership
 
 logger = get_logger(__name__)
 
