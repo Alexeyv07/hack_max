@@ -7,11 +7,11 @@ from datetime import UTC, datetime, time
 
 import httpx
 
-from parse_news.html_util import soup_from
-from parse_news.http import fetch_text
 from parse_news.models.article import RawNewsArticle
 from parse_news.sources.base import BaseNewsSource, CollectMode, CollectResult
 from parse_news.sources.common import enrich_from_html, ensure_aware, fetch_optional
+from parser_common.html_util import soup_from
+from parser_common.http import fetch_text
 from project.config import NewsSourceConfig
 from project.logging_setup import get_logger
 

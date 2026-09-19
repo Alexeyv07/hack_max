@@ -83,7 +83,10 @@ def _outlet_reliability_map() -> dict[str, float]:
     try:
         from project.config import get_settings
 
-        return {key: src.reliability for key, src in get_settings().news_parser.sources.items()}
+        settings = get_settings()
+        out = {key: src.reliability for key, src in settings.news_parser.sources.items()}
+        out.update({key: src.reliability for key, src in settings.mc_parser.sources.items()})
+        return out
     except Exception:
         return {}
 

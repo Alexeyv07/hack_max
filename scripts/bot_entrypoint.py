@@ -9,7 +9,7 @@ from alembic.config import main as alembic_main
 
 from address.seed import ensure_addresses_seeded
 from main import main as bot_main
-from parse_news.seed import ensure_events_seeded
+from parser_common.seed import ensure_events_seeded
 
 _ARTIFACTS = Path(__file__).resolve().parents[1] / "ml" / "classify" / "artifacts"
 _ONNX = _ARTIFACTS / "importance_model.onnx"
@@ -52,7 +52,7 @@ def run() -> None:
     if ensure_events_seeded():
         print("События из snapshot загружены", flush=True)
     else:
-        print("Snapshot событий пропущен (нет файла или уже есть news)", flush=True)
+        print("Snapshot событий пропущен (нет файла или events уже не пуста)", flush=True)
 
     print("Запускаем бота...", flush=True)
     bot_main()

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from parse_news.body_text import clean_article_body, is_boilerplate_body
 from parse_news.sources.common import enrich_from_html
+from parser_common.body_text import clean_article_body, is_boilerplate_body
 
 
 def test_boilerplate_podrobnee() -> None:

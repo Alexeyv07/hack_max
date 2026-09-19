@@ -9,9 +9,7 @@ from urllib.parse import quote_plus
 
 import httpx
 
-from parse_news.http import fetch_text
 from parse_news.models.article import RawNewsArticle
-from parse_news.rss import parse_rss
 from parse_news.sources.base import BaseNewsSource, CollectMode, CollectResult
 from parse_news.sources.common import (
     collect_from_rss,
@@ -21,6 +19,8 @@ from parse_news.sources.common import (
     parse_sitemap_entries,
     title_from_slug,
 )
+from parser_common.http import fetch_text
+from parser_common.rss import parse_rss
 from project.config import NewsSourceConfig
 from project.logging_setup import get_logger
 

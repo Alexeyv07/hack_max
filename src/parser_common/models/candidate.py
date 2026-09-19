@@ -4,6 +4,7 @@
   - KAN-10 ``parse_chat`` — сообщения соседских чатов
   - KAN-11 ``parse_news`` — RSS / локальные СМИ
   - KAN-12 ``parse_max_public`` — публичные каналы Max
+  - KAN-28 ``parse_mc`` — сайты УК / ЖЭК Москвы
 
 Воркер собирает только сырьё в этот DTO, дальше — ``parser_common.normalize`` /
 ``persist_candidate``. Classify и запись в events внутри парсера не дублировать.

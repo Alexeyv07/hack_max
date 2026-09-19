@@ -8,12 +8,17 @@
 | кто | делает |
 |-----|--------|
 | **KAN-11** (`parse_news`) | fetch RSS/HTML → `RawNewsArticle` → `ParserCandidate` → `persist_candidate` |
+| **KAN-28** (`parse_mc`) | fetch УК/ЖЭК HTML → `RawMcNotice` → fan-out улиц → `ParserCandidate` |
 | **KAN-10/12** (другие воркеры) | fetch источника → `ParserCandidate` → `normalize` / `persist_candidate` → `create_event` |
-| **KAN-13** (этот пакет) | title/body, importance, `disaster_flag`, optional geo → `EventDraft` / `EventCreate` |
+| **KAN-13** (этот пакет) | title/body, importance, `disaster_flag`, scrape/geo-text/seed → `EventDraft` |
 | **KAN-19** (`ml_dedup`) | merge дублей **до** insert (хук в `create_event` или перед ним) |
 | **KAN-14** (`events`) | хранение + read API ленты/карты |
 
-KAN-11 (`src/parse_news/`) реализует новостной воркер; KAN-13 — общая **библиотека** normalize/classify между воркерами и `events`.
+Воркеры **не** импортируют друг друга. Общее:
+
+- `parser_common.scrape` / `html_util` / `rss` / `body_text` / `http`
+- `parser_common.geo_text` — эвристики Москвы/улиц/иностранных маркеров
+- `parser_common.seed` — dump/load **всех** events (`bootstrap_events.jsonl.gz`)
 
 ## Контракт для воркера парсера
 

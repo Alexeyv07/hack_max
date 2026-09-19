@@ -1,4 +1,4 @@
-"""Live smoke по 6 outlet. По умолчанию skip — нужна сеть.
+"""Live smoke по news outlets. По умолчанию skip — нужна сеть.
 
 set RUN_LIVE_NEWS=1
 set PYTHONPATH=src

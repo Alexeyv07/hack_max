@@ -1,4 +1,4 @@
-"""Разбор RSS 2.0 (xml.etree.ElementTree)."""
+"""Р Р°Р·Р±РѕСЂ RSS 2.0 (xml.etree.ElementTree)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from xml.etree import ElementTree as ET
 
-from parse_news.html_util import strip_html
+from parser_common.html_util import strip_html
 
 
 @dataclass(frozen=True, slots=True)
