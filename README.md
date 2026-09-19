@@ -42,7 +42,7 @@ src/
   main.py              # bot и/или API в одном процессе
 tests/                 # pytest (API + handlers)
 ml/                    # обучение classify (KAN-13) и dedup (KAN-19); НЕ src
-scripts/               # утилиты (entrypoint, classify_try, smoke_news_collect)
+scripts/               # утилиты (entrypoint, classify_try, smoke_parser_collect)
 
 webapp/                # SvelteKit mini-app
 AGENTS.md              # гайд для агентов
@@ -54,7 +54,7 @@ AGENTS.md              # гайд для агентов
 |--------|--------|
 | `bot_entrypoint.py` | контейнер бота: `alembic upgrade head`, затем `python -m main` |
 | `classify_try.py` | REPL для importance-классификатора (ONNX → rules) |
-| `smoke_news_collect.py` | live smoke KAN-11: 1 страница collect по enabled outlet |
+| `smoke_parser_collect.py` | live smoke news/mc: 1 страница collect по enabled outlet |
 
 ### `classify_try.py`
 
@@ -71,14 +71,22 @@ python scripts/classify_try.py
 На каждый запрос печатает raw ONNX (`p1/p2/p3`), ответ rules и итоговый каскад
 (`importance`, `disaster_flag`, `method`).
 
-### `smoke_news_collect.py`
+### `smoke_parser_collect.py`
 
-Live-проверка адаптеров KAN-11 (сеть, без записи в БД): incremental, 1 страница.
+Live-проверка адаптеров news и/или mc (сеть, без записи в БД): incremental, 1 страница.
 
 ```bash
 set PYTHONPATH=src
-python scripts/smoke_news_collect.py
-python scripts/smoke_news_collect.py --outlet m24
+python scripts/smoke_parser_collect.py
+python scripts/smoke_parser_collect.py --parser news --outlet m24
+python scripts/smoke_parser_collect.py --parser mc --outlet moek
+```
+
+Дамп всех events в snapshot:
+
+```bash
+set PYTHONPATH=src
+python -m parser_common.seed dump
 ```
 
 ### `bot_entrypoint.py`

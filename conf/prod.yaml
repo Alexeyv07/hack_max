@@ -37,6 +37,7 @@ runtime:
   enable_bot: true
   enable_api: true
   enable_news_parser: true
+  enable_mc_parser: true
 
 news_parser:
   mode: production
@@ -80,3 +81,39 @@ news_parser:
       feed_url: "https://www.m24.ru/rss.xml"
       listing_url: "https://www.m24.ru/news"
       reliability: 0.90
+
+mc_parser:
+  mode: production
+  lookback_days: 21
+  poll_interval_seconds: 3600
+  request_timeout_seconds: 30
+  collect_timeout_seconds: 180
+  max_articles_per_source_per_run: 25
+  max_pages_per_run: 6
+  bootstrap_articles_per_source: 0
+  insert_batch_size: 20
+  early_stop_known_streak: 10
+  source_pause_seconds: 0.5
+  backfill_pause_seconds: 2.0
+  user_agent: "HackMaxMcBot/1.0"
+  sources:
+    pik_comfort:
+      enabled: true
+      listing_url: "https://pik-comfort.ru/news_all"
+      reliability: 0.88
+    granel:
+      enabled: true
+      listing_url: "https://www.ggkm.ru/news/"
+      reliability: 0.80
+    zhil_nagatino:
+      enabled: true
+      listing_url: "https://www.gbuns.ru/organizacia/novosti"
+      reliability: 0.90
+    gbu_portal:
+      enabled: true
+      listing_url: "https://gbu-zhilishchnik.ru/novosti"
+      reliability: 0.78
+    moek:
+      enabled: true
+      listing_url: "https://www.moek.ru/press/news/"
+      reliability: 0.92

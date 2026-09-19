@@ -379,7 +379,7 @@ def _flush_batch(
 async def run_news_parser() -> None:
     from pathlib import Path
 
-    from parse_news.seed import DEFAULT_SNAPSHOT, dump_events_snapshot, ensure_events_seeded
+    from parser_common.seed import DEFAULT_SNAPSHOT, dump_events_snapshot, ensure_events_seeded
 
     settings = get_settings()
     cfg = settings.news_parser

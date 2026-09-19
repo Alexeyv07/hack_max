@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 
 import httpx
 
-from parse_news.http import fetch_text
 from parse_news.models.article import RawNewsArticle
 from parse_news.sources.base import BaseNewsSource, CollectMode, CollectResult
 from parse_news.sources.common import (
@@ -18,6 +17,7 @@ from parse_news.sources.common import (
     find_links,
     iter_days_backward,
 )
+from parser_common.http import fetch_text
 from project.config import NewsSourceConfig
 from project.logging_setup import get_logger
 

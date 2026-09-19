@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from address.resolve import GeoBind
 from events.handlers.crud import list_existing_source_msg_ids
 from events.models.event import Event, EventSource
-from parse_news.body_text import clean_article_body
 from parse_news.models.article import RawNewsArticle
+from parser_common.body_text import clean_article_body
 from parser_common.ingest import persist_candidate
 from parser_common.models.candidate import ParserCandidate
 from project.logging_setup import get_logger

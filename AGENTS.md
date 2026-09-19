@@ -25,15 +25,17 @@
 - `max.py` — `run_max_bot()`.
 - `events/api/server.py` — `run_api_server()` (uvicorn Server **в том же процессе**, не отдельный OS-process).
 
-Включение сервисов — `conf/*.yaml` → `runtime.enable_bot` / `runtime.enable_api`
-(или env `ENABLE_BOT` / `ENABLE_API`). Для отладки можно закомментировать `create_task` в `main.py`.
+Включение сервисов — `conf/*.yaml` → `runtime.enable_bot` / `runtime.enable_api` /
+`runtime.enable_news_parser` / `runtime.enable_mc_parser`
+(или env `ENABLE_BOT` / `ENABLE_API` / `ENABLE_NEWS_PARSER` / `ENABLE_MC_PARSER`).
+Для отладки можно закомментировать `create_task` в `main.py`.
 
 ## Parser common (KAN-13)
 
 Библиотека середины пайплайна. **Не** ходит в источники и **не** является воркером.
 
 ```
-парсер-воркер (KAN-10/11/12)          parser_common                 events
+парсер-воркер (KAN-10/11/12/28)       parser_common                 events
 ─────────────────────────────         ──────────────                ──────
 fetch → ParserCandidate  ──normalize──▶ EventDraft
                          ──persist_candidate / to_event_create──▶ create_event → DB
@@ -42,7 +44,13 @@ fetch → ParserCandidate  ──normalize──▶ EventDraft
 - Title/body: эвристика (`text.py`), не LLM.
 - Importance: ONNX → rules (`classify.py`, `ml/classify/MODEL.md`).
   `importance` и `disaster_flag` независимы (ML → класс; ЧС → keywords).
-- Geo: опциональный `GeoMatcher` (KAN-6), не LLM.
+- Geo: опциональный `GeoMatcher` (KAN-6), не LLM; текстовые эвристики —
+  `parser_common.geo_text`.
+- Scrape HTML/RSS: `parser_common.scrape` / `html_util` / `rss` / `body_text` /
+  `http` — общие для всех воркеров (не импортировать между parse_*).
+- Snapshot событий (все sources): `parser_common.seed`
+  (`python -m parser_common.seed dump|load` →
+  `src/parser_common/data/bootstrap_events.jsonl.gz`).
 - Дедуп — KAN-19 (хук около `create_event`), не здесь.
 - Контракт для авторов парсеров: `src/parser_common/README.md`.
 - Обучение: `ml/classify/train_torch.py` (GPU). Пакет `ml/` из `src` не импортировать.
@@ -76,12 +84,34 @@ sources → RawNewsArticle → ParserCandidate → persist_candidate → events
   Вставка батчами `insert_batch_size`.
 - **ТАСС:** sitemap часто 403 → Google News RSS `site:tass.ru when:Nd`.
 - **Запуск:** `run_news_parser()` в `main.py` рядом с bot/api (supervised task).
-- **Smoke live:** `python scripts/smoke_news_collect.py` (`PYTHONPATH=src`) —
-  incremental, 1 страница по каждому enabled outlet.
+- **Smoke live:** `python scripts/smoke_parser_collect.py` (`PYTHONPATH=src`) —
+  `--parser news|mc|all`, опционально `--outlet`.
 - Контракт: `src/parse_news/README.md`. Миграции: курсоры, addresses components,
   `events.geo_by` / `published_at`.
 
 KAN-10 (чаты) и KAN-12 — отдельные воркеры; общая середина — `parser_common` (KAN-13).
+
+## MC parser / ЖЭК (KAN-28)
+
+Модуль `src/parse_mc/` — воркер сайтов управляющих компаний и ЖКХ-источников Москвы.
+
+```
+sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCandidate → events
+```
+
+- **5 outlets:** `pik_comfort` (ПИК-Комфорт), `granel` (ГранельЖКХ),
+  `zhil_nagatino` (ГБУ «Жилищник» Нагатино-Садовники), `gbu_portal`
+  (портал Жилищник), `moek` (МОЭК — тепло/отключения).
+- **Fan-out:** если объявление затрагивает несколько улиц — **отдельное событие
+  на каждую** (`source_msg_id` …`:addr:{address_id}`); `source=mc`.
+- **Restart-safe:** таблица `mc_parser_cursors`; unique `(source, source_msg_id)`.
+- Режимы как у news: `bootstrap` / `production`, `lookback_days`, soft-cap.
+- **Запуск:** `run_mc_parser()` в `main.py` (`runtime.enable_mc_parser` /
+  `ENABLE_MC_PARSER`).
+- Smoke: `python scripts/smoke_parser_collect.py --parser mc`.
+- Контракт: `src/parse_mc/README.md`. Миграция: `0010_mc_parser`.
+
+Общий scrape/geo-text/seed — в `parser_common` (парсеры **не** импортируют друг друга).
 
 ## Events (KAN-14)
 
@@ -172,7 +202,7 @@ python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
 # данные: ml/classify/DATA.md
 # ручные утилиты:
 #   set PYTHONPATH=src & python scripts/classify_try.py
-#   set PYTHONPATH=src & python scripts/smoke_news_collect.py
+#   set PYTHONPATH=src & python scripts/smoke_parser_collect.py
 
 pytest
 ruff check src tests

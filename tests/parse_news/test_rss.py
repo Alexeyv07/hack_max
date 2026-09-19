@@ -1,11 +1,11 @@
-"""Тесты parse_news.rss (без сети)."""
+"""Тесты parser_common.rss (без сети)."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
 
-from parse_news.rss import parse_rss
+from parser_common.rss import parse_rss
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

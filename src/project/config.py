@@ -75,6 +75,7 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "ENABLE_BOT": "runtime.enable_bot",
         "ENABLE_API": "runtime.enable_api",
         "ENABLE_NEWS_PARSER": "runtime.enable_news_parser",
+        "ENABLE_MC_PARSER": "runtime.enable_mc_parser",
         "EVENTS_NEARBY_RADIUS_M": "events.nearby_radius_m",
         "EVENTS_CITY_RADIUS_M": "events.city_radius_m",
         "DOCS_URL": "docs.url",
@@ -174,7 +175,7 @@ class NewsParserConfig:
     # Потолок статей на outlet в bootstrap (0 = без потолка, весь lookback_days).
     bootstrap_articles_per_source: int = 0
     # После bootstrap сохранить события в файл (как address seed).
-    bootstrap_snapshot_path: str = "src/parse_news/data/bootstrap_events.jsonl.gz"
+    bootstrap_snapshot_path: str = "src/parser_common/data/bootstrap_events.jsonl.gz"
     collect_timeout_seconds: int = 90
     insert_batch_size: int = 25
     early_stop_known_streak: int = 15
@@ -186,12 +187,42 @@ class NewsParserConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class McSourceConfig:
+    enabled: bool = True
+    feed_url: str | None = None
+    listing_url: str | None = None
+    archive_url: str | None = None
+    reliability: float = 0.75
+
+
+@dataclass(frozen=True, slots=True)
+class McParserConfig:
+    """KAN-28: парсер сайтов управляющих компаний / ЖЭК."""
+
+    mode: str = "bootstrap"
+    lookback_days: int = 14
+    poll_interval_seconds: int = 3600
+    request_timeout_seconds: int = 15
+    max_articles_per_source_per_run: int = 40
+    max_pages_per_run: int = 5
+    bootstrap_articles_per_source: int = 0
+    collect_timeout_seconds: int = 120
+    insert_batch_size: int = 20
+    early_stop_known_streak: int = 10
+    source_pause_seconds: float = 0.5
+    backfill_pause_seconds: float = 2.0
+    user_agent: str = "HackMaxMcBot/1.0 (+https://github.com/hack-max)"
+    sources: dict[str, McSourceConfig] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeConfig:
     """Какие сервисы поднимать в одном процессе main."""
 
     enable_bot: bool = True
     enable_api: bool = True
     enable_news_parser: bool = True
+    enable_mc_parser: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +243,7 @@ class Settings:
     api: ApiConfig = field(default_factory=ApiConfig)
     events: EventsConfig = field(default_factory=EventsConfig)
     news_parser: NewsParserConfig = field(default_factory=NewsParserConfig)
+    mc_parser: McParserConfig = field(default_factory=McParserConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     docs: DocsConfig = field(default_factory=DocsConfig)
 
@@ -231,6 +263,25 @@ def _parse_news_sources(raw: Any) -> dict[str, NewsSourceConfig]:
             listing_url=value.get("listing_url"),
             archive_url=value.get("archive_url"),
             reliability=float(value.get("reliability", 0.7)),
+        )
+    return sources
+
+
+def _parse_mc_sources(raw: Any) -> dict[str, McSourceConfig]:
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        raise TypeError("mc_parser.sources должен быть словарём")
+    sources: dict[str, McSourceConfig] = {}
+    for key, value in raw.items():
+        if not isinstance(value, dict):
+            raise TypeError(f"mc_parser.sources.{key} должен быть словарём")
+        sources[str(key)] = McSourceConfig(
+            enabled=bool(value.get("enabled", True)),
+            feed_url=value.get("feed_url"),
+            listing_url=value.get("listing_url"),
+            archive_url=value.get("archive_url"),
+            reliability=float(value.get("reliability", 0.75)),
         )
     return sources
 
@@ -268,6 +319,7 @@ def load_settings() -> Settings:
     api_raw = raw.get("api") or {}
     events_raw = raw.get("events") or {}
     news_parser_raw = raw.get("news_parser") or {}
+    mc_parser_raw = raw.get("mc_parser") or {}
     runtime_raw = raw.get("runtime") or {}
     docs_raw = raw.get("docs") or {}
 
@@ -318,7 +370,7 @@ def load_settings() -> Settings:
             bootstrap_snapshot_path=str(
                 news_parser_raw.get(
                     "bootstrap_snapshot_path",
-                    "src/parse_news/data/bootstrap_events.jsonl.gz",
+                    "src/parser_common/data/bootstrap_events.jsonl.gz",
                 )
             ),
             collect_timeout_seconds=int(news_parser_raw.get("collect_timeout_seconds", 90)),
@@ -334,10 +386,36 @@ def load_settings() -> Settings:
             ),
             sources=_parse_news_sources(news_parser_raw.get("sources")),
         ),
+        mc_parser=McParserConfig(
+            mode=str(mc_parser_raw.get("mode", "bootstrap")).strip().lower(),
+            lookback_days=int(mc_parser_raw.get("lookback_days", 14)),
+            poll_interval_seconds=int(mc_parser_raw.get("poll_interval_seconds", 3600)),
+            request_timeout_seconds=int(mc_parser_raw.get("request_timeout_seconds", 15)),
+            max_articles_per_source_per_run=int(
+                mc_parser_raw.get("max_articles_per_source_per_run", 40)
+            ),
+            max_pages_per_run=int(mc_parser_raw.get("max_pages_per_run", 5)),
+            bootstrap_articles_per_source=int(
+                mc_parser_raw.get("bootstrap_articles_per_source", 0)
+            ),
+            collect_timeout_seconds=int(mc_parser_raw.get("collect_timeout_seconds", 120)),
+            insert_batch_size=int(mc_parser_raw.get("insert_batch_size", 20)),
+            early_stop_known_streak=int(mc_parser_raw.get("early_stop_known_streak", 10)),
+            source_pause_seconds=float(mc_parser_raw.get("source_pause_seconds", 0.5)),
+            backfill_pause_seconds=float(mc_parser_raw.get("backfill_pause_seconds", 2.0)),
+            user_agent=str(
+                mc_parser_raw.get(
+                    "user_agent",
+                    "HackMaxMcBot/1.0 (+https://github.com/hack-max)",
+                )
+            ),
+            sources=_parse_mc_sources(mc_parser_raw.get("sources")),
+        ),
         runtime=RuntimeConfig(
             enable_bot=bool(runtime_raw.get("enable_bot", True)),
             enable_api=bool(runtime_raw.get("enable_api", True)),
             enable_news_parser=bool(runtime_raw.get("enable_news_parser", True)),
+            enable_mc_parser=bool(runtime_raw.get("enable_mc_parser", True)),
         ),
         docs=DocsConfig(
             url=str(docs_raw.get("url", "https://alexeyv07.github.io/hack_max/docs/")),

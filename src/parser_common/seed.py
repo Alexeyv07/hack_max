@@ -1,10 +1,11 @@
-"""Снимок bootstrap-событий: dump после парсинга / seed в БД (как address.seed)."""
+"""Снимок bootstrap-событий (все sources): dump / seed в БД."""
 
 from __future__ import annotations
 
 import argparse
 import gzip
 import json
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from address.db.address import AddressRow
 from address.resolve import get_or_create_city_address
 from events.db.event import EventRow
 from events.handlers.crud import create_event, list_existing_source_msg_ids
-from events.models.event import EventCreate, EventSource
+from events.models.event import EventCreate
 from project.database import session_scope
 from project.logging_setup import get_logger
 
@@ -35,13 +36,12 @@ def _parse_dt(value: object) -> datetime | None:
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
 
-def dump_events_snapshot(session: Session, path: Path, *, limit: int = 500) -> int:
-    """Сохранить последние события news в JSONL.GZ (для демо/Docker seed)."""
+def dump_events_snapshot(session: Session, path: Path, *, limit: int = 2000) -> int:
+    """Сохранить последние события **всех** sources в JSONL.GZ."""
     rows = list(
         session.scalars(
             select(EventRow)
             .options(joinedload(EventRow.address))
-            .where(EventRow.source == EventSource.NEWS.value)
             .order_by(EventRow.id.desc())
             .limit(limit)
         ).unique()
@@ -72,7 +72,7 @@ def dump_events_snapshot(session: Session, path: Path, *, limit: int = 500) -> i
     opener = gzip.open if path.suffix == ".gz" else open
     with opener(path, "wt", encoding="utf-8") as out:
         out.write("\n".join(lines) + ("\n" if lines else ""))
-    logger.info("Snapshot событий: %d → %s", len(lines), path)
+    logger.info("Snapshot событий (все sources): %d → %s", len(lines), path)
     return len(lines)
 
 
@@ -89,7 +89,7 @@ def _resolve_address_id(session: Session, item: dict) -> int | None:
 
 
 def load_events_snapshot(session: Session, path: Path) -> int:
-    """Идемпотентная загрузка snapshot по source_msg_id."""
+    """Идемпотентная загрузка snapshot по (source, source_msg_id)."""
     if not path.is_file():
         raise FileNotFoundError(f"Нет файла snapshot: {path}")
 
@@ -105,16 +105,24 @@ def load_events_snapshot(session: Session, path: Path) -> int:
                 raise ValueError(f"Строка {line_number}: нужен JSON-объект")
             items.append(item)
 
-    msg_ids = [str(i["source_msg_id"]) for i in items if i.get("source_msg_id")]
-    existing = list_existing_source_msg_ids(
-        session, source=EventSource.NEWS.value, source_msg_ids=msg_ids
-    )
+    by_source: dict[str, list[dict]] = defaultdict(list)
+    for item in items:
+        src = str(item.get("source") or "news")
+        by_source[src].append(item)
+
+    existing: set[tuple[str, str]] = set()
+    for src, group in by_source.items():
+        msg_ids = [str(i["source_msg_id"]) for i in group if i.get("source_msg_id")]
+        found = list_existing_source_msg_ids(session, source=src, source_msg_ids=msg_ids)
+        existing.update((src, mid) for mid in found)
+
     created = 0
     for item in items:
         msg_id = item.get("source_msg_id")
         if not isinstance(msg_id, str) or not msg_id.strip():
             continue
-        if msg_id in existing:
+        source = str(item.get("source") or "news")
+        if (source, msg_id) in existing:
             continue
         title = item.get("title")
         body = item.get("body")
@@ -126,7 +134,7 @@ def load_events_snapshot(session: Session, path: Path) -> int:
                 title=title,
                 body=body,
                 importance=int(item.get("importance", 3)),
-                source=str(item.get("source") or EventSource.NEWS.value),
+                source=source,
                 address_id=_resolve_address_id(session, item),
                 geo_by=item.get("geo_by") if isinstance(item.get("geo_by"), str) else None,
                 source_msg_id=msg_id,
@@ -138,21 +146,19 @@ def load_events_snapshot(session: Session, path: Path) -> int:
                 published_at=_parse_dt(item.get("published_at")),
             ),
         )
-        existing.add(msg_id)
+        existing.add((source, msg_id))
         created += 1
     return created
 
 
 def ensure_events_seeded(path: Path = DEFAULT_SNAPSHOT) -> bool:
-    """Загрузить snapshot, только если в events ещё нет news."""
+    """Загрузить snapshot, только если таблица events пуста."""
     if not path.is_file():
         logger.info("Snapshot событий отсутствует (%s) — пропуск seed", path)
         return False
     with session_scope() as session:
-        has_news = session.scalar(
-            select(EventRow.id).where(EventRow.source == EventSource.NEWS.value).limit(1)
-        )
-        if has_news is not None:
+        has_any = session.scalar(select(EventRow.id).limit(1))
+        if has_any is not None:
             return False
         created = load_events_snapshot(session, path)
         logger.info("Загружено событий из snapshot: %d", created)
@@ -163,9 +169,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    dump_p = sub.add_parser("dump", help="Сохранить events → JSONL.GZ")
+    dump_p = sub.add_parser("dump", help="Сохранить все events → JSONL.GZ")
     dump_p.add_argument("file", type=Path, nargs="?", default=DEFAULT_SNAPSHOT)
-    dump_p.add_argument("--limit", type=int, default=500)
+    dump_p.add_argument("--limit", type=int, default=2000)
 
     load_p = sub.add_parser("load", help="Загрузить JSONL.GZ → events")
     load_p.add_argument("file", type=Path, nargs="?", default=DEFAULT_SNAPSHOT)

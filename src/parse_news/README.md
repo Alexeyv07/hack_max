@@ -16,13 +16,13 @@
 ### Snapshot событий (как addresses)
 
 ```bash
-# после успешного bootstrap (или вручную из БД):
+# после успешного bootstrap (или вручную из БД) — все sources:
 set PYTHONPATH=src
-python -m parse_news.seed dump
-# → src/parse_news/data/bootstrap_events.jsonl.gz
+python -m parser_common.seed dump
+# → src/parser_common/data/bootstrap_events.jsonl.gz
 
 # загрузка в пустую БД:
-python -m parse_news.seed load
+python -m parser_common.seed load
 ```
 
 Docker entrypoint (`scripts/bot_entrypoint.py`): addresses seed → events snapshot → main.
@@ -99,7 +99,7 @@ news_parser:
 
 ```bash
 set PYTHONPATH=src
-python scripts/smoke_news_collect.py
+python scripts/smoke_parser_collect.py --parser news
 # опционально: --outlet m24  или  RUN_LIVE_NEWS=1 pytest tests/parse_news/test_live_smoke.py -q
 ```
 

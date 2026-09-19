@@ -279,6 +279,23 @@ class StreetCatalog:
                 best = hit
         return best
 
+    def lookup_all_hints(
+        self,
+        hints: list[str],
+        *,
+        house: str | None = None,
+    ) -> list[StreetHit]:
+        """Все уникальные улицы из hints (для fan-out ЖЭК-объявлений по улицам)."""
+        by_pin: dict[int, StreetHit] = {}
+        for hint in hints:
+            hit = self.lookup(hint, house=house)
+            if hit is None:
+                continue
+            prev = by_pin.get(hit.pin_id)
+            if prev is None or (hit.house and not prev.house) or hit.score > prev.score:
+                by_pin[hit.pin_id] = hit
+        return list(by_pin.values())
+
     def _resolve_entry(self, hint: str) -> StreetEntry | None:
         keys = hint_keys(hint)
         # 1) exact

@@ -9,11 +9,12 @@ from datetime import UTC, datetime
 SOURCE_RELIABILITY_DEFAULT: dict[str, float] = {
     "neighbors_chat": 0.95,
     "news": 0.70,
+    "mc": 0.85,
     "max_public": 0.65,
     "manual": 0.80,
 }
 
-# Fallback по outlet новостей (перекрывается news_parser.sources.*.reliability).
+# Fallback по outlet (перекрывается news_parser/mc_parser.sources.*.reliability).
 OUTLET_RELIABILITY_DEFAULT: dict[str, float] = {
     "tass": 0.92,
     "ria": 0.90,
@@ -21,6 +22,11 @@ OUTLET_RELIABILITY_DEFAULT: dict[str, float] = {
     "m24": 0.85,
     "msk1": 0.82,
     "mskagency": 0.80,
+    "pik_comfort": 0.88,
+    "granel": 0.80,
+    "zhil_nagatino": 0.90,
+    "gbu_portal": 0.78,
+    "moek": 0.92,
 }
 
 _IMPORTANCE_RELEVANCE = {1: 1.0, 2: 0.72, 3: 0.42}

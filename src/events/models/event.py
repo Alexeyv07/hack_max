@@ -12,6 +12,7 @@ class EventSource(StrEnum):
 
     NEIGHBORS_CHAT = "neighbors_chat"
     NEWS = "news"
+    MC = "mc"  # управляющие компании / ЖЭК (KAN-28)
     MAX_PUBLIC = "max_public"
     MANUAL = "manual"
 
