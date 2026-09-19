@@ -78,8 +78,11 @@ def test_new_migration_reversible_and_does_not_infer_membership(engine) -> None:
     config = Config()
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
     scripts = ScriptDirectory.from_config(config)
+    assert scripts.get_current_head() == "0010_mc_parser"
+    mc_revision = scripts.get_revision("0010_mc_parser")
+    assert mc_revision.down_revision == "0009_create_chats"
+
     revision = scripts.get_revision("0009_create_chats")
-    assert scripts.get_current_head() == revision.revision
     assert revision.down_revision == "0008_events_published_at"
     with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
         revision.module.downgrade()
