@@ -18,12 +18,15 @@ export type YandexMapInstance = {
 type YandexMapsApi = {
 	ready: Promise<void>;
 	YMap: new (
-		container: HTMLElement,
-		props: {
-			location: { center: [number, number]; zoom: number };
-			behaviors?: string[];
-		}
-	) => YandexMapInstance;
+	container: HTMLElement,
+	props: {
+		location: { center: [number, number]; zoom: number };
+		behaviors?: string[];
+		theme?: 'light' | 'dark';
+		distributionPosition?: 'top left' | 'top right' | 'bottom left' | 'bottom right';
+		copyrightsPosition?: 'top left' | 'top right' | 'bottom left' | 'bottom right';
+	}
+) => YandexMapInstance;
 	YMapDefaultSchemeLayer: new (props?: Record<string, unknown>) => unknown;
 	YMapListener: new (props: {
 		onUpdate?: (event: { location: YandexLocation }) => void;
