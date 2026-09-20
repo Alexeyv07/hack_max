@@ -66,6 +66,7 @@ services:
       # По умолчанию API на хосте (python -m main). Для bot в compose:
       #   API_PROXY_TARGET=http://bot:8000
       API_PROXY_TARGET: ${API_PROXY_TARGET:-http://host.docker.internal:8000}
+      VITE_YANDEX_MAPS_API_KEY: ${VITE_YANDEX_MAPS_API_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

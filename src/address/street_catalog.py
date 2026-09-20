@@ -13,7 +13,12 @@ from rapidfuzz import fuzz, process
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from address.components import clean_city_label, clean_district_label, parse_address_text
+from address.components import (
+    clean_city_label,
+    clean_district_label,
+    clean_street_house_suffix,
+    parse_address_text,
+)
 from address.db.address import AddressRow
 from address.geocoding import normalize_address
 from project.logging_setup import get_logger
@@ -55,9 +60,156 @@ def normalize_ui_text(value: str | None) -> str:
 
 
 def normalize_search_text(value: str | None) -> str:
-    """Поисковый ключ без пунктуации: удобно для живых подсказок по частичному адресу."""
+    """Поисковый ключ: Unicode + адресные сокращения + минимум пунктуации."""
     normalized = normalize_ui_text(value)
+    if not normalized:
+        return ""
+    # Частый живой ввод: «15к1», «15с1», «15/1» без пробелов.
+    # Для поиска корпус/строение/слеш считаем взаимозаменяемыми обозначениями
+    # вторичной части номера дома. Само значение в справочнике не меняем.
+    normalized = re.sub(r"(?<=\d)\s*/\s*(?=\d)", " корпус ", normalized)
+    normalized = re.sub(r"(?<=\d)к(?:орп(?:ус)?)?\.?\s*(?=\d)", " корпус ", normalized)
+    normalized = re.sub(r"(?<=\d)с(?:тр(?:оение)?)?\.?\s*(?=\d)", " строение ", normalized)
+    normalized = normalize_address(normalized)
     return " ".join(_SEARCH_SEPARATOR_RE.sub(" ", normalized).split())
+
+
+_SEARCH_STRUCTURE_TOKENS = _STREET_TYPES | {
+    "город",
+    "район",
+    "дом",
+    "корпус",
+    "строение",
+}
+_SEARCH_STOP_TOKENS = _SEARCH_STRUCTURE_TOKENS | {
+    "г",
+    "адрес",
+    "на",
+    "в",
+    "по",
+    "у",
+    "мой",
+    "моя",
+    "мое",
+    "живу",
+    "проживаю",
+    "найди",
+    "найти",
+}
+_SEARCH_NUMBER_TOKEN = re.compile(r"^\d+[а-яa-z]?$", re.IGNORECASE)
+_ORDINAL_SUFFIX_TOKENS = frozenset({"й", "я", "е"})
+
+
+@dataclass(frozen=True, slots=True)
+class _SearchQueryParts:
+    full_text: str
+    text_without_house: str
+    house: str | None
+    explicit_house: bool
+
+
+def _meaningful_search_tokens(value: str) -> list[str]:
+    tokens = [token for token in value.split() if token not in _SEARCH_STOP_TOKENS]
+    return tokens or value.split()
+
+
+def _search_query_parts(value: str) -> _SearchQueryParts:
+    """Разделить свободный ввод на текст адреса и вероятный номер дома.
+
+    Явные ``дом/корпус/строение`` считаются строгой подсказкой. Голое число
+    считается лишь эвристикой: при ранжировании одновременно проверяется вариант,
+    что это часть названия улицы (например, «улица 1905 года»).
+    """
+    tokens = value.split()
+    removed: set[int] = set()
+    house: str | None = None
+    explicit = False
+
+    def number_at(index: int) -> str | None:
+        if 0 <= index < len(tokens) and _SEARCH_NUMBER_TOKEN.fullmatch(tokens[index]):
+            return tokens[index]
+        return None
+
+    # Явная форма: «дом 15 корпус 1 строение 2».
+    if "дом" in tokens:
+        marker = tokens.index("дом")
+        base = number_at(marker + 1)
+        if base:
+            explicit = True
+            removed.update({marker, marker + 1})
+            parts = [base]
+            cursor = marker + 2
+            while cursor + 1 < len(tokens):
+                label = tokens[cursor]
+                number = number_at(cursor + 1)
+                if label not in {"корпус", "строение"} or not number:
+                    break
+                parts.append(("к" if label == "корпус" else "с") + number)
+                removed.update({cursor, cursor + 1})
+                cursor += 2
+            house = "".join(parts)
+
+    # Частая форма без «дом»: «15 корпус 1» / «15к1».
+    if house is None:
+        for marker_name, short in (("корпус", "к"), ("строение", "с")):
+            if marker_name not in tokens:
+                continue
+            marker = tokens.index(marker_name)
+            suffix = number_at(marker + 1)
+            base_index = next(
+                (index for index in range(marker - 1, -1, -1) if number_at(index)),
+                None,
+            )
+            if base_index is None or not suffix:
+                continue
+            base = tokens[base_index]
+            explicit = True
+            removed.update({base_index, marker, marker + 1})
+            house = f"{base}{short}{suffix}"
+
+            # Если после корпуса указан ещё и номер строения, учитываем его тоже.
+            other = "строение" if marker_name == "корпус" else "корпус"
+            if other in tokens:
+                other_index = tokens.index(other)
+                other_number = number_at(other_index + 1)
+                if other_number:
+                    suffix_short = "с" if other == "строение" else "к"
+                    house += f"{suffix_short}{other_number}"
+                    removed.update({other_index, other_index + 1})
+            break
+
+    # Голый номер дома. Не принимаем «1-я/2-й» за дом. Это НЕ строгая
+    # интерпретация: ниже scorer всё равно проверит число как часть названия улицы.
+    if house is None:
+        numeric_indexes = []
+        for index, token in enumerate(tokens):
+            if not _SEARCH_NUMBER_TOKEN.fullmatch(token):
+                continue
+            if index + 1 < len(tokens) and tokens[index + 1] in _ORDINAL_SUFFIX_TOKENS:
+                continue
+            numeric_indexes.append(index)
+        has_words = any(re.search(r"[а-яa-z]", token, re.IGNORECASE) for token in tokens)
+        candidate: int | None = None
+        if has_words and len(numeric_indexes) == 1:
+            candidate = numeric_indexes[0]
+        elif has_words and numeric_indexes and numeric_indexes[-1] == len(tokens) - 1:
+            candidate = numeric_indexes[-1]
+        if candidate is not None:
+            house = tokens[candidate]
+            removed.add(candidate)
+
+    full_tokens = _meaningful_search_tokens(value)
+    without_house = [
+        token
+        for index, token in enumerate(tokens)
+        if index not in removed and token not in _SEARCH_STOP_TOKENS
+    ]
+    return _SearchQueryParts(
+        full_text=" ".join(full_tokens),
+        text_without_house=" ".join(without_house),
+        house=house,
+        explicit_house=explicit,
+    )
 
 
 # Короткие окончания: длинные «ском/ского» иначе дают разный корень у «-ский» vs «-ском».
@@ -146,6 +298,16 @@ def normalize_house(value: str | None) -> str | None:
     return text or None
 
 
+def normalize_house_search(value: str | None) -> str | None:
+    """Ключ только для свободного поиска: 15к1 == 15с1 == 15/1."""
+    norm = normalize_house(value)
+    if not norm:
+        return None
+    # Не смешиваем этот ключ с точным house lookup: в БД корпус и строение могут
+    # быть разными объектами. Эквивалентность нужна только при поиске пользователем.
+    return re.sub(r"(?<=\d)[кс/](?=\d)", "/", norm)
+
+
 def house_lookup_keys(value: str | None) -> list[str]:
     """Варианты ключа дома: exact, затем базовый номер."""
     norm = normalize_house(value)
@@ -221,13 +383,45 @@ class StreetCatalog:
                 row,
                 normalize_search_text(
                     " ".join(
-                        part for part in (row.city, row.district, row.street, row.house) if part
+                        part
+                        for part in (
+                            row.city,
+                            row.district,
+                            row.street,
+                            f"дом {row.house}" if row.house else None,
+                        )
+                        if part
                     )
                 ),
             )
             for row in self.addresses
         ]
         self._address_search_keys = tuple(key for _row, key in self._address_search_items)
+        self._address_search_fields = tuple(
+            (
+                normalize_search_text(row.city),
+                normalize_search_text(row.district),
+                normalize_search_text(row.street),
+                normalize_house(row.house) or "",
+                normalize_search_text(
+                    " ".join(part for part in (row.city, row.district, row.street) if part)
+                ),
+            )
+            for row in self.addresses
+        )
+        street_indexes: dict[str, list[int]] = defaultdict(list)
+        district_indexes: dict[str, list[int]] = defaultdict(list)
+        for index, (_city_n, district_n, street_n, _house_n, _combined_n) in enumerate(
+            self._address_search_fields
+        ):
+            if street_n:
+                street_indexes[street_n].append(index)
+            if district_n:
+                district_indexes[district_n].append(index)
+        self._address_indexes_by_street = dict(street_indexes)
+        self._address_indexes_by_district = dict(district_indexes)
+        self._address_street_choices = tuple(self._address_indexes_by_street)
+        self._address_district_choices = tuple(self._address_indexes_by_district)
         self._address_token_buckets: dict[str, list[int]] = defaultdict(list)
         self._geo_grid: dict[tuple[int, int], list[CatalogAddress]] = defaultdict(list)
 
@@ -356,8 +550,9 @@ class StreetCatalog:
             parsed = parse_address_text(row.address_text)
             city_name = clean_city_label(row.city) or clean_city_label(parsed.city)
             district = clean_district_label(row.district or parsed.district, city=city_name)
-            street = row.street or parsed.street
+            raw_street = row.street or parsed.street
             house = row.house or parsed.house
+            street = clean_street_house_suffix(raw_street, house)
             if not city_name or not street:
                 continue
             if city is not None and city_name.strip().casefold() != city.casefold():
@@ -385,7 +580,11 @@ class StreetCatalog:
                 addresses.append(
                     CatalogAddress(
                         id=row.id,
-                        address_text=row.address_text,
+                        address_text=(
+                            row.address_text.replace(raw_street, street, 1)
+                            if raw_street and street != raw_street
+                            else row.address_text
+                        ),
                         postal_code=row.postal_code,
                         city=city_name.strip(),
                         district=district.strip() if district else None,
@@ -484,83 +683,226 @@ class StreetCatalog:
         return list(self._ui_postal_houses.get((postal_code, normalize_ui_text(street)), ()))
 
     @staticmethod
-    def _autocomplete_score(query: str, address: str) -> float | None:
-        """Оценка частичного адреса без требования вводить строку целиком."""
-        if address.startswith(query):
+    def _token_similarity(query_token: str, candidate_token: str) -> float:
+        if query_token == candidate_token:
             return 100.0
-        position = address.find(query)
-        if position >= 0:
-            return max(90.0, 98.0 - position * 0.15)
+        if query_token.isdigit() or candidate_token.isdigit():
+            return 0.0
+        if len(query_token) >= 2 and candidate_token.startswith(query_token):
+            return 97.0
+        if len(candidate_token) >= 4 and query_token.startswith(candidate_token):
+            return 91.0
+        if min(len(query_token), len(candidate_token)) < 3:
+            return 0.0
+        ratio = float(fuzz.ratio(query_token, candidate_token))
+        partial = float(fuzz.partial_ratio(query_token, candidate_token)) * 0.92
+        return max(ratio, partial)
 
-        query_tokens = query.split()
-        address_tokens = address.split()
+    @classmethod
+    def _text_search_score(
+        cls,
+        query: str,
+        *,
+        city: str,
+        district: str,
+        street: str,
+        combined: str,
+    ) -> float | None:
+        """Field-aware scorer: улица важнее района, порядок слов не важен."""
+        query_tokens = _meaningful_search_tokens(query)
         if not query_tokens:
+            return 100.0
+
+        fields = (
+            (street, 3.0),
+            (district, 1.5),
+            (city, 0.0),
+        )
+        field_tokens = [
+            (token, bonus)
+            for value, bonus in fields
+            for token in _meaningful_search_tokens(value)
+            if token
+        ]
+        if not field_tokens:
             return None
 
-        cursor = 0
-        positions: list[int] = []
-        exact = 0
+        token_scores: list[float] = []
         for query_token in query_tokens:
-            found = None
-            for index in range(cursor, len(address_tokens)):
-                token = address_tokens[index]
-                if token.startswith(query_token):
-                    found = index
-                    exact += int(token == query_token)
-                    break
-            if found is None:
-                return None
-            positions.append(found)
-            cursor = found + 1
+            best = max(
+                (
+                    min(100.0, cls._token_similarity(query_token, token) + bonus)
+                    for token, bonus in field_tokens
+                ),
+                default=0.0,
+            )
+            token_scores.append(best)
 
-        span = positions[-1] - positions[0] + 1
-        gaps = max(0, span - len(positions))
-        score = 88.0 - positions[0] * 0.35 - gaps * 0.8 + exact * 0.5
-        return max(72.0, min(96.0, score))
+        coverage = sum(token_scores) / len(token_scores)
+        phrase = max(
+            float(fuzz.WRatio(query, combined)),
+            float(fuzz.token_set_ratio(query, combined)),
+        )
+        street_focus = max(
+            float(fuzz.WRatio(query, street)),
+            float(fuzz.token_set_ratio(query, street)),
+        )
+        score = coverage * 0.58 + phrase * 0.27 + street_focus * 0.15
+
+        # Один случайный общий фрагмент не должен вытягивать нерелевантный адрес.
+        if score < 55.0 or (len(token_scores) > 1 and coverage < 52.0):
+            return None
+        return min(100.0, score)
+
+    @staticmethod
+    def _house_search_score(query_house: str, candidate_house: str) -> float:
+        query_n = normalize_house_search(query_house) or ""
+        candidate_n = normalize_house_search(candidate_house) or ""
+        if not query_n or not candidate_n:
+            return 0.0
+        if query_n == candidate_n:
+            return 100.0
+
+        # Если пользователь указал корпус/строение, не подменяем его другим.
+        if re.search(r"[кс]", query_n):
+            return 0.0
+
+        # house_lookup_keys уже знает, что «15к1» имеет базовый ключ «15».
+        # Это надёжнее общего regex: буква «к» здесь означает корпус, а не литеру дома.
+        candidate_keys = set(house_lookup_keys(candidate_house))
+        if query_n in candidate_keys:
+            return 88.0
+        return 0.0
+
+    def _candidate_address_indexes(
+        self, query: str, *, parts: _SearchQueryParts, limit: int
+    ) -> set[int]:
+        """Широкий recall без полного fuzzy-scan всех 125k домов."""
+        result: set[int] = set()
+        query_tokens = _meaningful_search_tokens(query)
+
+        # Быстрый exact/prefix слой. Не выбираем один bucket, как раньше: это
+        # теряло хорошие адреса, если один токен был точным, а другой — с опечаткой.
+        buckets = sorted(
+            (
+                self._address_token_buckets[token[:3]]
+                for token in query_tokens
+                if len(token) >= 3 and self._address_token_buckets.get(token[:3])
+            ),
+            key=len,
+        )
+        for bucket in buckets:
+            if len(bucket) > 5000:
+                continue
+            result.update(bucket)
+            if len(result) >= 5000:
+                break
+
+        # Fuzzy retrieval делаем по ~4.5k уникальных улиц, а не по каждому дому.
+        # После этого разворачиваем лучшие улицы обратно в address indexes.
+        street_queries = {parts.full_text, parts.text_without_house}
+        street_queries.discard("")
+        street_limit = max(24, limit * 2)
+        for street_query in street_queries:
+            for scorer in (fuzz.WRatio, fuzz.token_set_ratio):
+                hits = process.extract(
+                    street_query,
+                    self._address_street_choices,
+                    scorer=scorer,
+                    score_cutoff=35,
+                    limit=street_limit,
+                )
+                for choice, _score, _index in hits:
+                    result.update(self._address_indexes_by_street.get(choice, ()))
+                    if len(result) >= 6500:
+                        break
+                if len(result) >= 6500:
+                    break
+            if len(result) >= 6500:
+                break
+
+        # Если улица ещё не читается (например, пользователь набрал только район),
+        # добавляем несколько похожих районов. Это маленький справочник (~сотни строк).
+        if len(result) < 120 and parts.full_text:
+            district_hits = process.extract(
+                parts.full_text,
+                self._address_district_choices,
+                scorer=fuzz.WRatio,
+                score_cutoff=55,
+                limit=4,
+            )
+            for choice, _score, _index in district_hits:
+                indexes = self._address_indexes_by_district.get(choice, ())
+                result.update(indexes[: max(300, limit * 30)])
+
+        return result
+
+    def _address_search_score(self, index: int, parts: _SearchQueryParts) -> float | None:
+        row = self._address_search_items[index][0]
+        city, district, street, _house, combined = self._address_search_fields[index]
+
+        # Вариант A: всё, включая число, является частью названия. Это важно для
+        # «улица 1905 года» и других числовых названий.
+        full_score = self._text_search_score(
+            parts.full_text,
+            city=city,
+            district=district,
+            street=street,
+            combined=combined,
+        )
+
+        if not parts.house:
+            return full_score
+
+        house_score = self._house_search_score(parts.house, row.house)
+        text_without_house = self._text_search_score(
+            parts.text_without_house,
+            city=city,
+            district=district,
+            street=street,
+            combined=combined,
+        )
+
+        # Явные «дом/корпус/строение» считаем строгими: неверный номер не должен
+        # появляться выше правильного адреса из-за похожей улицы.
+        if parts.explicit_house:
+            if house_score <= 0.0 or text_without_house is None:
+                return None
+            return min(100.0, text_without_house * 0.72 + house_score * 0.28 + 1.5)
+
+        # Голое число двусмысленно. «15 сельск» — почти наверняка дом 15,
+        # но «1905 года» — часть названия улицы. Если число не встречается в
+        # названии улицы и не совпало с домом, такой кандидат отбрасываем.
+        street_tokens = set(_meaningful_search_tokens(street))
+        number_is_in_street = (normalize_house(parts.house) or parts.house) in street_tokens
+        if house_score <= 0.0 and not number_is_in_street:
+            return None
+
+        house_interpretation: float | None = None
+        if house_score > 0.0 and text_without_house is not None:
+            house_interpretation = min(100.0, text_without_house * 0.72 + house_score * 0.28 + 1.0)
+        candidates = [score for score in (full_score, house_interpretation) if score is not None]
+        return max(candidates) if candidates else None
 
     def search(self, query: str, *, limit: int = 12) -> list[tuple[CatalogAddress, float]]:
         query_n = normalize_search_text(query)
         if len(query_n) < 3 or not self._address_search_items:
             return []
 
-        seed = next((token[:3] for token in query_n.split() if len(token) >= 3), None)
-        candidate_indexes = (
-            self._address_token_buckets.get(seed, [])
-            if seed
-            else range(len(self._address_search_items))
-        )
+        parts = _search_query_parts(query_n)
+        candidate_indexes = self._candidate_address_indexes(query_n, parts=parts, limit=limit)
 
         ranked: list[tuple[float, CatalogAddress]] = []
         for index in candidate_indexes:
-            row, address_key = self._address_search_items[index]
-            score = self._autocomplete_score(query_n, address_key)
-            if score is not None:
-                ranked.append((score, row))
-
-        if ranked:
-            ranked.sort(
-                key=lambda pair: (-pair[0], normalize_search_text(pair[1].address_text), pair[1].id)
-            )
-            return [(row, score) for score, row in ranked[:limit]]
-
-        # Опечатки оставляем как fallback, но только когда prefix/contains ничего не нашли.
-        hits = process.extract(
-            query_n,
-            self._address_search_keys,
-            scorer=fuzz.WRatio,
-            limit=max(limit * 3, 20),
-        )
-        result: list[tuple[CatalogAddress, float]] = []
-        seen: set[int] = set()
-        for _choice, score, index in hits:
-            row = self._address_search_items[index][0]
-            if row.id in seen or score < 60:
+            score = self._address_search_score(index, parts)
+            if score is None or score < 58.0:
                 continue
-            seen.add(row.id)
-            result.append((row, float(score)))
-            if len(result) >= limit:
-                break
-        return result
+            ranked.append((score, self._address_search_items[index][0]))
+
+        ranked.sort(
+            key=lambda pair: (-pair[0], normalize_search_text(pair[1].address_text), pair[1].id)
+        )
+        return [(row, score) for score, row in ranked[:limit]]
 
     def nearest(
         self,

@@ -1,6 +1,7 @@
-from address.components import clean_city_label, clean_district_label
+from address.components import clean_city_label, clean_district_label, parse_address_text
 from address.street_catalog import CatalogAddress, StreetCatalog, normalize_ui_text
-from chat_link.commands.keyboards import list_keyboard, page_size, paginate, prefix_groups
+from chat_link.commands.keyboards import list_keyboard, prefix_groups
+from chat_link.commands.pagination import HOUSE_PAGE_SIZE, PAGE_SIZE, paginate
 
 
 def row(id, district, street, house, postal="123456"):
@@ -75,30 +76,50 @@ def test_unicode_and_zero_width_normalization() -> None:
     assert normalize_ui_text("  ТВЕРСКАЯ\u200b   Ёлка ") == "тверская елка"
 
 
-def test_adaptive_pagination_and_fast_prefix_groups() -> None:
-    assert page_size(5) == 5
-    assert page_size(25) == 6
-    items, page, pages = paginate([str(i) for i in range(101)], 5)
-    assert page == 5
-    assert pages == 9
-    assert len(items) <= 12
+def test_fixed_pagination_and_fast_prefix_groups() -> None:
+    page = paginate([str(i) for i in range(101)], 5)
+    assert PAGE_SIZE == 10
+    assert page.index == 5
+    assert page.pages == 11
+    assert len(page.items) == 10
     groups = prefix_groups(["Авиамоторная", "Арбат", "Беговая", "Бибиревская", "Вавилова"])
     assert 3 <= len(groups) <= 12
 
 
-def test_house_keyboard_uses_compact_grid() -> None:
-    markup, page, pages = list_keyboard(
-        ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
-        kind="house",
-        page=0,
-        back="street",
-    )
+def test_house_keyboard_uses_three_columns_without_a_dangling_row() -> None:
+    values = [str(index) for index in range(1, 17)]
+    markup, page, pages = list_keyboard(values, kind="house", page=0, back="street")
+    assert HOUSE_PAGE_SIZE == 15
     assert page == 0
-    assert pages == 1
+    assert pages == 2
     rows = markup.payload.buttons
-    # Девять коротких домов занимают три ряда по три, затем идёт «Назад».
-    assert [len(row) for row in rows[:3]] == [3, 3, 3]
-    assert rows[3][0].text == "← Назад"
+    assert [len(row) for row in rows[:5]] == [3, 3, 3, 3, 3]
+    assert [button.text for button in rows[5]] == ["·", "1 / 2", "›"]
+    assert rows[6][0].text == "← Назад"
+
+
+def test_street_keyboard_is_capped_at_ten_rows() -> None:
+    values = [f"Улица {index}" for index in range(11)]
+    markup, page, pages = list_keyboard(values, kind="street", page=0, back="district")
+
+    assert page == 0
+    assert pages == 2
+    rows = markup.payload.buttons
+    assert [row[0].text for row in rows[:10]] == values[:10]
+    assert [button.text for button in rows[10]] == ["·", "1 / 2", "›"]
+    assert rows[11][0].text == "← Назад"
+
+
+def test_long_keyboard_has_five_page_jump() -> None:
+    values = [f"Улица {index}" for index in range(170)]
+    markup, page, pages = list_keyboard(values, kind="street", page=6, back="district")
+
+    assert page == 6
+    assert pages == 17
+    nav = markup.payload.buttons[10]
+    assert [button.text for button in nav] == ["«5", "‹", "7 / 17", "›", "5»"]
+    assert nav[0].payload == "cl:street:page:1"
+    assert nav[4].payload == "cl:street:page:11"
 
 
 def test_map_does_not_select_a_house_far_from_cursor() -> None:
@@ -162,3 +183,79 @@ def test_address_search_autocompletes_partial_street_and_house() -> None:
 
     district_hits = index.search("росток сельск", limit=10)
     assert [item.id for item, _score in district_hits] == [1, 2]
+
+
+def test_address_search_accepts_free_word_order_abbreviations_and_typos() -> None:
+    index = catalog(
+        [
+            row(1, "Ростокино", "Сельскохозяйственная улица", "15 к1", "129226"),
+            row(2, "Ростокино", "Сельскохозяйственная улица", "17", "129226"),
+            row(3, "Останкинский", "улица Академика Королёва", "15", "129515"),
+            row(4, "Пресненский", "улица 1905 года", "10", "123100"),
+            row(5, "Тверской", "1-я Тверская-Ямская улица", "12", "125047"),
+        ]
+    )
+
+    expected_first = {
+        "15 сельск": 1,
+        "ул сельск 15": 1,
+        "сельск дом 15": 1,
+        "ростокино 15 сельск": 1,
+        "сльскохозяйственная 15": 1,  # опечатка уже в начале слова
+        "сельск 15к1": 1,
+        "живу на сельск 15": 1,
+        "акад королева 15": 3,
+        "1905 года": 4,  # число — часть улицы, а не дом
+        "1 тверская 12": 5,
+    }
+    for query, expected_id in expected_first.items():
+        hits = index.search(query, limit=10)
+        assert hits, query
+        assert hits[0][0].id == expected_id, query
+
+
+def test_address_search_does_not_offer_wrong_house_when_number_is_house_hint() -> None:
+    index = catalog(
+        [
+            row(1, "Ростокино", "Сельскохозяйственная улица", "15 к1"),
+            row(2, "Ростокино", "Сельскохозяйственная улица", "17"),
+        ]
+    )
+
+    assert [item.id for item, _score in index.search("сельск 15", limit=10)] == [1]
+
+
+def test_duplicate_house_suffix_is_not_shown_as_part_of_street() -> None:
+    parsed = parse_address_text("Москва, 1-й Сельскохозяйственный проезд 2 с1, д. 2 с1")
+    assert parsed.street == "1-й Сельскохозяйственный проезд"
+    assert parsed.house == "2 с1"
+
+
+def test_free_search_treats_slash_corpus_and_building_as_same_secondary_number() -> None:
+    index = catalog(
+        [
+            row(1, "Ростокино", "Сельскохозяйственная улица", "15 к1", "129226"),
+            row(2, "Ростокино", "Сельскохозяйственная улица", "17", "129226"),
+        ]
+    )
+
+    for query in (
+        "сельскохозяйственная 15/1",
+        "сельскохозяйственная 15к1",
+        "сельскохозяйственная 15 корпус 1",
+        "сельскохозяйственная 15с1",
+        "сельскохозяйственная 15 строение 1",
+    ):
+        hits = index.search(query, limit=10)
+        assert hits, query
+        assert hits[0][0].id == 1, query
+
+
+def test_obvious_compound_house_suffix_is_removed_even_if_house_field_is_dirty() -> None:
+    parsed = parse_address_text("Москва, Сельскохозяйственная улица 4 с18, д. 4 с14")
+    assert parsed.street == "Сельскохозяйственная улица"
+
+
+def test_numeric_street_name_is_not_removed_by_fallback_cleanup() -> None:
+    parsed = parse_address_text("Москва, улица 1905 года, д. 4")
+    assert parsed.street == "улица 1905 года"

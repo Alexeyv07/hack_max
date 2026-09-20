@@ -7,9 +7,12 @@ from maxapi.utils.deep_linking import create_start_link
 
 from address.street_catalog import normalize_ui_text
 from chat_link.commands.keyboards import (
+    admin_setup_keyboard,
     existing_chats_keyboard,
+    group_referral_keyboard,
     list_keyboard,
     method_keyboard,
+    postal_input_keyboard,
     prefix_groups,
     setup_keyboard,
 )
@@ -70,8 +73,8 @@ def _filter_prefix(values: list[str], prefix: str | None) -> list[str]:
 
 
 def _page_text(title: str, page: int, pages: int) -> str:
-    suffix = f"\n\nСтраница {page + 1} из {pages}" if pages > 1 else ""
-    return title + suffix
+    # Номер страницы уже виден в единой строке навигации клавиатуры.
+    return title
 
 
 def _house_labels(rows: list[Any]) -> list[str]:
@@ -250,27 +253,64 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
     # такая запись не должна оставлять заявку в WAITING_JOIN.
     with session_scope() as session:
         mark_waiting_group(session, token=request.token)
+    await _show_resident_setup(event, context, bot)
+
+
+async def _show_resident_setup(event: Any, context: Any, bot: Any) -> None:
+    data = await context.get_data()
+    address_id = data.get("address_id")
+    token = data.get("link_token")
+    address = get_address_catalog().get(address_id) if address_id is not None else None
+    if address is None or not token:
+        await event.edit(
+            text="Сессия выбора адреса устарела. Выберите адрес ещё раз.",
+            attachments=[method_keyboard(bot)],
+            notify=False,
+        )
+        return
+
     username = getattr(getattr(bot, "me", None), "username", None)
-    admin_link = create_start_link(username, f"chat_admin_{request.token}") if username else None
-    admin_instruction = (
-        f"\n\nЕсли вы не администратор — перешлите админу это сообщение и ссылку:\n{admin_link}"
-        if admin_link
-        else "\n\nЕсли вы не администратор — перешлите админу это сообщение."
+    admin_link = create_start_link(username, f"chat_admin_{token}") if username else None
+    text = (
+        f"Адрес: {address.address_text}\n\n"
+        "Для этого дома пока нет подключённого чата. Если вы обычный житель, "
+        "отправьте администратору домового чата ссылку кнопкой ниже. "
+        "Когда администратор подключит чат, вы сможете вступить в него и получать события по дому."
     )
+    if not admin_link:
+        text += "\n\nСейчас ссылку для администратора создать не удалось. Попробуйте ещё раз позже."
     await event.edit(
-        text=(
-            f"Адрес: {address.address_text}\n\n"
-            "Если вы администратор домового чата, добавьте этого бота в групповой чат, "
-            "затем назначьте его администратором с правом «Читать все сообщения». "
-            "После этого чат подключится автоматически — дополнительных команд не нужно."
-            f"{admin_instruction}"
-        ),
+        text=text,
         attachments=[setup_keyboard(admin_link)],
         notify=False,
     )
 
 
-def _group_welcome(bot: Any, chat_id: int) -> str:
+async def _show_admin_setup(event: Any, context: Any, bot: Any) -> None:
+    data = await context.get_data()
+    address_id = data.get("address_id")
+    address = get_address_catalog().get(address_id) if address_id is not None else None
+    if address is None:
+        await event.edit(
+            text="Сессия выбора адреса устарела. Выберите адрес ещё раз.",
+            attachments=[method_keyboard(bot)],
+            notify=False,
+        )
+        return
+
+    await event.edit(
+        text=(
+            f"Адрес: {address.address_text}\n\n"
+            "Если вы администратор домового чата, добавьте этого бота в нужный групповой чат, "
+            "затем назначьте его администратором с правом «Читать все сообщения». "
+            "После этого чат подключится автоматически — дополнительных команд не нужно."
+        ),
+        attachments=[admin_setup_keyboard()],
+        notify=False,
+    )
+
+
+def _group_welcome(bot: Any, chat_id: int) -> tuple[str, Any | None]:
     username = getattr(getattr(bot, "me", None), "username", None)
     referral = create_start_link(username, f"chat_{chat_id}") if username else None
     text = (
@@ -278,11 +318,8 @@ def _group_welcome(bot: Any, chat_id: int) -> str:
         "для событий рядом с жителями."
     )
     if referral:
-        text += (
-            "\n\nСсылка для соседей: "
-            f"{referral}\nОткрыв её после вступления в этот чат, житель автоматически привяжет дом."
-        )
-    return text
+        text += "\n\nСоседи могут привязать дом кнопкой ниже после того, как вступят в этот чат."
+    return text, group_referral_keyboard(referral)
 
 
 async def _finish_added_group_when_ready(
@@ -311,13 +348,14 @@ async def _finish_added_group_when_ready(
                     )
                     return
 
-                text = _group_welcome(bot, chat_id)
+                text, referral_keyboard = _group_welcome(bot, chat_id)
                 if not outcome.requester_added:
                     text += (
-                        "\n\nИнициатору нужно вступить в этот чат и открыть "
-                        "реферальную ссылку выше."
+                        "\n\nИнициатору нужно вступить в этот чат и нажать кнопку "
+                        "«Привязать дом» ниже."
                     )
-                await bot.send_message(chat_id=chat_id, text=text)
+                attachments = [referral_keyboard] if referral_keyboard is not None else None
+                await bot.send_message(chat_id=chat_id, text=text, attachments=attachments)
                 return
         except asyncio.CancelledError:
             raise
@@ -384,6 +422,14 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
         if payload == "chat_link:start":
             await _show_methods(event, context, bot)
             return
+        if payload == "cl:admin:help":
+            await _show_admin_setup(event, context, bot)
+            return
+        if payload == "cl:admin:user":
+            await _show_resident_setup(event, context, bot)
+            return
+        if payload == "cl:noop":
+            return
 
         parts = payload.split(":")
         if payload == "cl:method:native":
@@ -399,7 +445,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                 await context.update_data(flow_mid=mid)
             await event.edit(
                 text="Введите шестизначный почтовый индекс. Он только сузит список адресов.",
-                attachments=[],
+                attachments=[postal_input_keyboard()],
                 notify=False,
             )
             return
@@ -495,7 +541,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                 await bot.edit_message(
                     mid,
                     text="Такого индекса нет в справочнике. Введите другой шестизначный индекс.",
-                    attachments=[],
+                    attachments=[postal_input_keyboard()],
                 )
             return
 
