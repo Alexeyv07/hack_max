@@ -104,8 +104,10 @@ docker compose up -d postgres
 ### Подключение домового чата (KAN-7)
 
 `chat_link` реализует один onboarding-screen и 4 способа выбора дома: bot-picker
-`город → район → улица → дом`, индекс, карта WebApp и текстовый WebApp-поиск.
-Адресные списки строятся из in-memory `StreetCatalog`; реальные MAX group `chat_id` и membership
+`город → район → улица → дом`, индекс, карта WebApp на Яндекс Картах и текстовый WebApp-поиск.
+Обычный welcome ведёт жителя в поиск чата, отдельная кнопка открывает flow администратора. Для
+карты задайте `VITE_YANDEX_MAPS_API_KEY` в `.env`. Адресные списки строятся из in-memory
+`StreetCatalog`; реальные MAX group `chat_id` и membership
 сохраняются через `user_chat`. Если чат создаётся впервые, администратор добавляет бота в группу,
 назначает его администратором с правом `read_all_messages`, после чего связь подтверждается MAX API
 и завершается автоматически. Подробнее: `src/chat_link/README.md`.

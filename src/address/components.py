@@ -15,6 +15,15 @@ _HOUSE_INLINE = re.compile(
     re.IGNORECASE,
 )
 
+_OBVIOUS_HOUSE_SUFFIX = re.compile(
+    r"(?:\s+|,\s*)(?:д(?:ом)?\.?\s*)?"
+    r"\d+[а-яА-Яa-zA-Z]?\s*"
+    r"(?:/\s*\d+[а-яА-Яa-zA-Z]?|"
+    r"(?:к(?:орп(?:ус)?)?|[сc](?:тр(?:оение)?)?|стр(?:оение)?|строение)\.?\s*"
+    r"\d+[а-яА-Яa-zA-Z]?)\s*$",
+    re.IGNORECASE,
+)
+
 _CITY_ALIASES = {
     "moscow": "Москва",
     "москва": "Москва",
@@ -94,6 +103,59 @@ def normalize_component(value: str | None) -> str | None:
     return text or None
 
 
+def _normalize_house_suffix(value: str | None) -> str:
+    if not value:
+        return ""
+    text = value.casefold().replace("ё", "е")
+    text = re.sub(r"\s+", "", text)
+    return (
+        text.replace("корпус", "к")
+        .replace("корп", "к")
+        .replace("строение", "с")
+        .replace("стр", "с")
+    )
+
+
+def clean_street_house_suffix(street: str | None, house: str | None) -> str | None:
+    """Убрать номер дома, если источник случайно продублировал его в addr:street.
+
+    Сначала используем фактический ``house``. Дополнительно чистим очевидный
+    хвост с корпусом/строением даже при грязных несовпадающих данных источника:
+    ``Сельскохозяйственная улица 4 с18`` → ``Сельскохозяйственная улица``.
+    Обычные числовые названия улиц (``улица 1905 года``, ``проезд 607``)
+    этот fallback не затрагивает.
+    """
+    if not street:
+        return street
+
+    street = street.strip()
+    if not street:
+        return street
+
+    house_key = _normalize_house_suffix(house)
+    if house_key:
+        parts = street.split()
+        # Номер дома обычно занимает 1–4 токена: ``15``, ``15 к1``, ``15 стр 2``.
+        for start in range(max(1, len(parts) - 4), len(parts)):
+            suffix = " ".join(parts[start:])
+            if _normalize_house_suffix(suffix) != house_key:
+                continue
+            candidate = " ".join(parts[:start]).strip(" ,")
+            if candidate:
+                return candidate
+
+    # В OSM встречаются строки, где addr:street уже содержит другой дом/строение,
+    # поэтому сравнение с row.house не помогает. Снимаем только недвусмысленный
+    # составной номер (4 к1 / 4 с18 / 4 стр 2 / 4/1), но не голое число.
+    match = _OBVIOUS_HOUSE_SUFFIX.search(street)
+    if match:
+        candidate = street[: match.start()].strip(" ,")
+        if candidate:
+            return candidate
+
+    return street
+
+
 def parse_address_text(address_text: str) -> AddressComponents:
     """
     «Москва, 1-й Автозаводский проезд, д. 2» → city/street/house.
@@ -118,6 +180,8 @@ def parse_address_text(address_text: str) -> AddressComponents:
     # часть — улица, предыдущие части — район/поселение.
     street = street_parts[-1] if street_parts else None
     district = ", ".join(street_parts[:-1]) if len(street_parts) > 1 else None
+    if street and house is not None:
+        street = clean_street_house_suffix(street, house)
     if street and house is None:
         inline = _HOUSE_INLINE.search(street)
         if inline:

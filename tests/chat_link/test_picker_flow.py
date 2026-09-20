@@ -86,6 +86,32 @@ def test_postal_goes_straight_to_streets_without_city_or_district(monkeypatch) -
     assert context.data == {"flow_mid": "onboarding-mid", "postal_code": "129226"}
 
 
+class MissingPostalCatalog:
+    def postal_streets(self, postal_code):
+        return []
+
+
+def test_unknown_postal_keeps_back_button(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = SimpleNamespace(edit_message=AsyncMock())
+    monkeypatch.setattr(flow, "get_address_catalog", lambda: MissingPostalCatalog())
+    flow.register_chat_link_commands(dp, bot)
+
+    context = FakeContext({"flow_mid": "onboarding-mid"})
+    event = SimpleNamespace(
+        message=SimpleNamespace(body=SimpleNamespace(text="000000")),
+    )
+
+    asyncio.run(dp.handlers["message_created"](event, context))
+
+    bot.edit_message.assert_awaited_once()
+    kwargs = bot.edit_message.await_args.kwargs
+    assert "Такого индекса нет" in kwargs["text"]
+    buttons = kwargs["attachments"][0].payload.buttons
+    assert buttons[0][0].text == "← Назад"
+    assert buttons[0][0].payload == "cl:back:root"
+
+
 def test_postal_street_callback_goes_to_houses(monkeypatch) -> None:
     dp = FakeDispatcher()
     bot = SimpleNamespace()
@@ -110,3 +136,67 @@ def test_postal_street_callback_goes_to_houses(monkeypatch) -> None:
     assert "Сельскохозяйственная улица" in event.edit.await_args.kwargs["text"]
     assert "Выберите дом" in event.edit.await_args.kwargs["text"]
     assert context.data["street"] == "Сельскохозяйственная улица"
+
+
+class RoleCatalog:
+    def get(self, address_id):
+        if address_id != 42:
+            return None
+        return SimpleNamespace(id=42, address_text="Москва, Ростокино, д. 1")
+
+
+def _role_event(payload: str):
+    return SimpleNamespace(
+        callback=SimpleNamespace(
+            payload=payload,
+            user=SimpleNamespace(user_id=123),
+        ),
+        ack=AsyncMock(),
+        edit=AsyncMock(),
+    )
+
+
+def test_admin_instructions_are_shown_only_after_admin_button(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = SimpleNamespace(me=SimpleNamespace(username="test_bot", user_id=999))
+    monkeypatch.setattr(flow, "get_address_catalog", lambda: RoleCatalog())
+    flow.register_chat_link_commands(dp, bot)
+
+    context = FakeContext({"address_id": 42, "link_token": "token"})
+    event = _role_event("cl:admin:help")
+
+    asyncio.run(dp.handlers["message_callback"](event, context))
+
+    event.ack.assert_awaited_once()
+    event.edit.assert_awaited_once()
+    kwargs = event.edit.await_args.kwargs
+    assert "Если вы администратор домового чата" in kwargs["text"]
+    assert "Читать все сообщения" in kwargs["text"]
+    buttons = kwargs["attachments"][0].payload.buttons
+    assert buttons[0][0].text == "← Я не администратор"
+
+
+def test_return_from_admin_help_shows_resident_text(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = SimpleNamespace(me=SimpleNamespace(username="test_bot", user_id=999))
+    monkeypatch.setattr(flow, "get_address_catalog", lambda: RoleCatalog())
+    monkeypatch.setattr(
+        flow,
+        "create_start_link",
+        lambda username, payload: f"https://max.ru/{username}?start={payload}",
+    )
+    flow.register_chat_link_commands(dp, bot)
+
+    context = FakeContext({"address_id": 42, "link_token": "token"})
+    event = _role_event("cl:admin:user")
+
+    asyncio.run(dp.handlers["message_callback"](event, context))
+
+    event.ack.assert_awaited_once()
+    event.edit.assert_awaited_once()
+    kwargs = event.edit.await_args.kwargs
+    assert "Если вы обычный житель" in kwargs["text"]
+    assert "Если вы администратор домового чата" not in kwargs["text"]
+    buttons = kwargs["attachments"][0].payload.buttons
+    assert buttons[0][0].text == "Скопировать ссылку для админа"
+    assert buttons[1][0].text == "Я администратор чата"

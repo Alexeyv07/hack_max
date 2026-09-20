@@ -22,11 +22,15 @@ export type SelectResult = {
 	chats: ChatOption[];
 };
 
-async function headers(): Promise<HeadersInit> {
+const publicHeaders: HeadersInit = {
+	'ngrok-skip-browser-warning': 'true'
+};
+
+async function authenticatedHeaders(): Promise<HeadersInit> {
 	return {
+		...publicHeaders,
 		'X-Max-User-Id': String(await waitForMaxUserId()),
-		'Content-Type': 'application/json',
-		'ngrok-skip-browser-warning': 'true'
+		'Content-Type': 'application/json'
 	};
 }
 
@@ -40,14 +44,14 @@ async function json<T>(response: Response): Promise<T> {
 
 export async function searchAddresses(q: string): Promise<AddressOption[]> {
 	const response = await fetch(`/api/chat-link/addresses/search?q=${encodeURIComponent(q)}`, {
-		headers: await headers()
+		headers: publicHeaders
 	});
 	return (await json<{ items: AddressOption[] }>(response)).items;
 }
 
 export async function nearestAddresses(lat: number, lon: number): Promise<AddressOption[]> {
 	const response = await fetch(`/api/chat-link/addresses/nearest?lat=${lat}&lon=${lon}`, {
-		headers: await headers()
+		headers: publicHeaders
 	});
 	return (await json<{ items: AddressOption[] }>(response)).items;
 }
@@ -56,7 +60,7 @@ export async function selectAddress(addressId: number): Promise<SelectResult> {
 	return json(
 		await fetch('/api/chat-link/select', {
 			method: 'POST',
-			headers: await headers(),
+			headers: await authenticatedHeaders(),
 			body: JSON.stringify({ address_id: addressId })
 		})
 	);

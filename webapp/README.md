@@ -52,5 +52,14 @@ address-mode кешируется отдельно. Поэтому reload или
 введённый текст, положение карты или выбранный дом и не заставляет flow снова проходить экран
 «Открываем…». После успешного выбора черновик очищается: новое открытие начинается с нового
 адреса; на экране результата также есть кнопка «Добавить ещё адрес».
-User id всегда берётся из `window.WebApp.initDataUnsafe.user.id`; тестового hardcode нет.
-MAX Bridge подключается из официального CDN `https://st.max.ru/js/max-web-app.js`.
+Поиск адресов и nearest lookup публичные и не требуют user id. Он нужен только при финальном
+`/api/chat-link/select`: сначала читается `window.WebApp.initDataUnsafe.user.id`, затем официальный
+`initData`, а при reload WebView — `WebAppData` из URL fragment. Тестового hardcode нет. MAX Bridge
+подключается из официального CDN `https://st.max.ru/js/max-web-app.js`.
+
+Карта рендерится через Yandex Maps JS API 3.0; ключ приходит из `VITE_YANDEX_MAPS_API_KEY`.
+Адреса и nearest lookup остаются локальными через backend `StreetCatalog`, Yandex используется
+только как интерактивная подложка карты.
+
+После выбора дома экран по умолчанию показывает сценарий обычного жителя. Кнопка
+`Я администратор чата` раскрывает отдельную админскую инструкцию, не меняя стартовый flow MiniApp.

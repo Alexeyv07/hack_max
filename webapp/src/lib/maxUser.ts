@@ -1,6 +1,7 @@
-/** Max Bridge: user id из мини-приложения. */
+/** MAX Bridge: user id и start_param из мини-приложения. */
 
 export type MaxWebApp = {
+	initData?: string;
 	initDataUnsafe?: {
 		user?: {
 			id?: number;
@@ -20,22 +21,74 @@ export function readyMaxWebApp(): void {
 	try {
 		window.WebApp?.ready?.();
 	} catch {
-		// вне Max Bridge ready может отсутствовать
+		// Вне MAX Bridge ready может отсутствовать.
 	}
 }
 
 const USER_ID_CACHE_KEY = 'max-webapp-user-id-v1';
 
-export function getMaxUserId(): number | null {
-	const id = window.WebApp?.initDataUnsafe?.user?.id;
-	if (typeof id !== 'number' || !Number.isFinite(id) || id <= 0) return null;
-	const normalized = Math.trunc(id);
+function parseInitData(raw: string | undefined): URLSearchParams | null {
+	if (!raw) return null;
 	try {
-		localStorage.setItem(USER_ID_CACHE_KEY, String(normalized));
+		return new URLSearchParams(raw);
 	} catch {
-		// WebView может запрещать storage; Bridge всё равно остаётся источником identity.
+		return null;
 	}
-	return normalized;
+}
+
+function initDataFromHash(): URLSearchParams | null {
+	try {
+		const hash = window.location.hash.replace(/^#/, '');
+		if (!hash) return null;
+		const outer = new URLSearchParams(hash);
+		const webAppData = outer.get('WebAppData');
+		return parseInitData(webAppData ?? undefined);
+	} catch {
+		return null;
+	}
+}
+
+function userIdFromParams(params: URLSearchParams | null): number | null {
+	if (!params) return null;
+	const rawUser = params.get('user');
+	if (!rawUser) return null;
+	try {
+		const user = JSON.parse(rawUser) as { id?: unknown };
+		const id = user.id;
+		if (typeof id !== 'number' || !Number.isFinite(id) || id <= 0) return null;
+		return Math.trunc(id);
+	} catch {
+		return null;
+	}
+}
+
+function normalizeUserId(id: unknown): number | null {
+	if (typeof id !== 'number' || !Number.isFinite(id) || id <= 0) return null;
+	return Math.trunc(id);
+}
+
+function cacheUserId(id: number): number {
+	try {
+		localStorage.setItem(USER_ID_CACHE_KEY, String(id));
+	} catch {
+		// WebView может запрещать storage.
+	}
+	return id;
+}
+
+export function getMaxUserId(): number | null {
+	const unsafeId = normalizeUserId(window.WebApp?.initDataUnsafe?.user?.id);
+	if (unsafeId !== null) return cacheUserId(unsafeId);
+
+	const initDataId = userIdFromParams(parseInitData(window.WebApp?.initData));
+	if (initDataId !== null) return cacheUserId(initDataId);
+
+	// MAX также передаёт тот же WebAppData во fragment URL. Это спасает reload WebView,
+	// когда глобальный объект Bridge появляется позже стартового рендера.
+	const hashId = userIdFromParams(initDataFromHash());
+	if (hashId !== null) return cacheUserId(hashId);
+
+	return null;
 }
 
 export function getMaxUserIdForStorage(): string {
@@ -48,18 +101,16 @@ export function getMaxUserIdForStorage(): string {
 	}
 }
 
-/** ID пользователя Max из Bridge. Без Bridge — ошибка (локальный браузер без Max). */
+/** ID пользователя MAX из стартовых данных Mini App. */
 export function requireMaxUserId(): number {
 	const id = getMaxUserId();
 	if (id === null) {
-		throw new Error(
-			'Нет user id Max. Откройте мини-приложение из бота Max (Bridge initDataUnsafe.user.id).'
-		);
+		throw new Error('MAX не передал данные пользователя. Закройте мини-приложение и откройте его заново из кнопки бота.');
 	}
 	return id;
 }
 
-export async function waitForMaxUserId(timeoutMs = 4000): Promise<number> {
+export async function waitForMaxUserId(timeoutMs = 6000): Promise<number> {
 	const immediate = getMaxUserId();
 	if (immediate !== null) return immediate;
 
@@ -73,28 +124,47 @@ export async function waitForMaxUserId(timeoutMs = 4000): Promise<number> {
 }
 
 export function getMaxStartParam(): string | null {
-	return window.WebApp?.initDataUnsafe?.start_param ?? null;
+	const unsafe = window.WebApp?.initDataUnsafe?.start_param;
+	if (unsafe) return unsafe;
+
+	const fromInitData = parseInitData(window.WebApp?.initData)?.get('start_param');
+	if (fromInitData) return fromInitData;
+
+	const fromHash = initDataFromHash()?.get('start_param');
+	if (fromHash) return fromHash;
+
+	try {
+		return new URL(window.location.href).searchParams.get('WebAppStartParam');
+	} catch {
+		return null;
+	}
 }
 
 /**
- * Bridge иногда заполняет initDataUnsafe уже после первого рендера WebApp.
+ * Bridge иногда заполняет стартовые данные уже после первого рендера WebApp.
  * Коротко ждём payload, чтобы onboarding не мигал обычной лентой новостей.
  */
-export async function waitForMaxStartParam(timeoutMs = 4000): Promise<string | null> {
-	const readWhenBridgeIsReady = (): string | null | undefined => {
-		const userId = getMaxUserId();
-		if (userId === null) return undefined;
-		return window.WebApp?.initDataUnsafe?.start_param ?? null;
-	};
+function hasMaxLaunchData(): boolean {
+	if (window.WebApp?.initDataUnsafe?.user?.id || window.WebApp?.initData) return true;
+	try {
+		const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+		return hash.has('WebAppData');
+	} catch {
+		return false;
+	}
+}
 
-	const immediate = readWhenBridgeIsReady();
-	if (immediate !== undefined) return immediate;
+export async function waitForMaxStartParam(timeoutMs = 6000): Promise<string | null> {
+	const immediate = getMaxStartParam();
+	if (immediate !== null) return immediate;
+	if (hasMaxLaunchData()) return null;
 
 	const started = Date.now();
 	while (Date.now() - started < timeoutMs) {
 		await new Promise((resolve) => window.setTimeout(resolve, 50));
-		const value = readWhenBridgeIsReady();
-		if (value !== undefined) return value;
+		const value = getMaxStartParam();
+		if (value !== null) return value;
+		if (hasMaxLaunchData()) return null;
 	}
 	return null;
 }
