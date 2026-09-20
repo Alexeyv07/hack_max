@@ -12,6 +12,8 @@ class ChatCreate:
     title: str = "Чат соседей"
     # Закрытый чат может ещё не иметь приглашения.
     invite_link: str | None = None
+    # KAN-7 сохраняет только подтверждённые групповые MAX-чаты.
+    chat_type: str = "chat"
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +22,7 @@ class Chat:
     address_id: int
     title: str
     invite_link: str | None
+    chat_type: str | None
 
 
 @dataclass(frozen=True, slots=True)

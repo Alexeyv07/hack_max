@@ -9,7 +9,14 @@
 		shouldShowCityHint,
 		shouldShowDownHint
 	} from '$lib/feedHints';
-	import { readyMaxWebApp } from '$lib/maxUser';
+	import { getMaxUserId, readyMaxWebApp, waitForMaxStartParam } from '$lib/maxUser';
+	import {
+		clearActiveChatLinkMode,
+		isChatLinkMode,
+		loadActiveChatLinkMode,
+		saveActiveChatLinkMode
+	} from '$lib/chatLinkSession';
+	import AddressPicker from '$lib/components/AddressPicker.svelte';
 	import type { FeedItem, FeedScope } from '$lib/types/event';
 
 	type FeedState = {
@@ -30,6 +37,9 @@
 		};
 	}
 
+	const cachedChatLinkMode = loadActiveChatLinkMode();
+	let startParam = $state<string | null>(cachedChatLinkMode);
+	let bridgeReady = $state(cachedChatLinkMode !== null);
 	let scope = $state<FeedScope>('nearby');
 	let nearby = $state<FeedState>(emptyState());
 	let city = $state<FeedState>(emptyState());
@@ -173,12 +183,43 @@
 	}
 
 	onMount(() => {
+		let cancelled = false;
 		readyMaxWebApp();
-		refreshHints();
-		void loadMore('nearby', true);
+		void (async () => {
+			const param = await waitForMaxStartParam();
+			if (cancelled) return;
+
+			if (isChatLinkMode(param)) {
+				startParam = param;
+				bridgeReady = true;
+				saveActiveChatLinkMode(param);
+				return;
+			}
+
+			// Если MAX временно не отдал Bridge во время reload WebView, не выбрасываем
+			// пользователя из уже открытого address-flow. API сам дождётся user id.
+			if (getMaxUserId() === null && isChatLinkMode(startParam)) {
+				bridgeReady = true;
+				return;
+			}
+
+			clearActiveChatLinkMode();
+			startParam = param;
+			bridgeReady = true;
+			refreshHints();
+			void loadMore('nearby', true);
+		})();
+		return () => {
+			cancelled = true;
+		};
 	});
 </script>
 
+{#if startParam === 'chat_link_map'}
+	<AddressPicker mode="map" />
+{:else if startParam === 'chat_link_text'}
+	<AddressPicker mode="text" />
+{:else if bridgeReady}
 <div
 	class="feed-root"
 	role="application"
@@ -242,6 +283,8 @@
 		<div class="boot" aria-live="polite">Загрузка новостей…</div>
 	{/if}
 </div>
+
+{/if}
 
 <style>
 	.feed-root {
@@ -328,7 +371,6 @@
 			opacity: 0.95;
 		}
 	}
-
 	@keyframes nudge-y {
 		0%,
 		100% {

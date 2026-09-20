@@ -15,6 +15,8 @@ from user_chat.db import ChatRow, users_chat
 from user_chat.handlers import (
     add_user_to_chat,
     create_chat,
+    detach_chat,
+    has_connected_chat,
     list_chat_members,
     list_memberships_for_user,
     remove_user_from_chat,
@@ -31,6 +33,21 @@ def test_registration_does_not_add_membership(db_session, chat) -> None:
     authorize_user(db_session, MaxUserPayload(max_user_id=7, chat_id=chat.chat_id))
     assert list_memberships_for_user(db_session, max_user_id=7) == []
     assert list_chat_members(db_session, chat.chat_id) == []
+
+
+def test_legacy_dialog_membership_does_not_unlock_events(db_session, address, user) -> None:
+    legacy = ChatRow(
+        chat_id=777,
+        address_id=address.id,
+        title="Старый DIALOG mock",
+        chat_type=None,
+    )
+    db_session.add(legacy)
+    db_session.flush()
+    assert add_user_to_chat(db_session, legacy.chat_id, max_user_id=user.max_user_id)
+
+    assert not has_connected_chat(db_session, user.max_user_id)
+    assert list_memberships_for_user(db_session, user.max_user_id) == []
 
 
 def test_users_and_chats_are_many_to_many(db_session, chat, address, user) -> None:
@@ -102,3 +119,18 @@ def test_handlers_leave_transaction_to_caller(db_session, chat, user) -> None:
     db_session.rollback()
     assert db_session.get(ChatRow, chat.chat_id) is None
     assert db_session.scalar(select(users_chat.c.user_id)) is None
+
+
+def test_detach_chat_marks_removed_and_clears_memberships(db_session, chat, user) -> None:
+    add_user_to_chat(db_session, chat.chat_id, max_user_id=user.max_user_id)
+    assert has_connected_chat(db_session, user.max_user_id)
+
+    assert detach_chat(db_session, chat.chat_id)
+
+    row = db_session.get(ChatRow, chat.chat_id)
+    assert row is not None
+    assert row.chat_type == "removed"
+    assert row.invite_link is None
+    assert list_chat_members(db_session, chat.chat_id) == []
+    assert list_memberships_for_user(db_session, user.max_user_id) == []
+    assert not has_connected_chat(db_session, user.max_user_id)

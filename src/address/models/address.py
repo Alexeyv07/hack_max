@@ -13,5 +13,6 @@ class Address:
     longitude: Decimal
     is_private: bool | None = None
     city: str | None = None
+    district: str | None = None
     street: str | None = None
     house: str | None = None

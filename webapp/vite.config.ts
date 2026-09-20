@@ -6,6 +6,17 @@ export default defineConfig(({ mode }) => {
 	const env = loadEnv(mode, process.cwd(), '');
 	const apiTarget = env.API_PROXY_TARGET || 'http://127.0.0.1:8000';
 
+	const proxy = {
+		'/api': {
+			target: apiTarget,
+			changeOrigin: true,
+			rewrite: (path: string) => path.replace(/^\/api/, ''),
+			headers: {
+				'ngrok-skip-browser-warning': 'true'
+			}
+		}
+	};
+
 	return {
 		plugins: [
 			sveltekit({
@@ -24,16 +35,12 @@ export default defineConfig(({ mode }) => {
 		server: {
 			// Max/ngrok ходят с Host: *.ngrok-free.dev — иначе Vite отвечает 403.
 			allowedHosts: true,
-			proxy: {
-				'/api': {
-					target: apiTarget,
-					changeOrigin: true,
-					rewrite: (path) => path.replace(/^\/api/, ''),
-					headers: {
-						'ngrok-skip-browser-warning': 'true'
-					}
-				}
-			}
+			proxy
+		},
+		preview: {
+			// Для проверки в MAX используем production build без HMR/page reload.
+			allowedHosts: true,
+			proxy
 		}
 	};
 });
