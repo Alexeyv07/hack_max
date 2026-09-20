@@ -25,6 +25,7 @@ class AddressRow(Base):
     address_text: Mapped[str] = mapped_column(String(1000), unique=True, nullable=False)
     # Структурированные компоненты (для сопоставления city / street / home).
     city: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    district: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True)
     street: Mapped[str | None] = mapped_column(String(512), nullable=True)
     house: Mapped[str | None] = mapped_column(String(64), nullable=True)
     latitude: Mapped[Decimal] = mapped_column(Numeric(10, 7), nullable=False)

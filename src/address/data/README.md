@@ -75,4 +75,18 @@ PYTHONPATH=src:/путь/к/AddressPython python -m address.prepare_osm \
 [Gar77.zip](https://www.garfias.ru/assets/docs/Gar77.zip). В `PYTHONPATH` указывается
 каталог, содержащий пакет `pullenti`; `--gar-index` указывает каталог с `regions.xml`.
 Без `--gar-index` подготовка работает только с OSM и не требует SDK.
+
+Муниципальные районы Москвы берутся из отдельного OSM snapshot `admin_level=8`:
+
+```bash
+curl --fail --show-error --max-time 210 \
+  --data-urlencode 'data@src/address/data/moscow_districts.overpassql' \
+  https://maps.mail.ru/osm/tools/overpass/api/interpreter -o /tmp/moscow-districts.json
+PYTHONPATH=src python -m address.prepare_osm \
+  /tmp/moscow-osm.json --output /tmp/moscow-prepared \
+  --district-boundaries /tmp/moscow-districts.json
+```
+
+Для уже загруженной БД вместо полной переподготовки можно выполнить
+`PYTHONPATH=src python -m address.backfill_districts /tmp/moscow-districts.json`.
 Проверьте новый `manifest.json` и обновите статистику перед заменой файлов в проекте.

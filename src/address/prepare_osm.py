@@ -8,6 +8,7 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from address.district_boundaries import load_overpass_boundaries, resolve_district
 from address.gar_postcodes import build_index, lookup, street_key
 from address.seed import read_addresses
 
@@ -16,10 +17,25 @@ def convert_element(element):
     tags = element["tags"]
     coordinates = element.get("center", element)
     parts = ["Москва"]
+    # Не меняем старый natural key address_text: до KAN-7 в него попадали
+    # addr:city/suburb/place. addr:district сохраняем отдельным компонентом.
+    text_locality: list[str] = []
     for field in ("addr:city", "addr:suburb", "addr:place"):
         value = tags.get(field, "").strip()
-        if value and value.casefold() not in {part.casefold() for part in parts}:
-            parts.append(value)
+        if (
+            value
+            and value.casefold() != "москва"
+            and value.casefold() not in {part.casefold() for part in parts + text_locality}
+        ):
+            text_locality.append(value)
+    parts.extend(text_locality)
+
+    district = None
+    for field in ("addr:district", "addr:suburb", "addr:place", "addr:city"):
+        value = tags.get(field, "").strip()
+        if value and value.casefold() != "москва":
+            district = value
+            break
     street, house = tags["addr:street"].strip(), tags["addr:housenumber"].strip()
     if not street or not house:
         raise ValueError("Объект без улицы или номера дома")
@@ -32,6 +48,7 @@ def convert_element(element):
     return {
         "address_text": ", ".join(parts),
         "city": "Москва",
+        "district": district,
         "street": street,
         "house": house,
         "postal_code": postcode if re.fullmatch(r"[0-9]{6}", postcode) else None,
@@ -64,7 +81,7 @@ def deduplicate(rows):
     return accepted, rejected
 
 
-def prepare(source, output, *, gar_index=None):
+def prepare(source, output, *, gar_index=None, district_boundaries=None):
     raw_bytes = source.read_bytes()
     raw = json.loads(raw_bytes)
     if raw.get("remark") or not raw.get("elements"):
@@ -73,6 +90,17 @@ def prepare(source, output, *, gar_index=None):
     if len({row["source_key"] for row in rows}) != len(rows):
         raise ValueError("Повторяются идентификаторы OSM")
     rows, rejected = deduplicate(rows)
+
+    boundaries = []
+    districts_resolved = 0
+    if district_boundaries:
+        boundaries = load_overpass_boundaries(district_boundaries)
+        for row in rows:
+            district = resolve_district(boundaries, row["latitude"], row["longitude"])
+            if district:
+                row["district"] = district
+                districts_resolved += 1
+
     before = sum(row["postal_code"] is not None for row in rows)
     sdk_version, filled = None, 0
     if gar_index:
@@ -127,6 +155,8 @@ def prepare(source, output, *, gar_index=None):
         "gar_sdk_version": sdk_version,
         "gar_source": "https://garfias.ru" if gar_index else None,
         "gar_index_version": (gar_index / "version.txt").read_text().strip() if gar_index else None,
+        "district_boundaries": len(boundaries),
+        "districts_resolved": districts_resolved,
         "private_counts": dict(Counter(str(row["is_private"]) for row in rows)),
     }
     (output / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
@@ -138,9 +168,22 @@ def main():
     parser.add_argument("source", type=Path)
     parser.add_argument("--output", type=Path, required=True, help="Каталог результата")
     parser.add_argument("--gar-index", type=Path, help="Необязательно: локальный Gar77")
+    parser.add_argument(
+        "--district-boundaries",
+        type=Path,
+        help="Необязательно: Overpass JSON границ Москвы admin_level=8",
+    )
     args = parser.parse_args()
     print(
-        json.dumps(prepare(args.source, args.output, gar_index=args.gar_index), ensure_ascii=False)
+        json.dumps(
+            prepare(
+                args.source,
+                args.output,
+                gar_index=args.gar_index,
+                district_boundaries=args.district_boundaries,
+            ),
+            ensure_ascii=False,
+        )
     )
 
 

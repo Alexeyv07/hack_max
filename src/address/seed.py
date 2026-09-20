@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from address.components import parse_address_text
+from address.components import clean_city_label, clean_district_label, parse_address_text
 from address.db.address import AddressRow
 from project.database import session_scope
 
@@ -61,16 +61,25 @@ def read_addresses(path: Path) -> list[dict]:
                     raise ValueError("is_private должен быть true, false или null")
 
                 city = _normalize_optional_str(item.get("city"), field="city", max_len=128)
+                district = _normalize_optional_str(
+                    item.get("district"), field="district", max_len=256
+                )
                 street = _normalize_optional_str(item.get("street"), field="street", max_len=512)
                 house = _normalize_optional_str(item.get("house"), field="house", max_len=64)
-                if city is None and street is None and house is None:
-                    parsed = parse_address_text(row["address_text"])
-                    city, street, house = parsed.city, parsed.street, parsed.house
+                parsed = parse_address_text(row["address_text"])
+                city = clean_city_label(city) or clean_city_label(parsed.city)
+                district = clean_district_label(
+                    district or parsed.district,
+                    city=city,
+                )
+                street = street or parsed.street
+                house = house or parsed.house
 
                 row.update(
                     postal_code=postcode,
                     is_private=private,
                     city=city,
+                    district=district,
                     street=street,
                     house=house,
                 )
@@ -96,6 +105,7 @@ def upsert_addresses(session: Session, rows: list[dict]) -> None:
                     "latitude": statement.excluded.latitude,
                     "longitude": statement.excluded.longitude,
                     "city": statement.excluded.city,
+                    "district": func.coalesce(statement.excluded.district, AddressRow.district),
                     "street": statement.excluded.street,
                     "house": statement.excluded.house,
                     "postal_code": func.coalesce(

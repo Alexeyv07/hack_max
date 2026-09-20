@@ -78,7 +78,13 @@ def test_new_migration_reversible_and_does_not_infer_membership(engine) -> None:
     config = Config()
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_current_head() == "0010_mc_parser"
+    assert scripts.get_current_head() == "0013_events_active_window"
+    active_window = scripts.get_revision("0013_events_active_window")
+    assert active_window.down_revision == "0012_chat_group_type"
+    group_type_revision = scripts.get_revision("0012_chat_group_type")
+    assert group_type_revision.down_revision == "0011_chat_link"
+    chat_link_revision = scripts.get_revision("0011_chat_link")
+    assert chat_link_revision.down_revision == "0010_mc_parser"
     mc_revision = scripts.get_revision("0010_mc_parser")
     assert mc_revision.down_revision == "0009_create_chats"
 

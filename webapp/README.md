@@ -40,3 +40,17 @@ npm run build
 You can preview the production build with `npm run preview`.
 
 > To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+
+
+## KAN-7 address picker
+
+При `start_param=chat_link_map` WebApp показывает карту и ближайшие дома из локального
+`StreetCatalog`; при `start_param=chat_link_text` — живые подсказки уже по части адреса. Оба
+режима вызывают `/api/chat-link/select` и продолжают тот же flow подключения группового чата,
+что бот. Незавершённый picker сохраняет черновик в `localStorage` на 30 минут, а активный
+address-mode кешируется отдельно. Поэтому reload или пересоздание текущего WebView не сбрасывает
+введённый текст, положение карты или выбранный дом и не заставляет flow снова проходить экран
+«Открываем…». После успешного выбора черновик очищается: новое открытие начинается с нового
+адреса; на экране результата также есть кнопка «Добавить ещё адрес».
+User id всегда берётся из `window.WebApp.initDataUnsafe.user.id`; тестового hardcode нет.
+MAX Bridge подключается из официального CDN `https://st.max.ru/js/max-web-app.js`.

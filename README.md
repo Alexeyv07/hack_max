@@ -19,7 +19,7 @@ alembic/               # миграции (в т.ч. active_from/to)
 src/
   project/             # config, logging, database
   auth/                # пользователи Max
-  address/             # addresses + StreetCatalog + GeoMatcher
+  address/             # addresses + StreetCatalog + GeoMatcher (+ district)
   events/              # CRUD + feed/map API (KAN-14)
   user_chat/           # чаты соседей (KAN-5)
   chat_link/           # onboarding чата (KAN-7)
@@ -99,6 +99,17 @@ python ml/dedup/eval_threshold.py --config ml/dedup/config.yaml
 docker compose up -d postgres
 ```
 
+`conf/local.yaml` → `localhost:5432`.
+
+### Подключение домового чата (KAN-7)
+
+`chat_link` реализует один onboarding-screen и 4 способа выбора дома: bot-picker
+`город → район → улица → дом`, индекс, карта WebApp и текстовый WebApp-поиск.
+Адресные списки строятся из in-memory `StreetCatalog`; реальные MAX group `chat_id` и membership
+сохраняются через `user_chat`. Если чат создаётся впервые, администратор добавляет бота в группу,
+назначает его администратором с правом `read_all_messages`, после чего связь подтверждается MAX API
+и завершается автоматически. Подробнее: `src/chat_link/README.md`.
+
 ### WebApp: два флоу
 
 Публичный HTTPS — сервис **ngrok** в Compose (`NGROK=` в `.env`).
@@ -106,6 +117,9 @@ docker compose up -d postgres
 ```bash
 python scripts/ngrok_url.py   # или http://localhost:4040
 ```
+
+URL вида `https://….ngrok-free.dev` вставляется в настройки бота на платформе MAX.  
+После каждого нового туннеля сверяйте URL через `python scripts/ngrok_url.py`: если в MAX остался старый endpoint, mini-app покажет `ERR_NGROK_3200 ... is offline`. В этом случае поднимите `webapp ngrok` и обновите URL mini-app в настройках MAX.
 
 #### Флоу 1 — webapp в Docker
 
@@ -185,7 +199,8 @@ alembic current
 alembic history
 ```
 
-Актуальный head включает `0011_events_active_window` (`active_from` / `active_to`).
+Актуальный head: `0013_events_active_window` (`active_from` / `active_to`).
+Перед ним: `0011_chat_link` (district + chat_links), `0012_chat_group_type`.
 
 ## Конфиг
 

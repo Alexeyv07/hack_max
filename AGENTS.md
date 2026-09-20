@@ -134,13 +134,16 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
   `lat`/`lon`, `geo_by`, `weight`.
 - Запись событий — **только handlers in-process** (`create_event` / …).
 - **Чаты (KAN-5):** модуль `user_chat`, таблицы `chats` + `users_chat`. `list_memberships_for_user` читает реальное членство и координаты из `Address`; `/start` сам по себе не добавляет пользователя в чат. Контракт: `src/user_chat/README.md`.
-- **Подключение чата (KAN-7):** отдельный модуль `chat_link` для onboarding; хранение чатов и membership относится к `user_chat`.
+- **Подключение чата (KAN-7):** `chat_link` — onboarding и оркестрация реального MAX group chat;
+  хранение `chats`/`users_chat` — `user_chat`, адресный snapshot — `address.StreetCatalog`.
+  4 способа адреса: bot-picker `город → район → улица → дом`, индекс, карта и текст в WebApp.
+  Callback-flow редактирует один bot-screen; списки не делают SQL на каждый callback.
 - Шкала `importance`: `1` высокий приоритет, `2` важное, `3` бытовуха (не на карту и не в ленты).
 - `disaster_flag` — отдельный признак ЧС, не алиас класса 1.
 - `image_url` — главная фотка; `null` → фронт рисует чёрный плейсхолдер (карта — KAN-17).
 - Гео события: `events.address_id -> addresses.id` + `events.geo_by`
   (`city`|`street`|`home`); `lat/lon` для API из `Address`, в `events` не дублируются.
-  В `addresses` — компоненты `city` / `street` / `house`.
+  В `addresses` — компоненты `city` / `district` / `street` / `house`.
 - Окно действия: `events.active_from` / `events.active_to` (ML time-window).
 - Map: `importance` 1–2; `category`: `catastrophe` | `important`.
 - Вес ленты: `0.5×relevance + 0.3×timeliness + 0.2×source_reliability`
@@ -153,7 +156,7 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
 - SvelteKit mini-app в `webapp/`: TikTok-лента nearby | city.
 - Данные **только** с API (`GET /events/feed`) → БД.
 - API base захардкожен: `/api` (Vite proxy → backend).
-- User id: Max Bridge (`https://max.ru/js/max-web-app.js`) →
+- User id: Max Bridge (`https://st.max.ru/js/max-web-app.js`) →
   `window.WebApp.initDataUnsafe.user.id` → заголовок `X-Max-User-Id`.
 - Запросы к API: заголовок `ngrok-skip-browser-warning: true`.
 - Dev-прокси: `/api` → `http://127.0.0.1:8000` (`webapp/vite.config.ts`,

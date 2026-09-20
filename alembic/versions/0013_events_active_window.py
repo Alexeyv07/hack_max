@@ -1,7 +1,7 @@
 """События: active_from / active_to (окно действия новости).
 
-Revision ID: 0011_events_active_window
-Revises: 0010_mc_parser
+Revision ID: 0013_events_active_window
+Revises: 0012_chat_group_type
 """
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0011_events_active_window"
-down_revision: str | None = "0010_mc_parser"
+revision: str = "0013_events_active_window"
+down_revision: str | None = "0012_chat_group_type"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
