@@ -126,6 +126,8 @@ def _to_domain(
         geo_by=row.geo_by,
         location=address.address_text if address is not None else None,
         published_at=row.published_at,
+        active_from=row.active_from,
+        active_to=row.active_to,
         created_at=row.created_at,
         updated_at=row.updated_at,
         distance_m=distance_m,
@@ -164,7 +166,7 @@ def create_event(session: Session, data: EventCreate) -> Event:
         # или: create_event(session, to_event_create(normalize(candidate)))
 
     Геопозиция хранится ссылкой на Address, а не копией latitude/longitude.
-    KAN-19 ml_dedup: сюда же позже вставить merge до insert.
+    Дедуп/merge (KAN-19) — в ``persist_candidate`` / ``ml_dedup.resolve`` до вызова.
     """
     _validate_importance(data.importance)
     source = _normalize_source(data.source)
@@ -191,6 +193,8 @@ def create_event(session: Session, data: EventCreate) -> Event:
         source_url=data.source_url,
         image_url=data.image_url,
         published_at=data.published_at,
+        active_from=data.active_from,
+        active_to=data.active_to,
     )
     session.add(row)
     session.flush()
@@ -244,6 +248,14 @@ def update_event(session: Session, event_id: int, data: EventUpdate) -> Event | 
         row.image_url = data.image_url
     if data.published_at is not None:
         row.published_at = data.published_at
+    if data.clear_active_from:
+        row.active_from = None
+    elif data.active_from is not None:
+        row.active_from = data.active_from
+    if data.clear_active_to:
+        row.active_to = None
+    elif data.active_to is not None:
+        row.active_to = data.active_to
 
     row.weight = compute_weight(
         importance=row.importance,

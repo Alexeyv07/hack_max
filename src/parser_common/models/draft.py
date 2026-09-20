@@ -21,5 +21,7 @@ class EventDraft:
     source_url: str | None = None
     image_url: str | None = None
     published_at: datetime | None = None
+    active_from: datetime | None = None
+    active_to: datetime | None = None
     geo_scope: str | None = None
     geo_method: str | None = None

@@ -68,6 +68,18 @@ class EventRow(Base):
         index=True,
         doc="Время публикации у источника (для timeliness веса)",
     )
+    active_from: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        doc="Начало действия события (отключение, ремонт, ЧС…)",
+    )
+    active_to: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        doc="Конец действия; null = ещё актуально / неизвестно",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
