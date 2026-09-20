@@ -86,6 +86,10 @@ def _resolve_address_id(session: Session, item: dict) -> int | None:
             return row.id
     city = item.get("address_city")
     if isinstance(city, str) and city.strip() and not item.get("address_street"):
+        from parser_common.geo_text import is_allowed_project_city
+
+        if not is_allowed_project_city(city):
+            return None
         return get_or_create_city_address(session, city.strip()).id
     return None
 

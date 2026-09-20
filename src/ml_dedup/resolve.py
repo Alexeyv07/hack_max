@@ -99,8 +99,11 @@ def _geo_nearby(
     draft_lat: float | None = None,
     draft_lon: float | None = None,
 ) -> bool:
-    if draft.address_id is not None and event.address_id == draft.address_id:
-        return True
+    """Совместимы ли локации для DUP/UPDATE (без «склейки» чужих адресов)."""
+    # Разные address_id — всегда конфликт, даже если точки в радиусе 3 км.
+    if draft.address_id is not None and event.address_id is not None:
+        return draft.address_id == event.address_id
+
     if (
         draft_lat is not None
         and draft_lon is not None
@@ -108,9 +111,18 @@ def _geo_nearby(
         and event.lon is not None
     ):
         return haversine_m(draft_lat, draft_lon, event.lat, event.lon) <= radius_m
-    if draft.address_id is None and event.address_id is None:
-        return True
-    return draft.address_id is None or event.address_id is None
+
+    # Один с адресом, другой без — не считаем «рядом».
+    return draft.address_id is None and event.address_id is None
+
+
+def _address_ids_conflict(draft: EventDraft, event: ActiveEventView) -> bool:
+    """Оба адреса заданы и различаются → нельзя DUPLICATE/UPDATE."""
+    return (
+        draft.address_id is not None
+        and event.address_id is not None
+        and draft.address_id != event.address_id
+    )
 
 
 def decide_relation(
@@ -131,21 +143,11 @@ def decide_relation(
 
     best: tuple[float, ActiveEventView] | None = None
     for event in candidates:
+        # Жёсткое правило: разные адреса/регионы не склеиваем (даже при score 0.85+).
+        if _address_ids_conflict(draft, event):
+            continue
         if cfg.require_geo_match and not _geo_nearby(
             draft, event, radius_m=cfg.radius_m, draft_lat=draft_lat, draft_lon=draft_lon
-        ):
-            continue
-        if (
-            draft.address_id is not None
-            and event.address_id is not None
-            and draft.address_id != event.address_id
-            and not _geo_nearby(
-                draft,
-                event,
-                radius_m=cfg.radius_m,
-                draft_lat=draft_lat,
-                draft_lon=draft_lon,
-            )
         ):
             continue
 
@@ -158,7 +160,15 @@ def decide_relation(
         return DedupDecision(DedupAction.NEW, reason="geo_filtered")
 
     score, match = best
+    # Safety: после выбора best ещё раз не пропускаем конфликт адресов в DUPLICATE.
     if score >= cfg.duplicate_threshold:
+        if _address_ids_conflict(draft, match):
+            return DedupDecision(
+                DedupAction.NEW,
+                match=match,
+                score=score,
+                reason="geo_address_mismatch",
+            )
         if update_hint and score < 0.97:
             return DedupDecision(
                 DedupAction.UPDATE,
@@ -175,6 +185,13 @@ def decide_relation(
 
     mid = (cfg.update_threshold + cfg.duplicate_threshold) / 2
     if score >= cfg.update_threshold and (update_hint or score >= mid):
+        if _address_ids_conflict(draft, match):
+            return DedupDecision(
+                DedupAction.NEW,
+                match=match,
+                score=score,
+                reason="geo_address_mismatch",
+            )
         return DedupDecision(
             DedupAction.UPDATE,
             match=match,

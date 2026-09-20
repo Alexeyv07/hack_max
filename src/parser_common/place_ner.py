@@ -103,8 +103,10 @@ def collect_location_hints(
     hints.extend(extract_street_lines(text))
     if use_spacy:
         hints.extend(extract_place_spans(text, spacy_model=spacy_model))
-    # уникальные, длинные первыми (лучше матч улицы)
+    from parser_common.geo_text import filter_moscow_location_hints
+
     uniq = list(dict.fromkeys(h.strip() for h in hints if h and h.strip()))
+    uniq = filter_moscow_location_hints(uniq)
     uniq.sort(key=len, reverse=True)
     return uniq
 

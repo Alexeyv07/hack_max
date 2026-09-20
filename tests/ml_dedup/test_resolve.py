@@ -200,6 +200,55 @@ def test_decide_relation_duplicate_threshold() -> None:
     assert decision.match is not None
 
 
+def test_decide_relation_rejects_different_address_even_high_score() -> None:
+    """Разные address_id не склеиваются, даже при идентичном тексте и близких координатах."""
+    from ml_dedup.models import ActiveEventView
+
+    now = datetime.now(UTC)
+    existing = ActiveEventView(
+        id=1,
+        title="Отключили воду до вечера на улице",
+        body="Отключили воду до вечера на улице",
+        importance=2,
+        disaster_flag=False,
+        address_id=10,
+        geo_by="street",
+        source="news",
+        source_msg_id="a",
+        source_url=None,
+        image_url=None,
+        published_at=now,
+        active_from=None,
+        active_to=None,
+        created_at=now,
+        lat=55.7558,
+        lon=37.6173,
+    )
+    draft = EventDraft(
+        title="Отключили воду до вечера на улице",
+        body="Отключили воду до вечера на улице",
+        importance=2,
+        source="ria",
+        address_id=99,
+        geo_by="street",
+        source_msg_id="b",
+    )
+    decision = decide_relation(
+        draft,
+        [existing],
+        config=DedupConfig(
+            duplicate_threshold=0.5,
+            update_threshold=0.3,
+            allow_hash_fallback=True,
+            radius_m=5000.0,
+        ),
+        draft_lat=55.7560,
+        draft_lon=37.6175,
+    )
+    assert decision.action == DedupAction.NEW
+    assert decision.reason == "geo_filtered"
+
+
 def test_persist_candidate_with_dedup(db_session) -> None:
     addr = _addr(db_session, "Москва, улица Persist Dedup, д. 2")
     event = persist_candidate(
