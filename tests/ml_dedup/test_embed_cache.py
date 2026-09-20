@@ -19,4 +19,5 @@ def test_embed_different_text_different_vec() -> None:
     a = embed_text("Прорыв трубы на Лесной", allow_hash_fallback=True)
     b = embed_text("Концерт в парке Горького", allow_hash_fallback=True)
     assert a is not b
-    assert float((a - b).sum()) != 0.0 or a.shape == b.shape
+    assert len(a) == len(b)
+    assert a != b

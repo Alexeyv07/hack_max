@@ -7,6 +7,9 @@
 
 Векторы кэшируются по blake2b от нормализованного текста (LRU),
 чтобы ingest не пересчитывал embed активных Events на каждый candidate.
+
+``numpy`` нужен только для ONNX/transformers путей (extra ``ml-runtime``);
+hash-fallback и cosine работают на чистом Python — CI ``pip install -e ".[dev]"``.
 """
 
 from __future__ import annotations
@@ -15,11 +18,10 @@ import hashlib
 import math
 import struct
 from collections import OrderedDict
+from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
-
-import numpy as np
 
 from project.config import PROJECT_ROOT
 
@@ -28,9 +30,11 @@ DEFAULT_ONNX = PROJECT_ROOT / "ml" / "dedup" / "artifacts" / "embed_model.onnx"
 DEFAULT_META = DEFAULT_ONNX.with_suffix(".meta.json")
 DEFAULT_TOKENIZER = PROJECT_ROOT / "ml" / "dedup" / "artifacts" / "tokenizer"
 
+EmbedVec = list[float]
+
 # content-hash -> L2-normalized vector
 _EMBED_CACHE_MAX = 4096
-_embed_vec_cache: OrderedDict[str, np.ndarray] = OrderedDict()
+_embed_vec_cache: OrderedDict[str, EmbedVec] = OrderedDict()
 
 
 def _normalize_text(text: str) -> str:
@@ -41,11 +45,11 @@ def _content_hash(text: str) -> str:
     return hashlib.blake2b(text.encode("utf-8"), digest_size=16).hexdigest()
 
 
-def _l2_normalize(vec: np.ndarray) -> np.ndarray:
-    norm = float(np.linalg.norm(vec))
+def _l2_normalize(vec: Sequence[float]) -> EmbedVec:
+    norm = math.sqrt(sum(float(x) * float(x) for x in vec))
     if norm < 1e-12:
-        return vec
-    return vec / norm
+        return [float(x) for x in vec]
+    return [float(x) / norm for x in vec]
 
 
 def clear_embed_cache() -> None:
@@ -54,7 +58,7 @@ def clear_embed_cache() -> None:
     _embed_vec_cache.clear()
 
 
-def _cache_get(key: str) -> np.ndarray | None:
+def _cache_get(key: str) -> EmbedVec | None:
     vec = _embed_vec_cache.get(key)
     if vec is None:
         return None
@@ -62,7 +66,7 @@ def _cache_get(key: str) -> np.ndarray | None:
     return vec
 
 
-def _cache_put(key: str, vec: np.ndarray) -> np.ndarray:
+def _cache_put(key: str, vec: EmbedVec) -> EmbedVec:
     _embed_vec_cache[key] = vec
     _embed_vec_cache.move_to_end(key)
     while len(_embed_vec_cache) > _EMBED_CACHE_MAX:
@@ -116,7 +120,7 @@ def _mean_pool(last_hidden: Any, attention_mask: Any) -> Any:
     return summed / counts
 
 
-def _embed_onnx(text: str) -> np.ndarray | None:
+def _embed_onnx(text: str) -> EmbedVec | None:
     bundle = _load_onnx(str(DEFAULT_ONNX), str(DEFAULT_META), str(DEFAULT_TOKENIZER))
     if bundle is None:
         return None
@@ -135,11 +139,15 @@ def _embed_onnx(text: str) -> np.ndarray | None:
             "attention_mask": encoded["attention_mask"],
         },
     )
-    vec = np.asarray(outputs[0][0], dtype=np.float32)
-    return _l2_normalize(vec)
+    raw = outputs[0][0]
+    try:
+        values = [float(x) for x in raw.tolist()]
+    except AttributeError:
+        values = [float(x) for x in raw]
+    return _l2_normalize(values)
 
 
-def _embed_transformers(text: str, *, model_name: str = DEFAULT_MODEL) -> np.ndarray | None:
+def _embed_transformers(text: str, *, model_name: str = DEFAULT_MODEL) -> EmbedVec | None:
     import torch
 
     loaded = _load_transformers(model_name)
@@ -156,13 +164,13 @@ def _embed_transformers(text: str, *, model_name: str = DEFAULT_MODEL) -> np.nda
     with torch.no_grad():
         out = model(**encoded)
         pooled = _mean_pool(out.last_hidden_state, encoded["attention_mask"])
-    vec = pooled[0].cpu().numpy().astype(np.float32)
-    return _l2_normalize(vec)
+    values = [float(x) for x in pooled[0].cpu().tolist()]
+    return _l2_normalize(values)
 
 
-def _embed_hash(text: str, *, dim: int = 256) -> np.ndarray:
+def _embed_hash(text: str, *, dim: int = 256) -> EmbedVec:
     """Характерные n-gram хеши — только fallback для тестов без ML."""
-    vec = np.zeros(dim, dtype=np.float32)
+    vec = [0.0] * dim
     norm = text.lower().replace("ё", "е")
     tokens = norm.split()
     grams = tokens + [f"{a}_{b}" for a, b in zip(tokens, tokens[1:], strict=False)]
@@ -174,7 +182,7 @@ def _embed_hash(text: str, *, dim: int = 256) -> np.ndarray:
     return _l2_normalize(vec)
 
 
-def _compute_embed(cleaned: str, *, allow_hash_fallback: bool) -> np.ndarray:
+def _compute_embed(cleaned: str, *, allow_hash_fallback: bool) -> EmbedVec:
     if not cleaned:
         return _embed_hash("", dim=256)
 
@@ -191,7 +199,7 @@ def _compute_embed(cleaned: str, *, allow_hash_fallback: bool) -> np.ndarray:
     return _embed_hash(cleaned)
 
 
-def embed_text(text: str, *, allow_hash_fallback: bool = True) -> np.ndarray:
+def embed_text(text: str, *, allow_hash_fallback: bool = True) -> EmbedVec:
     cleaned = _normalize_text(text)
     key = _content_hash(cleaned) + ("|h1" if allow_hash_fallback else "|h0")
     cached = _cache_get(key)
@@ -201,10 +209,13 @@ def embed_text(text: str, *, allow_hash_fallback: bool = True) -> np.ndarray:
     return _cache_put(key, vec)
 
 
-def cosine(a: np.ndarray, b: np.ndarray) -> float:
-    return float(
-        np.dot(a, b) / (max(float(np.linalg.norm(a)), 1e-12) * max(float(np.linalg.norm(b)), 1e-12))
-    )
+def cosine(a: Sequence[float], b: Sequence[float]) -> float:
+    if len(a) != len(b):
+        raise ValueError(f"cosine: len mismatch {len(a)} vs {len(b)}")
+    dot = sum(float(x) * float(y) for x, y in zip(a, b, strict=True))
+    na = math.sqrt(sum(float(x) * float(x) for x in a))
+    nb = math.sqrt(sum(float(y) * float(y) for y in b))
+    return float(dot / (max(na, 1e-12) * max(nb, 1e-12)))
 
 
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
