@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
 from address.geocoding import GeoMatcher
 from address.street_catalog import StreetCatalog
 from events.models.event import Event
-from ml_dedup.resolve import DedupConfig, resolve_draft
 from parser_common.models.candidate import ParserCandidate
 from parser_common.normalize import normalize
+
+if TYPE_CHECKING:
+    from ml_dedup.resolve import DedupConfig
 
 
 def persist_candidate(
@@ -44,6 +47,8 @@ def persist_candidate(
         from parser_common.normalize import to_event_create
 
         return create_event(session, to_event_create(draft))
+
+    from ml_dedup.resolve import resolve_draft
 
     _decision, event = resolve_draft(session, draft, config=dedup_config)
     assert event is not None

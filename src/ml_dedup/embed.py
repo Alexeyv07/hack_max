@@ -4,6 +4,9 @@
   1) ONNX mean-pool (ml/dedup/artifacts/), если есть
   2) transformers AutoModel mean-pool (pretrained rubert-tiny2)
   3) hash n-gram fallback (тесты / без ML deps)
+
+Векторы кэшируются по blake2b от нормализованного текста (LRU),
+чтобы ingest не пересчитывал embed активных Events на каждый candidate.
 """
 
 from __future__ import annotations
@@ -11,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import math
 import struct
+from collections import OrderedDict
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -24,6 +28,18 @@ DEFAULT_ONNX = PROJECT_ROOT / "ml" / "dedup" / "artifacts" / "embed_model.onnx"
 DEFAULT_META = DEFAULT_ONNX.with_suffix(".meta.json")
 DEFAULT_TOKENIZER = PROJECT_ROOT / "ml" / "dedup" / "artifacts" / "tokenizer"
 
+# content-hash -> L2-normalized vector
+_EMBED_CACHE_MAX = 4096
+_embed_vec_cache: OrderedDict[str, np.ndarray] = OrderedDict()
+
+
+def _normalize_text(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _content_hash(text: str) -> str:
+    return hashlib.blake2b(text.encode("utf-8"), digest_size=16).hexdigest()
+
 
 def _l2_normalize(vec: np.ndarray) -> np.ndarray:
     norm = float(np.linalg.norm(vec))
@@ -35,6 +51,23 @@ def _l2_normalize(vec: np.ndarray) -> np.ndarray:
 def clear_embed_cache() -> None:
     _load_transformers.cache_clear()
     _load_onnx.cache_clear()
+    _embed_vec_cache.clear()
+
+
+def _cache_get(key: str) -> np.ndarray | None:
+    vec = _embed_vec_cache.get(key)
+    if vec is None:
+        return None
+    _embed_vec_cache.move_to_end(key)
+    return vec
+
+
+def _cache_put(key: str, vec: np.ndarray) -> np.ndarray:
+    _embed_vec_cache[key] = vec
+    _embed_vec_cache.move_to_end(key)
+    while len(_embed_vec_cache) > _EMBED_CACHE_MAX:
+        _embed_vec_cache.popitem(last=False)
+    return vec
 
 
 @lru_cache(maxsize=1)
@@ -141,8 +174,7 @@ def _embed_hash(text: str, *, dim: int = 256) -> np.ndarray:
     return _l2_normalize(vec)
 
 
-def embed_text(text: str, *, allow_hash_fallback: bool = True) -> np.ndarray:
-    cleaned = " ".join(text.split())
+def _compute_embed(cleaned: str, *, allow_hash_fallback: bool) -> np.ndarray:
     if not cleaned:
         return _embed_hash("", dim=256)
 
@@ -157,6 +189,16 @@ def embed_text(text: str, *, allow_hash_fallback: bool = True) -> np.ndarray:
     if not allow_hash_fallback:
         raise RuntimeError("Нет embed-модели и hash fallback запрещён")
     return _embed_hash(cleaned)
+
+
+def embed_text(text: str, *, allow_hash_fallback: bool = True) -> np.ndarray:
+    cleaned = _normalize_text(text)
+    key = _content_hash(cleaned) + ("|h1" if allow_hash_fallback else "|h0")
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+    vec = _compute_embed(cleaned, allow_hash_fallback=allow_hash_fallback)
+    return _cache_put(key, vec)
 
 
 def cosine(a: np.ndarray, b: np.ndarray) -> float:

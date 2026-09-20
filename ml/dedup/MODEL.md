@@ -38,12 +38,22 @@ sim < upd_threshold       → unrelated
 
 ```
 ml/dedup/artifacts/
-  thresholds.json          # результат eval_threshold (опционально)
-  # embedding ONNX — см. export_onnx.py (stub / будущий экспорт)
+  thresholds.json          # результат eval_threshold
+  embed_model.onnx         # mean-pool + L2 (export_onnx.py)
+  embed_model.meta.json
+  tokenizer/
 ```
 
-Runtime (src) читает пороги из конфига приложения; этот каталог — train/eval only.
-Пакет `ml/` из `src` **не** импортировать.
+Экспорт ONNX (тот же pretrained, что eval):
+
+```bash
+python ml/dedup/export_onnx.py
+# → ml/dedup/artifacts/embed_model.onnx
+```
+
+Runtime (`src/ml_dedup/embed.py`): ONNX → transformers → hash-fallback.
+Пороги — из `conf/*.yaml` (`ml_dedup.*`), не из thresholds.json автоматически.
+
 
 ## Fallback без transformers
 

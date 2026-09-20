@@ -48,7 +48,12 @@ python ml/dedup/eval_threshold.py --config ml/dedup/config.yaml
 Скопируй найденные `duplicate_threshold` / `update_threshold` в `conf/local.yaml`
 и `conf/prod.yaml` → секция `ml_dedup`.
 
-Опционально экспорт embed ONNX: `python ml/dedup/export_onnx.py` (если скрипт готов).
+Экспорт ONNX encoder (для Docker / prod без torch в runtime):
+
+```powershell
+python ml/dedup/export_onnx.py
+# → ml/dedup/artifacts/embed_model.onnx (+ tokenizer, meta)
+```
 
 ## 4) Миграция + прогон
 

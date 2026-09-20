@@ -36,8 +36,8 @@ events:
 ml_dedup:
   enabled: true
   active_days: 21
-  duplicate_threshold: 0.88
-  update_threshold: 0.72
+  duplicate_threshold: 0.82
+  update_threshold: 0.58
   radius_m: 3000
   allow_hash_fallback: true
   require_geo_match: false

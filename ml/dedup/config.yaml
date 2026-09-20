@@ -7,8 +7,8 @@ max_length: 128
 # sim >= duplicate_threshold → duplicate
 # update_threshold <= sim < duplicate_threshold → update
 # sim < update_threshold → unrelated
-duplicate_threshold: 0.88
-update_threshold: 0.72
+duplicate_threshold: 0.82
+update_threshold: 0.58
 
 # grid search для eval_threshold.py
 grid:

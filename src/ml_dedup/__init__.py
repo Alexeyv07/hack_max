@@ -8,16 +8,13 @@ EventDraft ──resolve_draft──▶ NEW | DUPLICATE | UPDATE
                            create_event  noop   update_event
 ```
 
-Окно активности: ``ml_dedup.active_days`` (дефолт 21) — новость недельной
-давности всё ещё матчится, если не истекла по ``active_to``.
+Окно активности: ``ml_dedup.active_days`` (дефолт 21).
 """
 
 from __future__ import annotations
 
-# re-export
 from ml_dedup.active import is_event_active, list_active_events
 from ml_dedup.models import ActiveEventView
-from ml_dedup.resolve import DedupAction, DedupConfig, DedupDecision, resolve_draft
 
 __all__ = [
     "ActiveEventView",
@@ -28,3 +25,12 @@ __all__ = [
     "list_active_events",
     "resolve_draft",
 ]
+
+
+def __getattr__(name: str):
+    # Lazy: избегаем цикла ml_dedup ↔ parser_common при import embed/тестов.
+    if name in {"DedupAction", "DedupConfig", "DedupDecision", "resolve_draft"}:
+        from ml_dedup import resolve as _resolve
+
+        return getattr(_resolve, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
