@@ -44,7 +44,9 @@ docs/book/
 logs/
 
 # ML artifacts (обучение/веса вне src — не коммитим тяжёлое)
-ml/**/data/
+ml/**/data/**
+!ml/**/data/
+!ml/**/data/.gitkeep
 ml/**/checkpoints/
 ml/**/*.pt
 ml/**/*.pth
@@ -56,3 +58,10 @@ ml/**/.cache/
 !ml/classify/artifacts/tokenizer/
 !ml/classify/artifacts/*.meta.json
 !ml/classify/artifacts/*.json
+!ml/time/artifacts/tokenizer/
+!ml/time/artifacts/*.meta.json
+!ml/time/artifacts/*.json
+!ml/time/artifacts/.gitkeep
+!ml/dedup/artifacts/*.meta.json
+!ml/dedup/artifacts/*.json
+!ml/dedup/artifacts/.gitkeep

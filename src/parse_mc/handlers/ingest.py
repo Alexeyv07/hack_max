@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from address.resolve import GeoBind
+from address.street_catalog import StreetCatalog
 from events.handlers.crud import list_existing_source_msg_ids
 from events.models.event import Event, EventSource
 from parse_mc.models.notice import RawMcNotice
@@ -15,6 +16,20 @@ from parser_common.models.candidate import ParserCandidate
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
+
+_street_catalog: StreetCatalog | None = None
+
+
+def _get_street_catalog(session: Session) -> StreetCatalog | None:
+    global _street_catalog
+    if _street_catalog is not None:
+        return _street_catalog
+    try:
+        _street_catalog = StreetCatalog.load(session, city="Москва")
+    except Exception:
+        logger.exception("StreetCatalog.load failed")
+        return None
+    return _street_catalog
 
 
 def notice_to_candidate(
@@ -77,7 +92,8 @@ def persist_notice(
         candidate = notice_to_candidate(notice, geo=geo, source_msg_id=msg_id)
         try:
             with session.begin_nested():
-                event = persist_candidate(session, candidate)
+                catalog = _get_street_catalog(session) if candidate.address_id is None else None
+                event = persist_candidate(session, candidate, street_catalog=catalog)
         except IntegrityError:
             logger.debug("Дубликат УК-объявления %s (IntegrityError) — пропуск", msg_id)
             continue

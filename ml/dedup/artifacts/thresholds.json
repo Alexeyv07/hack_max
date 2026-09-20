@@ -1,0 +1,69 @@
+{
+  "format": "dedup_thresholds_v1",
+  "source_pairs": "C:\\Users\\iosh\\Projects\\hack_max\\ml\\dedup\\data\\bootstrap_pairs.jsonl",
+  "backend": "hash_ngram",
+  "recommended": {
+    "duplicate_threshold": 0.75,
+    "update_threshold": 0.52
+  },
+  "metrics": {
+    "backend": "hash_ngram",
+    "n_pairs": 130,
+    "label_counts": {
+      "duplicate": 60,
+      "update": 45,
+      "unrelated": 25
+    },
+    "sim_mean": 0.5042539669786095,
+    "defaults": {
+      "duplicate_threshold": 0.88,
+      "update_threshold": 0.72,
+      "macro_f1": 0.08888888888888889,
+      "f1_duplicate": 0.0,
+      "f1_update": 0.0,
+      "f1_unrelated": 0.26666666666666666,
+      "confusion": {
+        "duplicate": {
+          "duplicate": 0,
+          "update": 0,
+          "unrelated": 60
+        },
+        "update": {
+          "duplicate": 0,
+          "update": 0,
+          "unrelated": 45
+        },
+        "unrelated": {
+          "duplicate": 1,
+          "update": 4,
+          "unrelated": 20
+        }
+      }
+    },
+    "best_grid": {
+      "duplicate_threshold": 0.75,
+      "update_threshold": 0.52,
+      "macro_f1": 0.3541107671138631,
+      "f1_duplicate": 0.0,
+      "f1_update": 0.7254901960784313,
+      "f1_unrelated": 0.33684210526315794,
+      "confusion": {
+        "duplicate": {
+          "duplicate": 0,
+          "update": 14,
+          "unrelated": 46
+        },
+        "update": {
+          "duplicate": 0,
+          "update": 37,
+          "unrelated": 8
+        },
+        "unrelated": {
+          "duplicate": 3,
+          "update": 6,
+          "unrelated": 16
+        }
+      }
+    }
+  }
+}

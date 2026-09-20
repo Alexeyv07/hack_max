@@ -35,28 +35,32 @@
 Библиотека середины пайплайна. **Не** ходит в источники и **не** является воркером.
 
 ```
-парсер-воркер (KAN-10/11/12/28)       parser_common                 events
-─────────────────────────────         ──────────────                ──────
-fetch → ParserCandidate  ──normalize──▶ EventDraft
-                         ──persist_candidate / to_event_create──▶ create_event → DB
+парсер-воркер (KAN-10/11/12/28)   parser_common              ml_dedup (KAN-19)     events
+─────────────────────────────   ──────────────            ─────────────────     ──────
+fetch → ParserCandidate ─normalize─▶ EventDraft ──resolve──▶ NEW|DUP|UPDATE ──▶ DB
+                         persist_candidate (normalize+dedup+write)
 ```
 
 - Title/body: эвристика (`text.py`), не LLM.
 - Importance: ONNX → rules (`classify.py`, `ml/classify/MODEL.md`).
   `importance` и `disaster_flag` независимы (ML → класс; ЧС → keywords).
-- Geo: опциональный `GeoMatcher` (KAN-6), не LLM; текстовые эвристики —
-  `parser_common.geo_text`.
+- **Time window** `active_from` / `active_to`: только ML ONNX
+  (`time_extract.py` / `ml/time/`) — keyword-rules **не** используем.
+- **Место**: spaCy NER → `StreetCatalog` / `GeoMatcher` → `addresses`
+  (`place_ner.py`); без spaCy — catalog/matcher fallback.
 - Scrape HTML/RSS: `parser_common.scrape` / `html_util` / `rss` / `body_text` /
   `http` — общие для всех воркеров (не импортировать между parse_*).
 - Snapshot событий (все sources): `parser_common.seed`
   (`python -m parser_common.seed dump|load` →
   `src/parser_common/data/bootstrap_events.jsonl.gz`).
-- Дедуп — KAN-19 (хук около `create_event`), не здесь.
+- **Дедуп (KAN-19):** `ml_dedup` внутри `persist_candidate` —
+  NEW / DUPLICATE / UPDATE; окно активности `ml_dedup.active_days` (21).
 - Контракт для авторов парсеров: `src/parser_common/README.md`.
-- Обучение: `ml/classify/train_torch.py` (GPU). Пакет `ml/` из `src` не импортировать.
+- Обучение: `ml/classify/`, `ml/time/`, `ml/dedup/` (GPU). Пакет `ml/` из `src`
+  не импортировать.
 - Ручной прогон classify: `python scripts/classify_try.py` (`PYTHONPATH=src`).
-- Docker bot: extra `ml-runtime` (onnxruntime + transformers); веса из
-  `ml/classify/artifacts` копируются в образ и монтируются в compose.
+- Docker bot: extra `ml-runtime` (onnxruntime + transformers + spacy); веса из
+  `ml/*/artifacts` копируются в образ и монтируются в compose.
 
 ## News parser (KAN-11)
 
@@ -137,10 +141,12 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
 - Гео события: `events.address_id -> addresses.id` + `events.geo_by`
   (`city`|`street`|`home`); `lat/lon` для API из `Address`, в `events` не дублируются.
   В `addresses` — компоненты `city` / `street` / `house`.
+- Окно действия: `events.active_from` / `events.active_to` (ML time-window).
 - Map: `importance` 1–2; `category`: `catastrophe` | `important`.
 - Вес ленты: `0.5×relevance + 0.3×timeliness + 0.2×source_reliability`
   (`events.weight`); reliability — в `news_parser.sources.*.reliability`.
-- Дедуп (KAN-19) — хук в `create_event`.
+- Дедуп (KAN-19): `ml_dedup.resolve` в `persist_candidate` —
+  DUPLICATE → не плодить; UPDATE → обновить активное событие (окно 21 день).
 
 ## WebApp (KAN-16)
 

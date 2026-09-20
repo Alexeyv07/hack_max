@@ -92,7 +92,7 @@ def test_normalize_with_geo_matcher() -> None:
         geo_matcher=matcher,
     )
     assert draft.address_id == 42
-    assert draft.geo_method in {"fuzzy", "postcode"}
+    assert draft.geo_method in {"fuzzy", "postcode", "geo_matcher", "catalog", "spacy+catalog"}
     assert draft.importance == 2
 
 
