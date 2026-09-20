@@ -174,6 +174,10 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
   (если туннель выключен — публичная ссылка даёт 404).
 - Upstream по умолчанию `webapp:5173`; для host Vite:
   `NGROK_UPSTREAM=host.docker.internal:5173`.
+- **API через тот же туннель:** Max → ngrok → Vite `:5173` → proxy `/api` →
+  backend `:8000`. Отдельный ngrok на API **не нужен** — фронт бьёт в
+  относительный `/api` на том же origin. Если в Network виден `127.0.0.1:8000`
+  с ERR/timeout — чинить `API_PROXY_TARGET`, а не второй туннель.
 - Webapp proxy `/api` → `API_PROXY_TARGET` (host: `127.0.0.1:8000`,
   в compose webapp по умолчанию `host.docker.internal:8000`).
 - Vite: `server.allowedHosts: true` (иначе Host от ngrok → 403).

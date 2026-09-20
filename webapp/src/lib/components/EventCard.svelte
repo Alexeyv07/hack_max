@@ -3,9 +3,11 @@
 
 	type Props = {
 		event: FeedItem;
+		/** Активный слайд — меряем overflow «ещё» (карточка монтируется только в окне ±1). */
+		active?: boolean;
 	};
 
-	let { event }: Props = $props();
+	let { event, active = false }: Props = $props();
 
 	let imageExpanded = $state(false);
 	let bodyExpanded = $state(false);
@@ -43,6 +45,7 @@
 		}
 		const map: Record<string, string> = {
 			news: 'Новости',
+			mc: 'ЖКХ',
 			neighbors_chat: 'Чат соседей',
 			max_public: 'Паблик Max',
 			manual: 'Вручную'
@@ -52,7 +55,7 @@
 
 	function measureOverflow() {
 		const el = descriptionEl;
-		if (!el || bodyExpanded) {
+		if (!el || bodyExpanded || !active) {
 			needsMore = false;
 			return;
 		}
@@ -60,11 +63,12 @@
 	}
 
 	$effect(() => {
-		// Сброс при смене карточки / текста.
 		void event.id;
 		void event.body;
+		void active;
 		bodyExpanded = false;
 		needsMore = false;
+		if (!active) return;
 		const id = requestAnimationFrame(() => {
 			requestAnimationFrame(measureOverflow);
 		});
@@ -101,7 +105,7 @@
 		disabled={!event.image_url}
 	>
 		{#if event.image_url}
-			<img src={event.image_url} alt="" loading="lazy" />
+			<img src={event.image_url} alt="" loading="lazy" decoding="async" />
 		{/if}
 	</button>
 
@@ -154,11 +158,10 @@
 </article>
 
 {#if imageExpanded && event.image_url}
-	<!-- lightbox: клик по фону / крестик закрывает -->
 	<div class="lightbox" role="dialog" aria-modal="true" aria-label="Изображение">
 		<button type="button" class="lightbox-backdrop" aria-label="Закрыть" onclick={closeLightbox}
 		></button>
-		<img src={event.image_url} alt={event.title} class="lightbox-img" />
+		<img src={event.image_url} alt={event.title} class="lightbox-img" decoding="async" />
 		<button type="button" class="lightbox-close" aria-label="Закрыть" onclick={closeLightbox}>
 			<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
 				<path

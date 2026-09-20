@@ -26,7 +26,10 @@
 	}: Props = $props();
 
 	let scroller: HTMLElement | undefined = $state();
+	let activeIndex = $state(0);
 	let lastSlideIndex = 0;
+
+	const WINDOW = 1;
 
 	function currentSlideIndex(): number {
 		if (!scroller) return 0;
@@ -34,10 +37,17 @@
 		return Math.round(scroller.scrollTop / h);
 	}
 
+	function isInWindow(index: number): boolean {
+		return Math.abs(index - activeIndex) <= WINDOW;
+	}
+
 	function onScroll() {
 		if (!scroller) return;
 
 		const idx = currentSlideIndex();
+		if (idx !== activeIndex) {
+			activeIndex = idx;
+		}
 		if (idx > lastSlideIndex) {
 			ondownswipe?.();
 		}
@@ -52,9 +62,14 @@
 </script>
 
 <div class="scroller" bind:this={scroller} onscroll={onScroll} data-scope={scope}>
-	{#if error}
+	{#if error && items.length === 0}
 		<div class="state state-error">
 			<p>{error}</p>
+		</div>
+	{:else if loading && items.length === 0}
+		<div class="state state-loading-full" aria-live="polite">
+			<div class="spinner" aria-hidden="true"></div>
+			<p>Загрузка новостей…</p>
 		</div>
 	{:else if !loading && items.length === 0}
 		<div class="state">
@@ -71,9 +86,11 @@
 			{/if}
 		</div>
 	{:else}
-		{#each items as event (event.id)}
-			<section class="slide">
-				<EventCard {event} />
+		{#each items as event, index (event.id)}
+			<section class="slide" class:offscreen={!isInWindow(index)}>
+				{#if isInWindow(index)}
+					<EventCard {event} active={index === activeIndex} />
+				{/if}
 			</section>
 		{/each}
 
@@ -94,6 +111,9 @@
 		{#if loading}
 			<div class="state state-loading" aria-live="polite">Загрузка…</div>
 		{/if}
+		{#if error}
+			<div class="state state-loading state-error-inline" aria-live="polite">{error}</div>
+		{/if}
 	{/if}
 </div>
 
@@ -111,6 +131,13 @@
 		height: 100%;
 		scroll-snap-align: start;
 		scroll-snap-stop: always;
+		content-visibility: auto;
+		contain-intrinsic-size: 100dvh;
+	}
+
+	.slide.offscreen {
+		/* Плейсхолдер той же высоты — snap не ломается, DOM лёгкий. */
+		background: #0c1218;
 	}
 
 	.end-slide {
@@ -144,11 +171,37 @@
 		color: #ff8a80;
 	}
 
+	.state-error-inline {
+		color: #ff8a80;
+		height: auto;
+		min-height: 3rem;
+	}
+
 	.state-loading {
 		padding: 1.5rem;
 		text-align: center;
 		opacity: 0.7;
 		font-size: 0.9rem;
+		height: auto;
+	}
+
+	.state-loading-full {
+		gap: 1rem;
+	}
+
+	.spinner {
+		width: 2rem;
+		height: 2rem;
+		border: 2px solid rgba(255, 255, 255, 0.15);
+		border-top-color: #8ec8d8;
+		border-radius: 50%;
+		animation: spin 0.75s linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.cta {
