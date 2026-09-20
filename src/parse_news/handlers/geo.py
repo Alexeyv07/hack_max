@@ -18,6 +18,7 @@ from parser_common.geo_text import (
     is_moscow_context,
     is_non_moscow_geo,
 )
+from parser_common.place_ner import collect_location_hints
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -143,7 +144,7 @@ def _resolve_from_text(
             if address_id is not None:
                 return GeoBind(address_id=address_id, geo_by=GeoByLevel.HOME)
 
-        hints = extract_street_hints(text)
+        hints = collect_location_hints(text)
         house = extract_house(text)
         if hints and street_index is not None:
             hit = street_index.lookup_hints(hints, house=house)

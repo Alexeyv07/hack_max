@@ -1,4 +1,4 @@
-"""Entrypoint контейнера бота: classify-веса, миграции, данные, затем polling."""
+"""Entrypoint контейнера бота: ML-артефакты, миграции, seed, затем main."""
 
 from __future__ import annotations
 
@@ -11,34 +11,59 @@ from address.seed import ensure_addresses_seeded
 from main import main as bot_main
 from parser_common.seed import ensure_events_seeded
 
-_ARTIFACTS = Path(__file__).resolve().parents[1] / "ml" / "classify" / "artifacts"
-_ONNX = _ARTIFACTS / "importance_model.onnx"
-_META = _ARTIFACTS / "importance_model.meta.json"
-_TOKENIZER = _ARTIFACTS / "tokenizer"
+_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _check_classify_artifacts() -> None:
-    missing = [p.name for p in (_ONNX, _META, _TOKENIZER) if not p.exists()]
+def _warn_missing(label: str, paths: list[Path], hint: str) -> None:
+    missing = [str(p.relative_to(_ROOT)) for p in paths if not p.exists()]
     if missing:
         print(
-            "WARN: classify artifacts missing "
-            f"({', '.join(missing)} under {_ARTIFACTS}). "
-            "Importance уйдёт в keyword-rules. "
-            "Обучите модель: python ml/classify/train_torch.py "
-            "и пересоберите/перемонтируйте artifacts.",
+            f"WARN: {label} missing ({', '.join(missing)}). {hint}",
             file=sys.stderr,
             flush=True,
         )
         return
-    size_mb = _ONNX.stat().st_size / (1024 * 1024)
-    print(
-        f"classify ONNX ok: {_ONNX.name} ({size_mb:.1f} MiB), tokenizer present",
-        flush=True,
+    print(f"{label}: ok", flush=True)
+
+
+def _check_ml_artifacts() -> None:
+    classify_dir = _ROOT / "ml" / "classify" / "artifacts"
+    _warn_missing(
+        "classify ONNX",
+        [
+            classify_dir / "importance_model.onnx",
+            classify_dir / "importance_model.meta.json",
+            classify_dir / "tokenizer",
+        ],
+        "Importance → keyword-rules. Обучите: python ml/classify/train_torch.py",
     )
+
+    time_dir = _ROOT / "ml" / "time" / "artifacts"
+    _warn_missing(
+        "time-window ONNX",
+        [
+            time_dir / "time_window_model.onnx",
+            time_dir / "time_window_model.meta.json",
+            time_dir / "tokenizer",
+        ],
+        "active_from/to останутся null. Обучите: python ml/time/train_torch.py",
+    )
+
+    dedup_embed = _ROOT / "ml" / "dedup" / "artifacts" / "embed_model.onnx"
+    if dedup_embed.is_file():
+        print(f"dedup embed ONNX: ok ({dedup_embed.name})", flush=True)
+    else:
+        print(
+            "WARN: dedup embed ONNX отсутствует — "
+            "cosine через transformers/hash fallback. "
+            "Пороги: python ml/dedup/eval_threshold.py",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def run() -> None:
-    _check_classify_artifacts()
+    _check_ml_artifacts()
     print("Применяем миграции Alembic...", flush=True)
     alembic_main(argv=["upgrade", "head"])
 

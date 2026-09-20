@@ -1,16 +1,20 @@
-"""Persist: ParserCandidate → events (вызов из воркеров парсеров)."""
+"""Persist: ParserCandidate → normalize → ml_dedup → events."""
 
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
 from address.geocoding import GeoMatcher
-from events.handlers.crud import create_event
+from address.street_catalog import StreetCatalog
 from events.models.event import Event
 from parser_common.models.candidate import ParserCandidate
-from parser_common.normalize import normalize, to_event_create
+from parser_common.normalize import normalize
+
+if TYPE_CHECKING:
+    from ml_dedup.resolve import DedupConfig
 
 
 def persist_candidate(
@@ -18,19 +22,34 @@ def persist_candidate(
     candidate: ParserCandidate,
     *,
     geo_matcher: GeoMatcher | None = None,
+    street_catalog: StreetCatalog | None = None,
     chat_coordinates: tuple[Decimal, Decimal] | None = None,
+    dedup: bool = True,
+    dedup_config: DedupConfig | None = None,
+    spacy_model: str = "ru_core_news_md",
 ) -> Event:
     """
-    Сквозной шаг для KAN-10/11/12:
+    Сквозной шаг для KAN-10/11/12/28:
 
-      ParserCandidate → normalize → to_event_create → create_event
+      ParserCandidate → normalize → (ml_dedup) → create|update|noop→existing
 
-    Дедуп (KAN-19) — позже внутри ``create_event`` или перед ним; этот хелпер
-    не дублирует merge-логику.
+    ``dedup=False`` — всегда create (тесты / seed без merge).
     """
     draft = normalize(
         candidate,
         geo_matcher=geo_matcher,
+        street_catalog=street_catalog,
         chat_coordinates=chat_coordinates,
+        spacy_model=spacy_model,
     )
-    return create_event(session, to_event_create(draft))
+    if not dedup:
+        from events.handlers.crud import create_event
+        from parser_common.normalize import to_event_create
+
+        return create_event(session, to_event_create(draft))
+
+    from ml_dedup.resolve import resolve_draft
+
+    _decision, event = resolve_draft(session, draft, config=dedup_config)
+    assert event is not None
+    return event

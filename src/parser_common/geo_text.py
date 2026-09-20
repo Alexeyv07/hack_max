@@ -44,15 +44,145 @@ _FOREIGN_GEO = re.compile(
 _OTHER_RU_GEO = re.compile(
     r"(?i)\b(?:"
     r"петербург|санкт[-\s]?петербург|\bспб\b|ленинград|"
-    r"новосибирск|екатеринбург|казан|челябинск|самар|"
+    r"новосибирск|екатеринбург|казан[ьие]|челябинск|"
+    # самар[аеуы] — не «Самарская» (московская улица); область — отдельно
+    r"самар[аеуыи]\b|самарск\w*\s+област|"
     r"нижегород|нижн\w+\s+новгород|ростов[-\s]?на[-\s]?дону|"
     r"краснодар|воронеж|пермь|волгоград|красноярск|уф[аые]|"
     r"владивосток|хабаровск|иркутск|тюмен|омск|томск|"
     r"саратов|тольятти|ижевск|барнаул|ульяновск|"
     r"ярославл|владикавказ|махачкал|грозн|"
-    r"калининград|мурманск|архангельск|сочи"
+    r"калининград|мурманск|архангельск|сочи|"
+    # рязан[ьи] — не «Рязанский» проспект в Москве
+    r"рязан[ьи]\b|рязанск\w*\s+област|тул[аые]|калуг|твер[ьи]|владимир|смоленск|"
+    r"липецк|ор[её]л|курск|белгород|пенз|тамбов|"
+    r"астрахан|киров|чебоксар|иванов|брянск|магнитогорск|"
+    r"набережн\w+\s+челны|стерлитамак|нижнекамск"
     r")\w*",
 )
+
+# Голые названия городов (без «улица …») — нельзя отдавать в StreetCatalog:
+# spaCy «Самара» иначе fuzzy → «Самарская» (Москва).
+_BARE_OTHER_CITIES = frozenset(
+    {
+        "самара",
+        "самаре",
+        "самару",
+        "самары",
+        "самарой",
+        "казань",
+        "казани",
+        "казанью",
+        "новосибирск",
+        "новосибирска",
+        "екатеринбург",
+        "екатеринбурга",
+        "челябинск",
+        "челябинска",
+        "краснодар",
+        "краснодара",
+        "воронеж",
+        "воронежа",
+        "пермь",
+        "перми",
+        "волгоград",
+        "волгограда",
+        "красноярск",
+        "красноярска",
+        "уфа",
+        "уфы",
+        "омск",
+        "омска",
+        "томск",
+        "томска",
+        "саратов",
+        "саратова",
+        "тольятти",
+        "ижевск",
+        "ижевска",
+        "барнаул",
+        "барнаула",
+        "ульяновск",
+        "ульяновска",
+        "ярославль",
+        "ярославля",
+        "сочи",
+        "тюмень",
+        "тюмени",
+        "петербург",
+        "петербурга",
+        "спб",
+        "ленинград",
+        "ленинграда",
+        "санкт-петербург",
+        "санкт петербург",
+        "нижний новгород",
+        "ростов-на-дону",
+        "ростов на дону",
+        "владивосток",
+        "владивостока",
+        "хабаровск",
+        "хабаровска",
+        "иркутск",
+        "иркутска",
+        "рязань",
+        "рязани",
+        "тула",
+        "тулы",
+        "калуга",
+        "калуги",
+        "тверь",
+        "твери",
+        "владимир",
+        "владимира",
+        "смоленск",
+        "смоленска",
+        "липецк",
+        "липецка",
+        "орел",
+        "орёл",
+        "орла",
+        "курск",
+        "курска",
+        "белгород",
+        "белгорода",
+        "пенза",
+        "пензы",
+        "тамбов",
+        "тамбова",
+        "астрахань",
+        "астрахани",
+        "киров",
+        "кирова",
+        "чебоксары",
+        "иваново",
+        "брянск",
+        "брянска",
+        "магнитогорск",
+        "магнитогорска",
+    }
+)
+
+_STREET_TYPE_MARKERS = frozenset(
+    {
+        "ул",
+        "улица",
+        "улице",
+        "улицы",
+        "пр",
+        "проспект",
+        "пер",
+        "переулок",
+        "шоссе",
+        "бульвар",
+        "наб",
+        "набережная",
+        "площадь",
+        "проезд",
+        "аллея",
+    }
+)
+
 
 _NAKED_STREET = re.compile(
     r"(?:^|[\s,.;:(])(?:на|по|у)\s+(?P<name>[А-ЯЁ][а-яё]{3,20})(?:\s|,|\.|$)",
@@ -127,14 +257,72 @@ def is_foreign_geo(text: str) -> bool:
     return bool(_FOREIGN_GEO.search(text))
 
 
+def has_other_ru_city(text: str) -> bool:
+    """В тексте есть другой город РФ (Самара, Казань, …)."""
+    if not text.strip():
+        return False
+    return bool(_OTHER_RU_GEO.search(text))
+
+
 def is_non_moscow_geo(text: str) -> bool:
+    """
+    Чужой регион / страна → не пишем в московские events.
+
+    «Только Самара» → True. «Москва + Самара» → False (разрешаем
+    московские улицы), но голый топоним «Самара» режется из hints.
+    """
     if not text.strip():
         return False
     if is_foreign_geo(text):
         return True
-    if is_moscow_context(text):
+    return has_other_ru_city(text) and not is_moscow_context(text)
+
+
+def is_allowed_project_city(city: str | None) -> bool:
+    """В addresses проекта только Москва / область (не создаём Самару и т.п.)."""
+    if not city or not city.strip():
         return False
-    return bool(_OTHER_RU_GEO.search(text))
+    norm = city.lower().replace("ё", "е").strip()
+    if "москв" in norm:
+        return True
+    return "московск" in norm and "област" in norm
+
+
+def is_bare_other_city_hint(hint: str) -> bool:
+    """
+    Голый топоним чужого города без типа улицы.
+
+    «Самара» → True (нельзя в StreetCatalog).
+    «улица Самарская» / «Самарская» как улица → False.
+    """
+    raw = hint.lower().replace("ё", "е").strip()
+    raw = re.sub(r"[^\w\s\-]+", " ", raw, flags=re.UNICODE)
+    tokens = [t for t in raw.split() if t]
+    if not tokens:
+        return False
+    if any(t in _STREET_TYPE_MARKERS for t in tokens):
+        return False
+    joined = " ".join(tokens)
+    if joined in _BARE_OTHER_CITIES:
+        return True
+    # однословный город: «Самара»
+    return len(tokens) == 1 and tokens[0] in _BARE_OTHER_CITIES
+
+
+def filter_moscow_location_hints(hints: list[str]) -> list[str]:
+    """Убрать из hints голые чужие города и foreign-маркеры."""
+    out: list[str] = []
+    for hint in hints:
+        if not hint or not hint.strip():
+            continue
+        if is_bare_other_city_hint(hint):
+            continue
+        if is_foreign_geo(hint) and not any(
+            t in hint.lower() for t in ("ул", "проспект", "переул", "шоссе")
+        ):
+            continue
+        out.append(hint)
+    return out
 
 
 def extract_postcodes(text: str) -> list[str]:
@@ -164,6 +352,8 @@ def extract_street_hints(text: str) -> list[str]:
             continue
         if is_foreign_geo(cleaned):
             continue
+        if is_bare_other_city_hint(cleaned):
+            continue
         hints.append(cleaned)
 
     for match in _NAKED_STREET.finditer(text):
@@ -171,6 +361,8 @@ def extract_street_hints(text: str) -> list[str]:
         if name.lower() in _STOP_WORDS or len(name) < 4:
             continue
         if is_foreign_geo(name):
+            continue
+        if is_bare_other_city_hint(name):
             continue
         hints.append(name)
 
@@ -184,6 +376,6 @@ def extract_street_lines(text: str) -> tuple[str, ...]:
     found: list[str] = []
     for match in _STREET_LINE.finditer(text):
         raw = re.sub(r"\s+", " ", match.group(0)).strip(" ,.;:")
-        if len(raw) >= 5:
+        if len(raw) >= 5 and not is_bare_other_city_hint(raw):
             found.append(raw)
     return tuple(dict.fromkeys(found))

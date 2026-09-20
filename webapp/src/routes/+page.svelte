@@ -27,11 +27,11 @@
 		exhausted: boolean;
 	};
 
-	function emptyState(): FeedState {
+	function emptyState(loading = false): FeedState {
 		return {
 			items: [],
 			cursor: null,
-			loading: false,
+			loading,
 			error: null,
 			exhausted: false
 		};
@@ -41,7 +41,8 @@
 	let startParam = $state<string | null>(cachedChatLinkMode);
 	let bridgeReady = $state(cachedChatLinkMode !== null);
 	let scope = $state<FeedScope>('nearby');
-	let nearby = $state<FeedState>(emptyState());
+	/** Nearby стартует в loading — до ответа API не показываем «новостей нет». */
+	let nearby = $state<FeedState>(emptyState(true));
 	let city = $state<FeedState>(emptyState());
 
 	let rail: HTMLElement | undefined = $state();
@@ -53,8 +54,6 @@
 
 	let showDownHint = $state(false);
 	let showCityHint = $state(false);
-
-	const active = $derived(scope === 'nearby' ? nearby : city);
 
 	function refreshHints() {
 		showDownHint = shouldShowDownHint();
@@ -278,10 +277,6 @@
 			/>
 		</div>
 	</div>
-
-	{#if active.loading && active.items.length === 0}
-		<div class="boot" aria-live="polite">Загрузка новостей…</div>
-	{/if}
 </div>
 
 {/if}
@@ -317,17 +312,6 @@
 		height: 100%;
 		scroll-snap-align: start;
 		scroll-snap-stop: always;
-	}
-
-	.boot {
-		position: absolute;
-		inset: 0;
-		z-index: 30;
-		display: grid;
-		place-items: center;
-		background: rgba(10, 16, 20, 0.72);
-		font-weight: 600;
-		pointer-events: none;
 	}
 
 	.hint {

@@ -62,6 +62,8 @@ def dump_events_snapshot(session: Session, path: Path, *, limit: int = 2000) -> 
             "geo_by": row.geo_by,
             "weight": row.weight,
             "published_at": row.published_at.isoformat() if row.published_at else None,
+            "active_from": row.active_from.isoformat() if row.active_from else None,
+            "active_to": row.active_to.isoformat() if row.active_to else None,
             "address_text": address.address_text if address else None,
             "address_city": address.city if address else None,
             "address_street": address.street if address else None,
@@ -84,6 +86,10 @@ def _resolve_address_id(session: Session, item: dict) -> int | None:
             return row.id
     city = item.get("address_city")
     if isinstance(city, str) and city.strip() and not item.get("address_street"):
+        from parser_common.geo_text import is_allowed_project_city
+
+        if not is_allowed_project_city(city):
+            return None
         return get_or_create_city_address(session, city.strip()).id
     return None
 
@@ -144,6 +150,8 @@ def load_events_snapshot(session: Session, path: Path) -> int:
                 else None,
                 image_url=item.get("image_url") if isinstance(item.get("image_url"), str) else None,
                 published_at=_parse_dt(item.get("published_at")),
+                active_from=_parse_dt(item.get("active_from")),
+                active_to=_parse_dt(item.get("active_to")),
             ),
         )
         existing.add((source, msg_id))

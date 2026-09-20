@@ -16,6 +16,7 @@ from address.components import (
     parse_address_text,
 )
 from address.db.address import AddressRow
+from parser_common.geo_text import is_allowed_project_city
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -51,8 +52,11 @@ def get_or_create_city_address(
     latitude: float = 55.7558,
     longitude: float = 37.6173,
 ) -> AddressRow:
-    """Точка уровня города (street/house пустые)."""
+    """Точка уровня города (street/house пустые). Только Москва / область."""
     city_norm = city.strip()
+    if not is_allowed_project_city(city_norm):
+        raise ValueError(f"City address только для Москвы/области, получено {city_norm!r}")
+
     existing = session.scalar(
         select(AddressRow).where(
             AddressRow.city == city_norm,
@@ -113,11 +117,16 @@ def find_geo_bind(
       city+street+house → home
       city+street → street (любой дом на улице / представитель)
       city → city
+
+    Чужие города (Самара, …) не создаём и не привязываем.
     """
     city_n = normalize_component(city)
     street_n = normalize_component(street)
     house_n = normalize_component(house)
     if not city_n or city is None:
+        return None
+    if not is_allowed_project_city(city):
+        logger.debug("find_geo_bind: отказ для чужого города city=%r", city)
         return None
 
     rows = _city_rows(session, city)

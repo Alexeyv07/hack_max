@@ -1,113 +1,105 @@
 # Проект «Умный город» — бот и WebApp для мессенджера Max
 
+Лента событий рядом / по городу: парсеры СМИ и УК → normalize + ML → dedup → `events` → WebApp.
+
+Гайд для агентов: [`AGENTS.md`](./AGENTS.md). Пайплайн (mermaid): [`docs/pipeline_parser_to_feed.md`](./docs/pipeline_parser_to_feed.md).
+
 ## Contributing flow
 
-1. Создать ветку от main: `git checkout -b your-feature-name`
-2. Коммиты с описанием: `git commit -m "описание изменений"`
-3. Push: `git push origin your-feature-name`
-4. Создать pull request в main и смержить
-5. Переключиться на main: `git checkout main`
-6. Обновить local main: `git pull origin main`
-
-Важные моменты:
-- Если меняете файл, который параллельно трогает кто-то ещё — предупредите и мержите быстрее
-- Конфликты решаем в локальной ветке
-- Директивы коммитов: `FEAT:`, `FIX:`, `REFACTOR:`, `DOCS:`, `TEST:`
+1. Ветка от `main`: `git checkout -b your-feature-name`
+2. Коммиты: `FEAT:` / `FIX:` / `REFACTOR:` / `DOCS:` / `TEST:` + краткое описание на русском
+3. `git push origin your-feature-name` → PR в `main`
+4. После merge: `git checkout main && git pull origin main`
 
 ## Структура
 
 ```
-conf/                  # local.yaml / prod.yaml
-alembic/               # миграции БД
+conf/                  # local.yaml / prod.yaml (+ ml_dedup, ml_enrich)
+alembic/               # миграции (в т.ч. active_from/to)
 src/
-  project/             # общее: config, logging, database
-  auth/                # модуль авторизации пользователей
-    models/            # доменные модели
-    db/                # SQLAlchemy ORM
-    handlers/          # бизнес-логика + запросы
-    commands/          # привязка к Max-событиям (/start, bot_started)
-  events/              # события (лента nearby/city)
-    models/
-    db/
-    handlers/          # CRUD + правила ленты
-    api/               # FastAPI routes → handlers
-    weight.py          # чистый расчёт веса
-  chats/               # членство в чатах (пока mock handlers)
-  parse_news/          # KAN-11: новостной воркер (RSS/HTML → events)
-  parser_common/       # KAN-13: Candidate→Draft→EventCreate (+ ingest)
-  user_chat/           # KAN-5: хранение чатов, address_id и User <-> Chat
-  chat_link/           # KAN-7: onboarding реального группового чата и выбора дома
-  parser_common/       # KAN-13: Candidate→Draft→EventCreate (+ ingest); парсеры-воркеры — отдельно
-  max.py               # run_max_bot() — см. project/max.py
-  main.py              # bot и/или API в одном процессе
-tests/                 # pytest (API + handlers)
-ml/                    # обучение classify (KAN-13) и dedup (KAN-19); НЕ src
-scripts/               # утилиты (entrypoint, classify_try, smoke_parser_collect)
-
+  project/             # config, logging, database
+  auth/                # пользователи Max
+  address/             # addresses + StreetCatalog + GeoMatcher (+ district)
+  events/              # CRUD + feed/map API (KAN-14)
+  user_chat/           # чаты соседей (KAN-5)
+  chat_link/           # onboarding чата (KAN-7)
+  parse_news/          # KAN-11: RSS/HTML СМИ → Candidate
+  parse_mc/            # KAN-28: сайты УК/ЖЭК → Candidate
+  parser_common/       # KAN-13: normalize (classify, time, place) + ingest
+  ml_dedup/            # KAN-19: NEW | DUPLICATE | UPDATE
+  max.py / main.py     # bot + API + парсеры в одном процессе
+ml/                    # обучение (НЕ импортируется из src)
+  classify/            # importance 1|2|3 → ONNX
+  time/                # active_from / active_to → ONNX
+  dedup/               # embeddings + пороги cosine
+  TRAIN.md             # команды обучения после разметки
 webapp/                # SvelteKit mini-app
-AGENTS.md              # гайд для агентов
+docs/                  # схемы пайплайна
+tests/ scripts/
 ```
+
+### Поток данных (кратко)
+
+```
+parse_* → ParserCandidate
+       → normalize (title/body, importance, disaster, active_*, geo)
+       → ml_dedup (NEW / DUP / UPDATE, окно 21 день)
+       → events → GET /events/feed
+```
+
+Geo: воркер (regex + spaCy LOC → StreetCatalog) → при `address_id=null` ещё `place_ner` в normalize.  
+Time: только ML (`ml/time`); без ONNX поля `null`. Classify: ONNX → rules (переобучать не обязательно).
 
 ## Скрипты (`scripts/`)
 
 | скрипт | зачем |
 |--------|--------|
-| `bot_entrypoint.py` | контейнер бота: `alembic upgrade head`, затем `python -m main` |
-| `classify_try.py` | REPL для importance-классификатора (ONNX → rules) |
-| `smoke_parser_collect.py` | live smoke news/mc: 1 страница collect по enabled outlet |
-
-### `classify_try.py`
-
-Нужны артефакты после `train_torch.py` и deps `pip install -e ".[ml]"`.
+| `bot_entrypoint.py` | Docker bot: проверка ML-артефактов, `alembic upgrade`, seed, `main` |
+| `classify_try.py` | REPL importance (ONNX → rules) |
+| `smoke_parser_collect.py` | live smoke news/mc collect |
+| `ngrok_url.py` | публичный HTTPS URL туннеля |
 
 ```bash
 set PYTHONPATH=src
 python scripts/classify_try.py
-```
-
-Ввод — одна строка текста (заголовок/пост). Пустая строка / `q` — выход.
-Многострочный режим: `:m`, конец блока — строка с одной точкой `.`
-
-На каждый запрос печатает raw ONNX (`p1/p2/p3`), ответ rules и итоговый каскад
-(`importance`, `disaster_flag`, `method`).
-
-### `smoke_parser_collect.py`
-
-Live-проверка адаптеров news и/или mc (сеть, без записи в БД): incremental, 1 страница.
-
-```bash
-set PYTHONPATH=src
-python scripts/smoke_parser_collect.py
 python scripts/smoke_parser_collect.py --parser news --outlet m24
-python scripts/smoke_parser_collect.py --parser mc --outlet moek
-```
-
-Дамп всех events в snapshot:
-
-```bash
-set PYTHONPATH=src
 python -m parser_common.seed dump
 ```
 
-### `bot_entrypoint.py`
+## ML: обучение
 
-Точка входа Docker-образа бота (см. compose). Локально обычно не нужен —
-достаточно `alembic upgrade head` и `python -m main`.
+Подробно: [`ml/TRAIN.md`](./ml/TRAIN.md).
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install -e ".[ml]"
+python -m spacy download ru_core_news_md
+
+# importance (опционально — артефакты уже могут быть)
+python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
+
+# active_from / active_to (нужна разметка ml/time/data/train.jsonl)
+python ml/time/bootstrap_data.py
+python ml/time/train_torch.py --config ml/time/config_torch.yaml
+
+# пороги dedup (пары ml/dedup/data/pairs.jsonl)
+python ml/dedup/bootstrap_pairs.py
+python ml/dedup/eval_threshold.py --config ml/dedup/config.yaml
+```
+
+Артефакты → `ml/*/artifacts/` (в git не коммитим тяжёлые `.onnx`; монтируются в Docker).
 
 ## Режимы запуска
 
-Нужен `.env` из `.env.example` (`MAX_BOT_TOKEN`, для туннеля Max — `NGROK`).
+Нужен `.env` из `.env.example` (`MAX_BOT_TOKEN`, для Max — `NGROK`).
 
-### Postgres (общий для всех флоу)
+### Postgres
 
 ```bash
 docker compose up -d postgres
 ```
 
 `conf/local.yaml` → `localhost:5432`.
-
----
-
 
 ### Подключение домового чата (KAN-7)
 
@@ -120,15 +112,10 @@ docker compose up -d postgres
 
 ### WebApp: два флоу
 
-Публичный HTTPS для мини-приложения Max даёт сервис **ngrok** в Compose  
-(локально ставить ngrok **не нужно**). Секрет: `NGROK=` в `.env`  
-(токен: https://dashboard.ngrok.com/get-started/your-authtoken).
-
-Актуальный URL после старта туннеля:
+Публичный HTTPS — сервис **ngrok** в Compose (`NGROK=` в `.env`).
 
 ```bash
-python scripts/ngrok_url.py
-# или инспектор http://localhost:4040
+python scripts/ngrok_url.py   # или http://localhost:4040
 ```
 
 URL вида `https://….ngrok-free.dev` вставляется в настройки бота на платформе MAX.  
@@ -136,155 +123,97 @@ URL вида `https://….ngrok-free.dev` вставляется в настро
 
 #### Флоу 1 — webapp в Docker
 
-API/бот на хосте, webapp + ngrok в контейнерах:
-
 ```bash
-# терминал 1 — API (и опционально бот)
-python -m venv .venv
-.venv\Scripts\activate          # Windows
-# source .venv/bin/activate     # Linux/macOS
 pip install -e ".[dev]"
 alembic upgrade head
+python -m main                    # :8000
+
+docker compose up -d webapp ngrok # :5173 + публичный URL
+```
+
+#### Флоу 2 — webapp на хосте
+
+```bash
 python -m main
-# → http://localhost:8000
+cd webapp && npm install && npm run dev   # :5173, proxy /api → :8000
 
-# терминал 2 — webapp + публичный туннель
-docker compose up -d webapp ngrok
-# локально: http://localhost:5173
-# публично: python scripts/ngrok_url.py
+# опционально туннель:
+# $env:NGROK_UPSTREAM="host.docker.internal:5173"; docker compose up -d ngrok
 ```
 
-Compose webapp проксирует `/api` на `host.docker.internal:8000`  
-(хостовый `python -m main`). Переопределение: `API_PROXY_TARGET=…`.
-
-#### Флоу 2 — webapp локально в терминале
-
-Всё на хосте, в Docker только Postgres (+ при необходимости только ngrok):
-
-```bash
-# терминал 1 — API
-python -m main
-
-# терминал 2 — webapp
-cd webapp
-npm install
-npm run dev
-# → http://localhost:5173  (прокси /api → :8000)
-```
-
-Публичный URL для Max (опционально), пока Vite уже слушает `:5173`:
-
-```bash
-# Windows PowerShell
-$env:NGROK_UPSTREAM="host.docker.internal:5173"
-docker compose up -d ngrok
-python scripts/ngrok_url.py
-```
-
-```bash
-# Linux/macOS
-NGROK_UPSTREAM=host.docker.internal:5173 docker compose up -d ngrok
-```
-
----
-
-### A. Локально: bot + API на хосте (без webapp-Docker)
+### A. Локально bot + API
 
 ```bash
 docker compose up -d postgres
-
 python -m venv .venv
-.venv\Scripts\activate          # Windows
-# source .venv/bin/activate     # Linux/macOS
+.venv\Scripts\activate
 pip install -e ".[dev]"
+pip install -e ".[ml-runtime]"   # onnxruntime, transformers, spacy
+python -m spacy download ru_core_news_md
 pre-commit install
-copy .env.example .env          # MAX_BOT_TOKEN, при необходимости NGROK
+copy .env.example .env
 
 alembic upgrade head
 python -m address.seed src/address/data/moscow.jsonl.gz
 python -m main
-
-# HTTP API: http://localhost:8000/docs  (runtime.enable_api=true)
-# Дальше — флоу 1 или флоу 2 для webapp (см. выше)
+# API: http://localhost:8000/docs
 ```
 
-Тесты:
-
 ```bash
-pip install -e ".[dev]"
 pytest
 ```
 
 ### B. Всё в Docker
 
-Перед сборкой нужны веса classify (ONNX ~110MB, в git не лежат):
+Перед сборкой желательны веса classify (и после разметки — time):
 
 ```bash
-# один раз на машине с GPU:
+# GPU-машина:
 pip install torch --index-url https://download.pytorch.org/whl/cu124
 pip install -e ".[ml]"
 python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
-# → ml/classify/artifacts/importance_model.onnx (+ tokenizer, meta)
+# → ml/classify/artifacts/importance_model.onnx
+# опционально time/dedup — см. ml/TRAIN.md
 ```
 
 ```bash
-copy .env.example .env          # указать MAX_BOT_TOKEN
+copy .env.example .env
 docker compose up --build
 ```
 
-Контейнер бота:
-- ставит `.[ml-runtime]` (onnxruntime + transformers, без torch);
-- копирует `ml/classify/artifacts` в образ и монтирует тот же каталог с хоста (`:ro`) —
-  после переобучения достаточно `docker compose restart bot`;
-- перед стартом проверяет наличие ONNX и делает `alembic upgrade head`;
-- если таблица `addresses` пустая, автоматически загружает московский справочник из
-  `src/address/data/moscow.jsonl.gz`; при следующих запусках повторный импорт не выполняется.
-
-`DATABASE_HOST=postgres` в compose перекрывает `local.yaml`.
+Контейнер `bot`:
+- `pip install .[ml-runtime]` + `spacy download ru_core_news_md`;
+- COPY/mount: `ml/classify|time|dedup/artifacts`;
+- без ONNX — soft WARN и fallback (rules / null dates / hash embed);
+- `alembic upgrade head`, seed addresses/events при пустых таблицах.
 
 - Postgres: `localhost:5432`
 - WebApp: http://localhost:5173
-- Bot: контейнер `hack_max_bot`
+- API/bot: http://localhost:8000
 
 ## Миграции (Alembic)
 
-Чаты соседей (KAN-5): [модели, handlers и пример вызова](src/user_chat/README.md).
-После `/start` пользователь зарегистрирован, но его нужно отдельно связать с чатом:
-лента и карта используют только реальные записи `users_chat`.
-
 ```bash
-# применить все миграции
 alembic upgrade head
-
-# откатить на одну ревизию назад
-alembic downgrade -1
-
-# откатить до конкретной ревизии
-alembic downgrade 0001_create_users
-
-# создать новую миграцию после изменения ORM-моделей
-alembic revision --autogenerate -m "описание изменений"
-
-# текущее состояние
 alembic current
 alembic history
 ```
 
+Актуальный head: `0013_events_active_window` (`active_from` / `active_to`).
+Перед ним: `0011_chat_link` (district + chat_links), `0012_chat_group_type`.
+
 ## Конфиг
 
-- `APP_ENVIRONMENT=local|prod` выбирает `conf/local.yaml` или `conf/prod.yaml`
-- `local.yaml` — под локальный bot/webapp + Postgres в Docker (`localhost`)
-- `prod.yaml` — без секретов; пароль БД, токен бота и т.п. только через env
-- `.env` / `.env.example` — только чувствительные секреты (например `MAX_BOT_TOKEN`)
-- Env перекрывает YAML (`DATABASE_PASSWORD`, `MAX_BOT_TOKEN`, `DATABASE_HOST`, …)
+- `APP_ENVIRONMENT=local|prod` → `conf/local.yaml` | `prod.yaml`
+- `ml_dedup.active_days: 21`, пороги cosine, `ml_enrich.spacy_model`
+- Env перекрывает YAML (`DATABASE_*`, `MAX_BOT_TOKEN`, `ML_DEDUP_ENABLED`, …)
+- Секреты только в `.env`
 
-## Линтеры и pre-commit
+## Линтеры
 
 ```bash
 pip install -e ".[dev]"
 pre-commit install
-ruff format src
-ruff check src
+ruff format src tests
+ruff check src tests
 ```
-
-Перед коммитом pre-commit прогоняет `ruff` + `ruff format`. CI — то же плюс `npm run check` для webapp.

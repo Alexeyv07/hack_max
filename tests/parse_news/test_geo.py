@@ -259,6 +259,95 @@ def test_catalog_ambiguous_refuse(db_session) -> None:
     assert catalog._resolve_entry("\u0441\u0430\u0434\u043e\u0432") is None  # noqa: SLF001
 
 
+def test_samara_does_not_create_city_or_fuzzy_street(db_session) -> None:
+    """Самара не создаёт city-row и не fuzzy-матчится в «Самарская»."""
+    from address.resolve import find_geo_bind, get_or_create_city_address
+    from parser_common.geo_text import (
+        filter_moscow_location_hints,
+        is_allowed_project_city,
+        is_bare_other_city_hint,
+        is_non_moscow_geo,
+    )
+
+    samarskaya = _add_row(
+        db_session,
+        street="\u0443\u043b\u0438\u0446\u0430 \u0421\u0430\u043c\u0430\u0440\u0441\u043a\u0430\u044f",
+        house="1",
+    )
+    catalog = StreetCatalog.load(db_session)
+
+    assert not is_allowed_project_city("\u0421\u0430\u043c\u0430\u0440\u0430")
+    assert is_bare_other_city_hint("\u0421\u0430\u043c\u0430\u0440\u0430")
+    assert is_non_moscow_geo(
+        "\u0410\u0432\u0430\u0440\u0438\u044f \u0432 \u0421\u0430\u043c\u0430\u0440\u0435"
+    )
+    assert filter_moscow_location_hints(
+        ["\u0421\u0430\u043c\u0430\u0440\u0430", "\u0422\u0432\u0435\u0440\u0441\u043a\u0430\u044f"]
+    ) == ["\u0422\u0432\u0435\u0440\u0441\u043a\u0430\u044f"]
+
+    try:
+        get_or_create_city_address(db_session, "\u0421\u0430\u043c\u0430\u0440\u0430")
+        raise AssertionError("expected ValueError for Samara city create")
+    except ValueError:
+        pass
+
+    assert find_geo_bind(db_session, city="\u0421\u0430\u043c\u0430\u0440\u0430") is None
+
+    federal = RawNewsArticle(
+        outlet="ria",
+        external_id="samara-1",
+        url="https://ria.ru/samara",
+        title="\u041f\u0440\u043e\u0440\u044b\u0432 \u0432 \u0421\u0430\u043c\u0430\u0440\u0435",
+        published_at=datetime(2026, 9, 17, tzinfo=UTC),
+        body="\u041d\u0430 \u0443\u043b\u0438\u0446\u0435 \u0432 \u0446\u0435\u043d\u0442\u0440\u0435 \u0433\u043e\u0440\u043e\u0434\u0430",
+    )
+    assert resolve_article_geo(db_session, federal, street_index=catalog) is None
+
+    local = RawNewsArticle(
+        outlet="m24",
+        external_id="samara-2",
+        url="https://www.m24.ru/samara",
+        title="\u0421\u043e\u0431\u044b\u0442\u0438\u0435 \u0432 \u0421\u0430\u043c\u0430\u0440\u0435",
+        published_at=datetime(2026, 9, 17, tzinfo=UTC),
+        body="\u0411\u0435\u0437 \u043c\u043e\u0441\u043a\u043e\u0432\u0441\u043a\u0438\u0445 \u0443\u043b\u0438\u0446",
+    )
+    assert resolve_article_geo(db_session, local, street_index=catalog) is None
+
+    # Голый топоним не должен fuzzy → Самарская
+    assert catalog.lookup_hints(["\u0421\u0430\u043c\u0430\u0440\u0430"]) is None
+    # Настоящая московская Самарская по-прежнему находится
+    hit = catalog.lookup(
+        "\u0443\u043b\u0438\u0446\u0430 \u0421\u0430\u043c\u0430\u0440\u0441\u043a\u0430\u044f"
+    )
+    assert hit is not None
+    assert hit.address_id == samarskaya.id
+
+
+def test_samarskaya_street_still_resolves_in_moscow(db_session) -> None:
+    """«Самарская» как улица Москвы — не режется как чужой город."""
+    home = _add_row(
+        db_session,
+        street="\u0443\u043b\u0438\u0446\u0430 \u0421\u0430\u043c\u0430\u0440\u0441\u043a\u0430\u044f",
+        house="5",
+    )
+    catalog = StreetCatalog.load(db_session)
+    article = RawNewsArticle(
+        outlet="msk1",
+        external_id="samarskaya-1",
+        url="https://msk1.ru/text/x",
+        title=(
+            "\u0410\u0432\u0430\u0440\u0438\u044f \u043d\u0430 \u0443\u043b\u0438\u0446\u0435 "
+            "\u0421\u0430\u043c\u0430\u0440\u0441\u043a\u043e\u0439, \u0434\u043e\u043c 5"
+        ),
+        published_at=datetime(2026, 9, 17, tzinfo=UTC),
+        body="ok",
+    )
+    bind = resolve_article_geo(db_session, article, street_index=catalog)
+    assert bind is not None
+    assert bind.geo_by == "home"
+    assert bind.address_id == home.id
+
+
 def test_resolve_article_geo_from_source_fields(db_session) -> None:
     home = _add_row(
         db_session,

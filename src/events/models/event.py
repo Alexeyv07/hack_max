@@ -33,6 +33,8 @@ class EventCreate:
     # Одна главная фотка (выбранная у кандидатов). None → фронт рисует карту с меткой.
     image_url: str | None = None
     published_at: datetime | None = None
+    active_from: datetime | None = None
+    active_to: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,8 +52,12 @@ class EventUpdate:
     source_url: str | None = None
     image_url: str | None = None
     published_at: datetime | None = None
+    active_from: datetime | None = None
+    active_to: datetime | None = None
     clear_address: bool = False
     clear_image: bool = False
+    clear_active_from: bool = False
+    clear_active_to: bool = False
 
 
 @dataclass(slots=True)
@@ -75,6 +81,8 @@ class Event:
     # Текст адреса для UI (из Address.address_text); None если нет привязки.
     location: str | None = None
     published_at: datetime | None = None
+    active_from: datetime | None = None
+    active_to: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     distance_m: float | None = None

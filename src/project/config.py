@@ -78,6 +78,8 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "ENABLE_MC_PARSER": "runtime.enable_mc_parser",
         "EVENTS_NEARBY_RADIUS_M": "events.nearby_radius_m",
         "EVENTS_CITY_RADIUS_M": "events.city_radius_m",
+        "ML_DEDUP_ENABLED": "ml_dedup.enabled",
+        "ML_DEDUP_ACTIVE_DAYS": "ml_dedup.active_days",
         "DOCS_URL": "docs.url",
         "DOCS_GITHUB_URL": "docs.github_url",
     }
@@ -151,6 +153,31 @@ class ApiConfig:
 class EventsConfig:
     nearby_radius_m: float = 3000.0
     city_radius_m: float = 30000.0
+
+
+@dataclass(frozen=True, slots=True)
+class MlDedupConfig:
+    """KAN-19: дедуп / актуализация overlapping events."""
+
+    enabled: bool = True
+    # Новость «активна» для match/update столько дней (и lookback пула).
+    active_days: int = 21
+    duplicate_threshold: float = 0.88
+    update_threshold: float = 0.72
+    radius_m: float = 3000.0
+    allow_hash_fallback: bool = True
+    require_geo_match: bool = False
+    queue_maxsize: int = 500
+
+
+@dataclass(frozen=True, slots=True)
+class MlEnrichConfig:
+    """Time-window ML + place NER (spaCy → addresses)."""
+
+    time_enabled: bool = True
+    time_min_confidence: float = 0.45
+    place_enabled: bool = True
+    spacy_model: str = "ru_core_news_md"
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +269,8 @@ class Settings:
     max: MaxConfig = field(default_factory=MaxConfig)
     api: ApiConfig = field(default_factory=ApiConfig)
     events: EventsConfig = field(default_factory=EventsConfig)
+    ml_dedup: MlDedupConfig = field(default_factory=MlDedupConfig)
+    ml_enrich: MlEnrichConfig = field(default_factory=MlEnrichConfig)
     news_parser: NewsParserConfig = field(default_factory=NewsParserConfig)
     mc_parser: McParserConfig = field(default_factory=McParserConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
@@ -318,6 +347,8 @@ def load_settings() -> Settings:
     max_raw = raw.get("max") or {}
     api_raw = raw.get("api") or {}
     events_raw = raw.get("events") or {}
+    ml_dedup_raw = raw.get("ml_dedup") or {}
+    ml_enrich_raw = raw.get("ml_enrich") or {}
     news_parser_raw = raw.get("news_parser") or {}
     mc_parser_raw = raw.get("mc_parser") or {}
     runtime_raw = raw.get("runtime") or {}
@@ -354,6 +385,22 @@ def load_settings() -> Settings:
         events=EventsConfig(
             nearby_radius_m=float(events_raw.get("nearby_radius_m", 3000)),
             city_radius_m=float(events_raw.get("city_radius_m", 30000)),
+        ),
+        ml_dedup=MlDedupConfig(
+            enabled=bool(ml_dedup_raw.get("enabled", True)),
+            active_days=int(ml_dedup_raw.get("active_days", 21)),
+            duplicate_threshold=float(ml_dedup_raw.get("duplicate_threshold", 0.88)),
+            update_threshold=float(ml_dedup_raw.get("update_threshold", 0.72)),
+            radius_m=float(ml_dedup_raw.get("radius_m", 3000)),
+            allow_hash_fallback=bool(ml_dedup_raw.get("allow_hash_fallback", True)),
+            require_geo_match=bool(ml_dedup_raw.get("require_geo_match", False)),
+            queue_maxsize=int(ml_dedup_raw.get("queue_maxsize", 500)),
+        ),
+        ml_enrich=MlEnrichConfig(
+            time_enabled=bool(ml_enrich_raw.get("time_enabled", True)),
+            time_min_confidence=float(ml_enrich_raw.get("time_min_confidence", 0.45)),
+            place_enabled=bool(ml_enrich_raw.get("place_enabled", True)),
+            spacy_model=str(ml_enrich_raw.get("spacy_model", "ru_core_news_md")),
         ),
         news_parser=NewsParserConfig(
             mode=str(news_parser_raw.get("mode", "bootstrap")).strip().lower(),

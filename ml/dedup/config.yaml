@@ -1,0 +1,29 @@
+# Dedup embeddings + cosine thresholds (KAN-19)
+
+model_name: cointegrated/rubert-tiny2
+max_length: 128
+
+# дефолтные пороги (cosine, после L2-norm)
+# sim >= duplicate_threshold → duplicate
+# update_threshold <= sim < duplicate_threshold → update
+# sim < update_threshold → unrelated
+duplicate_threshold: 0.82
+update_threshold: 0.58
+
+# grid search для eval_threshold.py
+grid:
+  duplicate_min: 0.75
+  duplicate_max: 0.95
+  duplicate_step: 0.01
+  update_min: 0.50
+  update_max: 0.90
+  update_step: 0.01
+
+pairs_path: ml/dedup/data/pairs.jsonl
+bootstrap_pairs_path: ml/dedup/data/bootstrap_pairs.jsonl
+artifacts_dir: ml/dedup/artifacts
+
+seed: 19
+batch_size: 32
+# если transformers недоступны — hash fallback
+allow_hash_fallback: true

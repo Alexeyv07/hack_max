@@ -1,0 +1,69 @@
+{
+  "format": "dedup_thresholds_v1",
+  "source_pairs": "C:\\Users\\iosh\\Projects\\hack_max\\ml\\dedup\\data\\bootstrap_pairs.jsonl",
+  "backend": "rubert_mean_pool",
+  "recommended": {
+    "duplicate_threshold": 0.82,
+    "update_threshold": 0.58
+  },
+  "metrics": {
+    "backend": "rubert_mean_pool",
+    "n_pairs": 1298,
+    "label_counts": {
+      "duplicate": 337,
+      "update": 485,
+      "unrelated": 476
+    },
+    "sim_mean": 0.6495648780283388,
+    "defaults": {
+      "duplicate_threshold": 0.88,
+      "update_threshold": 0.72,
+      "macro_f1": 0.4758969010404874,
+      "f1_duplicate": 0.3412526997840173,
+      "f1_update": 0.4431818181818182,
+      "f1_unrelated": 0.6432561851556265,
+      "confusion": {
+        "duplicate": {
+          "duplicate": 79,
+          "update": 146,
+          "unrelated": 112
+        },
+        "update": {
+          "duplicate": 28,
+          "update": 195,
+          "unrelated": 262
+        },
+        "unrelated": {
+          "duplicate": 19,
+          "update": 54,
+          "unrelated": 403
+        }
+      }
+    },
+    "best_grid": {
+      "duplicate_threshold": 0.82,
+      "update_threshold": 0.58,
+      "macro_f1": 0.5913821513816634,
+      "f1_duplicate": 0.4859154929577465,
+      "f1_update": 0.5774518790100825,
+      "f1_unrelated": 0.7107790821771611,
+      "confusion": {
+        "duplicate": {
+          "duplicate": 138,
+          "update": 178,
+          "unrelated": 21
+        },
+        "update": {
+          "duplicate": 63,
+          "update": 315,
+          "unrelated": 107
+        },
+        "unrelated": {
+          "duplicate": 30,
+          "update": 113,
+          "unrelated": 333
+        }
+      }
+    }
+  }
+}

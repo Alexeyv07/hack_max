@@ -16,9 +16,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # Веса classify: кладутся в образ при build (COPY artifacts) и дополнительно
-  # монтируются с хоста — после переобучения достаточно перезапустить bot,
-  # без полного rebuild (файл ml/classify/artifacts/importance_model.onnx).
+  # ML artifacts: COPY в образ + mount с хоста (после train — restart bot без rebuild).
   bot:
     build:
       context: .
@@ -45,6 +43,9 @@ services:
       - ./alembic.ini:/app/alembic.ini
       - ./ml/classify/rules.yaml:/app/ml/classify/rules.yaml:ro
       - ./ml/classify/artifacts:/app/ml/classify/artifacts:ro
+      - ./ml/time/artifacts:/app/ml/time/artifacts:ro
+      - ./ml/dedup/artifacts:/app/ml/dedup/artifacts:ro
+      - ./ml/dedup/config.yaml:/app/ml/dedup/config.yaml:ro
     depends_on:
       postgres:
         condition: service_healthy

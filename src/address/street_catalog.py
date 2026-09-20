@@ -626,8 +626,13 @@ class StreetCatalog:
         )
 
     def lookup_hints(self, hints: list[str], *, house: str | None = None) -> StreetHit | None:
+        from parser_common.geo_text import filter_moscow_location_hints, is_bare_other_city_hint
+
+        hints = filter_moscow_location_hints(hints)
         best: StreetHit | None = None
         for hint in hints:
+            if is_bare_other_city_hint(hint):
+                continue
             hit = self.lookup(hint, house=house)
             if hit is None:
                 continue
@@ -646,8 +651,13 @@ class StreetCatalog:
         house: str | None = None,
     ) -> list[StreetHit]:
         """Все уникальные улицы из hints (для fan-out ЖЭК-объявлений по улицам)."""
+        from parser_common.geo_text import filter_moscow_location_hints, is_bare_other_city_hint
+
+        hints = filter_moscow_location_hints(hints)
         by_pin: dict[int, StreetHit] = {}
         for hint in hints:
+            if is_bare_other_city_hint(hint):
+                continue
             hit = self.lookup(hint, house=house)
             if hit is None:
                 continue

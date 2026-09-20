@@ -1,11 +1,7 @@
 """
-Общий пайплайн парсеров: ParserCandidate → EventDraft → (воркер) → events.
+Общий пайплайн парсеров: ParserCandidate → EventDraft → (ml_dedup) → events.
 
-KAN-13 = библиотека normalize/classify/geo. Запись в БД и fetch источников —
-в воркерах KAN-10/11/12 через ``persist_candidate`` / ``create_event``.
-Дедуп — KAN-19.
-
-См. README.md в этом пакете и ml/classify/MODEL.md.
+KAN-13 = normalize/classify/time/place. KAN-19 = ml_dedup в persist_candidate.
 """
 
 from parser_common.ingest import persist_candidate

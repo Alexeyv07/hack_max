@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from address.resolve import GeoBind
+from address.street_catalog import StreetCatalog
 from events.handlers.crud import list_existing_source_msg_ids
 from events.models.event import Event, EventSource
 from parse_news.models.article import RawNewsArticle
@@ -15,6 +16,20 @@ from parser_common.models.candidate import ParserCandidate
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
+
+_street_catalog: StreetCatalog | None = None
+
+
+def _get_street_catalog(session: Session) -> StreetCatalog | None:
+    global _street_catalog
+    if _street_catalog is not None:
+        return _street_catalog
+    try:
+        _street_catalog = StreetCatalog.load(session, city="Москва")
+    except Exception:
+        logger.exception("StreetCatalog.load failed")
+        return None
+    return _street_catalog
 
 
 def article_to_candidate(
@@ -68,7 +83,8 @@ def persist_article(
     )
     try:
         with session.begin_nested():
-            return persist_candidate(session, candidate)
+            catalog = _get_street_catalog(session) if candidate.address_id is None else None
+            return persist_candidate(session, candidate, street_catalog=catalog)
     except IntegrityError:
         logger.debug("Дубликат новости %s (IntegrityError) — пропуск", article.source_msg_id)
         return None

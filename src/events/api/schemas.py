@@ -35,6 +35,14 @@ class FeedItemResponse(BaseModel):
         default=None,
         description="Время публикации у источника; иначе смотри created_at",
     )
+    active_from: datetime | None = Field(
+        default=None,
+        description="Начало действия события (если извлечено)",
+    )
+    active_to: datetime | None = Field(
+        default=None,
+        description="Конец действия; null = ещё актуально / неизвестно",
+    )
     created_at: datetime | None = None
     updated_at: datetime | None = None
     distance_m: float | None = None

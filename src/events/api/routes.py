@@ -36,6 +36,8 @@ def _to_feed_item(event: Event) -> FeedItemResponse:
         geo_by=event.geo_by,
         location=event.location,
         published_at=event.published_at,
+        active_from=event.active_from,
+        active_to=event.active_to,
         created_at=event.created_at,
         updated_at=event.updated_at,
         distance_m=event.distance_m,

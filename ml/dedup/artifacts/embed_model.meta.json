@@ -1,0 +1,17 @@
+{
+  "format": "rubert_embedding_onnx_v1",
+  "base_model": "cointegrated/rubert-tiny2",
+  "max_length": 128,
+  "hidden_size": 312,
+  "pooling": "mean",
+  "normalize": "l2",
+  "inputs": [
+    "input_ids",
+    "attention_mask"
+  ],
+  "outputs": [
+    "embedding"
+  ],
+  "onnx": "embed_model.onnx",
+  "tokenizer_dir": "tokenizer"
+}
