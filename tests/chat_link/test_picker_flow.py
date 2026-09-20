@@ -91,6 +91,27 @@ class MissingPostalCatalog:
         return []
 
 
+def test_invalid_postal_format_shows_error_and_keeps_back_button(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = SimpleNamespace(edit_message=AsyncMock())
+    flow.register_chat_link_commands(dp, bot)
+
+    context = FakeContext({"flow_mid": "onboarding-mid"})
+    event = SimpleNamespace(
+        message=SimpleNamespace(body=SimpleNamespace(text="12922")),
+    )
+
+    asyncio.run(dp.handlers["message_created"](event, context))
+
+    bot.edit_message.assert_awaited_once()
+    kwargs = bot.edit_message.await_args.kwargs
+    assert kwargs["text"].startswith("❗ Ошибка ❗")
+    assert "ровно из 6 цифр" in kwargs["text"]
+    buttons = kwargs["attachments"][0].payload.buttons
+    assert buttons[0][0].text == "← Назад"
+    assert buttons[0][0].payload == "cl:back:root"
+
+
 def test_unknown_postal_keeps_back_button(monkeypatch) -> None:
     dp = FakeDispatcher()
     bot = SimpleNamespace(edit_message=AsyncMock())
@@ -106,6 +127,7 @@ def test_unknown_postal_keeps_back_button(monkeypatch) -> None:
 
     bot.edit_message.assert_awaited_once()
     kwargs = bot.edit_message.await_args.kwargs
+    assert kwargs["text"].startswith("❗ Ошибка ❗")
     assert "Такого индекса нет" in kwargs["text"]
     buttons = kwargs["attachments"][0].payload.buttons
     assert buttons[0][0].text == "← Назад"

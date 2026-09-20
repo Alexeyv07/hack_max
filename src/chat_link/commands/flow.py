@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from maxapi import F
 from maxapi.utils.deep_linking import create_start_link
 
 from address.street_catalog import normalize_ui_text
@@ -525,11 +526,19 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                 await _finish_address(event, context, bot, rows[idx].id)
             return
 
-    @dp.message_created(ChatLinkStates.postal)
+    @dp.message_created(F.message.body.text, ChatLinkStates.postal)
     async def on_postal(event: Any, context: Any) -> None:
         body = getattr(event.message, "body", None)
         text = (getattr(body, "text", None) or "").strip()
         if not (len(text) == 6 and text.isdigit()):
+            data = await context.get_data()
+            mid = data.get("flow_mid")
+            if mid:
+                await bot.edit_message(
+                    mid,
+                    text="❗ Ошибка ❗\n\nИндекс должен состоять ровно из 6 цифр. Введите индекс ещё раз.",
+                    attachments=[postal_input_keyboard()],
+                )
             return
 
         index = get_address_catalog()
@@ -540,7 +549,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             if mid:
                 await bot.edit_message(
                     mid,
-                    text="Такого индекса нет в справочнике. Введите другой шестизначный индекс.",
+                    text="❗ Ошибка ❗\n\nТакого индекса нет в справочнике. Введите другой шестизначный индекс.",
                     attachments=[postal_input_keyboard()],
                 )
             return

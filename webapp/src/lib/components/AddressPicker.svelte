@@ -522,8 +522,8 @@
 		transform: translate(-50%, -50%);
 		pointer-events: none;
 		font-size: 42px;
-		color: #168de2;
-		text-shadow: 0 1px 3px #fff;
+		color: #fff;
+		text-shadow: 0 1px 4px #000, 0 0 8px #000;
 	}
 	.zoom-controls {
 		position: absolute;
