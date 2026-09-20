@@ -9,11 +9,10 @@ from address.street_catalog import StreetCatalog, StreetHit
 from parse_mc.models.notice import RawMcNotice
 from parser_common.geo_text import (
     extract_house,
-    extract_street_hints,
-    extract_street_lines,
     is_foreign_geo,
     is_non_moscow_geo,
 )
+from parser_common.place_ner import collect_location_hints
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -53,8 +52,7 @@ def resolve_notice_geos(
         return []
 
     hints: list[str] = list(notice.streets)
-    hints.extend(extract_street_hints(text))
-    hints.extend(extract_street_lines(text))
+    hints.extend(collect_location_hints(text))
     hints = list(dict.fromkeys(h for h in hints if h and h.strip()))
 
     house = notice.geo_house or extract_house(text)

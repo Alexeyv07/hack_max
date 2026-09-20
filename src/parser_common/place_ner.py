@@ -17,8 +17,8 @@ from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
-# spaCy labels, типичные для ru_core_news_*
-_LOC_LABELS = frozenset({"LOC", "LOCATION", "GPE", "FAC", "ORG", "PER"})
+# spaCy labels для мест (ru_core_news_*). PER намеренно исключён.
+_LOC_LABELS = frozenset({"LOC", "LOCATION", "GPE", "FAC"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +84,31 @@ def _geo_by_from_hit(
     return "city"
 
 
+def collect_location_hints(
+    text: str,
+    *,
+    spacy_model: str = "ru_core_news_md",
+    use_spacy: bool = True,
+) -> list[str]:
+    """
+    Кандидаты места для StreetCatalog: regex-улицы + spaCy LOC/GPE/FAC.
+
+    spaCy не заменяет каталог — только улучшает recall подсказок.
+    Stanford CoreNLP не используем (тяжёлый JVM; spaCy уже в ml-runtime).
+    """
+    from parser_common.geo_text import extract_street_hints, extract_street_lines
+
+    hints: list[str] = []
+    hints.extend(extract_street_hints(text))
+    hints.extend(extract_street_lines(text))
+    if use_spacy:
+        hints.extend(extract_place_spans(text, spacy_model=spacy_model))
+    # уникальные, длинные первыми (лучше матч улицы)
+    uniq = list(dict.fromkeys(h.strip() for h in hints if h and h.strip()))
+    uniq.sort(key=len, reverse=True)
+    return uniq
+
+
 def resolve_place_to_address(
     text: str,
     *,
@@ -96,28 +121,29 @@ def resolve_place_to_address(
     Найти address_id по тексту новости/объявления.
 
     Порядок:
-      1) spaCy spans → StreetCatalog.lookup / lookup_hints
-      2) StreetCatalog по всему тексту (без NER)
+      1) regex+spaCy hints → StreetCatalog
+      2) StreetCatalog по всему тексту
       3) GeoMatcher.resolve (fuzzy/postcode), если передан
     """
     if not text.strip():
         return None
 
-    spans = extract_place_spans(text, spacy_model=spacy_model) if prefer_spacy else []
+    hints = collect_location_hints(text, spacy_model=spacy_model, use_spacy=prefer_spacy)
 
-    if street_catalog is not None and spans:
-        hit = street_catalog.lookup_hints(spans)
+    if street_catalog is not None and hints:
+        hit = street_catalog.lookup_hints(hints)
         if hit is not None:
+            spacy_spans = extract_place_spans(text, spacy_model=spacy_model) if prefer_spacy else []
+            method = "spacy+catalog" if spacy_spans else "catalog"
             return PlaceHit(
                 address_id=hit.address_id,
                 geo_by=_geo_by_from_hit(house=hit.house, canonical=hit.canonical),
-                method="spacy+catalog",
+                method=method,
                 span=hit.canonical,
                 score=float(hit.score),
             )
 
     if street_catalog is not None:
-        # эвристика: catalog сам stem+fuzzy по hint
         hit = street_catalog.lookup(text[:500])
         if hit is not None:
             return PlaceHit(
@@ -127,7 +153,6 @@ def resolve_place_to_address(
                 span=hit.canonical,
                 score=float(hit.score),
             )
-        # попробовать предложения / куски через запятую
         chunks = [c.strip() for c in text.replace("\n", ",").split(",") if c.strip()]
         hit = street_catalog.lookup_hints(chunks[:20])
         if hit is not None:

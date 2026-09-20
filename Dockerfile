@@ -18,12 +18,16 @@ COPY conf ./conf
 COPY alembic.ini .
 COPY alembic ./alembic
 COPY scripts ./scripts
+
+# ML runtime artifacts (train → artifacts; без ONNX — soft fallback в коде)
 COPY ml/classify/rules.yaml ./ml/classify/rules.yaml
-# Веса classify (ONNX + tokenizer + meta). При отсутствии файла на хосте
-# build упадёт — сначала: python ml/classify/train_torch.py
 COPY ml/classify/artifacts ./ml/classify/artifacts
+COPY ml/time/artifacts ./ml/time/artifacts
+COPY ml/dedup/artifacts ./ml/dedup/artifacts
+COPY ml/dedup/config.yaml ./ml/dedup/config.yaml
 
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir ".[ml-runtime]"
+    && pip install --no-cache-dir ".[ml-runtime]" \
+    && python -m spacy download ru_core_news_md
 
 CMD ["python", "/app/scripts/bot_entrypoint.py"]

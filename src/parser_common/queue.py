@@ -1,6 +1,14 @@
-"""In-memory очередь кандидатов между парсерами и normalize/dedup.
+"""In-memory очередь кандидатов (opt-in).
 
-Потеря при падении процесса допустима (продуктовое решение хакатона).
+Сейчас воркеры news/mc пишут синхронно через ``persist_candidate``.
+Модуль готов к подключению в ``main.py``, но **не** wired по умолчанию
+(потеря при падении процесса ок для хакатона).
+
+Использование::
+
+    from parser_common.queue import get_candidate_queue
+    q = get_candidate_queue(maxsize=500)
+    q.put_nowait(candidate)
 """
 
 from __future__ import annotations

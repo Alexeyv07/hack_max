@@ -91,7 +91,9 @@ def normalize(
                 place.geo_by,
                 place.span,
             )
-        elif geo_matcher is not None:
+        elif geo_matcher is not None and not place_enabled:
+            # place_ner уже зовёт GeoMatcher при place_enabled;
+            # этот путь — только если place выключен в конфиге.
             geo_text = candidate.geo_text or candidate.title or candidate.raw_text
             geo = geo_matcher.resolve(geo_text, chat_coordinates=chat_coordinates)
             address_id = geo.address_id

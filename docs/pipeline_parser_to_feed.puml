@@ -1,0 +1,114 @@
+@startuml pipeline_parser_to_feed
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam ArrowColor #334155
+skinparam ArrowThickness 1.2
+skinparam roundcorner 12
+skinparam activity {
+  BackgroundColor #F8FAFC
+  BorderColor #64748B
+  DiamondBackgroundColor #FEF3C7
+  DiamondBorderColor #D97706
+  StartColor #0F766E
+  EndColor #0F766E
+}
+skinparam note {
+  BackgroundColor #EFF6FF
+  BorderColor #3B82F6
+}
+skinparam partition {
+  BackgroundColor #F1F5F9
+  BorderColor #94A3B8
+  FontStyle bold
+  FontColor #0F172A
+}
+
+title **Умный город** — путь от парсера до карточки в ленте\nKAN-11/28 → parser_common (KAN-13) → ml_dedup (KAN-19) → events feed
+
+|*Парсер-воркер*\nparse_news / parse_mc / (позже chat)
+start
+:Fetch источника\n(RSS / HTML / объявление УК);
+:Собрать сырьё\n**RawNewsArticle** / **RawMcNotice**;
+
+if (Иностранная география\nв тексте?) then (да)
+  #FECACA:Skip — не пишем в events;
+  stop
+endif
+
+partition "Гео до Candidate (основной путь)" {
+  :Каскад geo воркера\n**resolve_article_geo** / **resolve_notice_geos**;
+  note right
+    1. поля источника (city/street/house)
+    2. индекс / **regex + spaCy LOC** hints
+       → **StreetCatalog** (stem+fuzzy) → addresses
+    3. дефолт «Москва» только у локальных СМИ / УК
+    MC: fan-out — по событию на каждую улицу
+  end note
+  :**ParserCandidate**\nraw_text, title/body, source,\nsource_msg_id, address_id?, geo_by?,\npublished_at, url, image;
+}
+
+partition "parser_common.normalize (KAN-13)" {
+  :Title / body\nэвристика text.py (не ML);
+  :Classify importance\nONNX rubert-tiny2 → rules\n+ disaster_flag (keywords);
+  note right
+    **classify переобучать не обязательно**:
+    контракт тот же (1|2|3).
+    Артефакты уже есть.
+    Переобучай только если
+    новая разметка / сдвиг домена.
+  end note
+  :Time window\n**active_from / active_to**\nтолько ML ONNX (ml/time);\nбез модели → null;
+  if (address_id уже есть?) then (нет)
+    :place_ner fallback\nspaCy+regex → StreetCatalog\n→ GeoMatcher;
+  else (да)
+    :Оставляем geo воркера;
+  endif
+  :**EventDraft**\ntitle, body, importance, disaster,\naddress_id, geo_by,\nactive_from/to, source…;
+}
+
+partition "ml_dedup.resolve (KAN-19)" {
+  if (source + source_msg_id\nуже в DB?) then (да)
+    #DBEAFE:**DUPLICATE**\nвернуть существующий Event;
+    stop
+  endif
+  :Пул «активных» Events\nза **active_days=21**\nи не истёкший active_to;
+  :Embed title+body\n(ONNX / rubert / hash fallback);
+  :Cosine vs кандидаты\n(+ geo совместимость);
+  if (score ≥ T_dup\nи нет update-hint?) then (да)
+    #DBEAFE:**DUPLICATE**\nта же новость — не плодим карточку;
+    stop
+  elseif (T_upd ≤ score < T_dup\nили near-dup + «устран/восстанов…»?) then (да)
+    #BBF7D0:**UPDATE**\nupdate_event:\nmax(importance), OR disaster,\nсвежий body, даты;
+  else (нет)
+    #A7F3D0:**NEW**\ncreate_event;
+  endif
+}
+
+partition "events (KAN-14) → лента" {
+  :Таблица **events**\n+ FK addresses\nweight = f(importance, timeliness, reliability);
+  if (address_id + address_text\nи importance ∈ {1,2}?) then (нет)
+    #FEF3C7:В DB есть, но **не в ленте**\n(нет локации / бытовуха 3);
+    stop
+  endif
+  if (geo_by?) then (street|home)
+    :GET /events/feed?scope=**nearby**;
+  else (city)
+    :GET /events/feed?scope=**city**;
+  endif
+  :WebApp TikTok-карточка\ntitle, body, location, image,\nimportance, disaster_flag…;
+}
+
+stop
+
+legend left
+  |= Цвет |= Исход |
+  | <#A7F3D0> | NEW — новое событие |
+  | <#BBF7D0> | UPDATE — актуализация |
+  | <#DBEAFE> | DUPLICATE — без новой карточки |
+  | <#FECACA> | Skip / отсев |
+  | <#FEF3C7> | В DB, но не в ленте |
+endlegend
+
+@enduml
