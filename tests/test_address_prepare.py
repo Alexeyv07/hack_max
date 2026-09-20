@@ -64,6 +64,7 @@ class PreparationTests(unittest.TestCase):
     def test_osm_conversion_keeps_locality_and_unknown_postcode(self):
         row = convert_element(element(**{"addr:city": "Троицк", "addr:postcode": "12345"}))
         self.assertEqual(row["address_text"], "Москва, Троицк, улица Тестовая, д. 1")
+        self.assertEqual(row["district"], "Троицк")
         self.assertIsNone(row["postal_code"])
         self.assertIs(row["is_private"], False)
 
@@ -77,6 +78,42 @@ class PreparationTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual(len(read_addresses(output / "moscow.jsonl.gz")), 1)
             self.assertEqual(first["without_postcode"], 1)
+
+    def test_prepare_can_fill_district_from_admin_boundary_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.json"
+            boundaries = root / "districts.json"
+            output = root / "result"
+            source.write_text(json.dumps({"elements": [element()]}))
+            boundaries.write_text(
+                json.dumps(
+                    {
+                        "elements": [
+                            {"type": "node", "id": 1, "lat": 55.7, "lon": 37.5},
+                            {"type": "node", "id": 2, "lat": 55.7, "lon": 37.7},
+                            {"type": "node", "id": 3, "lat": 55.8, "lon": 37.7},
+                            {"type": "node", "id": 4, "lat": 55.8, "lon": 37.5},
+                            {"type": "way", "id": 10, "nodes": [1, 2, 3, 4, 1]},
+                            {
+                                "type": "relation",
+                                "id": 100,
+                                "members": [{"type": "way", "ref": 10, "role": "outer"}],
+                                "tags": {
+                                    "boundary": "administrative",
+                                    "admin_level": "8",
+                                    "name": "район Ростокино",
+                                },
+                            },
+                        ]
+                    }
+                )
+            )
+            manifest = prepare(source, output, district_boundaries=boundaries)
+            rows = read_addresses(output / "moscow.jsonl.gz")
+            self.assertEqual(rows[0]["district"], "Ростокино")
+            self.assertEqual(manifest["district_boundaries"], 1)
+            self.assertEqual(manifest["districts_resolved"], 1)
 
     def test_overpass_partial_response_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

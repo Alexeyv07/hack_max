@@ -15,10 +15,74 @@ _HOUSE_INLINE = re.compile(
     re.IGNORECASE,
 )
 
+_CITY_ALIASES = {
+    "moscow": "Москва",
+    "москва": "Москва",
+    "город москва": "Москва",
+    "москва город": "Москва",
+}
+_INVALID_LOCALITIES = {
+    "город не указан",
+    "район не указан",
+    "не указан",
+    "unknown",
+}
+_DISTRICT_PREFIXES = (
+    "вн.тер.г. муниципальный округ ",
+    "внутригородская территория города федерального значения ",
+    "внутригородское муниципальное образование ",
+    "муниципальный округ ",
+    "район ",
+)
+
+
+def clean_city_label(value: str | None) -> str | None:
+    """Привести служебные/английские подписи города к UI-виду."""
+    if not value:
+        return None
+    text = " ".join(value.split()).strip()
+    folded = text.casefold().replace("ё", "е")
+    if folded in _INVALID_LOCALITIES:
+        return None
+    return _CITY_ALIASES.get(folded, text)
+
+
+def clean_district_label(value: str | None, *, city: str | None = None) -> str | None:
+    """Очистить locality из источника, не превращая мусор в район."""
+    if not value:
+        return None
+    text = " ".join(value.split()).strip(" ,")
+    folded = text.casefold().replace("ё", "е")
+    city_folded = (clean_city_label(city) or "").casefold().replace("ё", "е")
+    if folded in _INVALID_LOCALITIES or folded in _CITY_ALIASES or folded == city_folded:
+        return None
+    for prefix in _DISTRICT_PREFIXES:
+        if folded.startswith(prefix):
+            text = text[len(prefix) :].strip(" -—")
+            folded = text.casefold().replace("ё", "е")
+            break
+    if not text or folded in _INVALID_LOCALITIES or folded in _CITY_ALIASES:
+        return None
+    # Это типичные OSM locality, но не административные районы. Оставлять их
+    # отдельными кнопками означает показывать пользователю ЖК/дорогу как район.
+    noisy = (
+        "жилой комплекс",
+        "снт ",
+        "дск ",
+        "мкад",
+        "московская железная дорога",
+        "мжд ",
+        "километр",
+    )
+    if any(marker in folded for marker in noisy):
+        return None
+    return text
+
 
 @dataclass(frozen=True, slots=True)
 class AddressComponents:
     city: str | None
+    district: str | None
     street: str | None
     house: str | None
 
@@ -37,7 +101,7 @@ def parse_address_text(address_text: str) -> AddressComponents:
     """
     parts = [part.strip() for part in address_text.split(",") if part.strip()]
     if not parts:
-        return AddressComponents(None, None, None)
+        return AddressComponents(None, None, None, None)
 
     city = parts[0]
     house: str | None = None
@@ -50,7 +114,10 @@ def parse_address_text(address_text: str) -> AddressComponents:
             continue
         street_parts.append(part)
 
-    street = ", ".join(street_parts) if street_parts else None
+    # prepare_osm пишет locality между городом и улицей. Последняя не-house
+    # часть — улица, предыдущие части — район/поселение.
+    street = street_parts[-1] if street_parts else None
+    district = ", ".join(street_parts[:-1]) if len(street_parts) > 1 else None
     if street and house is None:
         inline = _HOUSE_INLINE.search(street)
         if inline:
@@ -59,6 +126,7 @@ def parse_address_text(address_text: str) -> AddressComponents:
 
     return AddressComponents(
         city=city or None,
+        district=district or None,
         street=street or None,
         house=house or None,
     )

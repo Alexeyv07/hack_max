@@ -72,7 +72,7 @@ def list_memberships_for_user(session: Session, max_user_id: int) -> list[ChatMe
         .join(users_chat, users_chat.c.chat_id == ChatRow.chat_id)
         .join(UserRow, UserRow.id == users_chat.c.user_id)
         .join(AddressRow, AddressRow.id == ChatRow.address_id)
-        .where(UserRow.max_user_id == max_user_id)
+        .where(UserRow.max_user_id == max_user_id, ChatRow.chat_type == "chat")
         .order_by(ChatRow.chat_id)
     )
     settings = get_settings()
@@ -87,3 +87,27 @@ def list_memberships_for_user(session: Session, max_user_id: int) -> list[ChatMe
         )
         for chat, lat, lon in rows
     ]
+
+
+def has_connected_chat(session: Session, max_user_id: int) -> bool:
+    """Есть ли у пользователя хотя бы один подключённый домовой чат."""
+    user_id = session.scalar(select(UserRow.id).where(UserRow.max_user_id == max_user_id))
+    if user_id is None:
+        return False
+    return (
+        session.scalar(
+            select(users_chat.c.user_id)
+            .join(ChatRow, ChatRow.chat_id == users_chat.c.chat_id)
+            .where(users_chat.c.user_id == user_id, ChatRow.chat_type == "chat")
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def bind_known_chat_member(session: Session, chat_id: int, *, max_user_id: int) -> bool:
+    """Сохранить membership после внешнего подтверждения, что пользователь уже в MAX-чате."""
+    chat = session.get(ChatRow, chat_id)
+    if chat is None or chat.chat_type != "chat":
+        raise ValueError("Домовой чат не зарегистрирован")
+    return add_user_to_chat(session, chat_id, max_user_id=max_user_id)

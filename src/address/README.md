@@ -5,10 +5,14 @@
 
 ## Контракт территории
 
-В таблице пока нет отдельных полей города и района. Вызывающий модуль передаёт
-**явно выбранные ключи адресов территории чата** в `load_addresses` либо уже
-отобранные объекты `Address` в `GeoMatcher`. Хелпер не определяет территорию
-по свободному тексту и не расширяет пустой набор до всей базы.
+`addresses` хранит структурированные `city`, `district`, `street`, `house` вместе с
+`address_text`, индексом и координатами. Для Москвы канонический `district` определяется по
+координатам дома и OSM-границам `boundary=administrative + admin_level=8`. Locality из адресных
+тегов/старого `address_text` остаётся только fallback и проходит очистку служебных значений.
+
+Для geo parser-ов вызывающий модуль по-прежнему передаёт **явно выбранные ключи адресов
+территории чата** в `load_addresses` либо уже отобранные объекты `Address` в `GeoMatcher`.
+`GeoMatcher` не определяет территорию по свободному тексту и не расширяет пустой набор до всей БД.
 
 ```python
 from address.db.queries import load_addresses
@@ -27,6 +31,52 @@ geo = matcher.resolve(message_text, chat_coordinates=chat_coordinates)
 Снимок нужно пересоздать после обновления справочника или территории чата.
 Вызов из воркера парсера / `parser_common.normalize(..., geo_matcher=...)`.
 Не копируйте алгоритм в каждый парсер.
+
+
+## Общий in-memory `StreetCatalog`
+
+`StreetCatalog` — существующий snapshot адресного справочника. Parser-модули используют его
+для stemming/fuzzy поиска улиц. KAN-7 переиспользует тот же класс с `city=None`: каталог также
+держит публичные дома (`address_id`, city/district/street/house, postal, lat/lon), умеет строить
+иерархию кнопок, fuzzy-поиск полного адреса и nearest lookup для карты.
+
+В `chat_link` экземпляр кэшируется process-wide после одного `SELECT addresses`; SQL на каждый
+callback или движение карты не выполняется. После обновления/seed справочника snapshot нужно
+явно пересоздать (`get_address_catalog(refresh=True)`) либо перезапустить процесс.
+
+### Районы Москвы
+
+Готовый historical snapshot адресов не содержал полного набора муниципальных районов: locality
+OSM у многих домов отсутствует или содержит не район (`Moscow`, ЖК, СНТ и т. п.). Поэтому для
+первого picker районов используется отдельный **offline snapshot границ OSM admin_level=8**.
+Runtime бота по сети за районами не ходит.
+
+Скачать снимок границ и один раз заполнить существующую БД:
+
+```bash
+curl --fail --show-error --max-time 210 \
+  --data-urlencode 'data@src/address/data/moscow_districts.overpassql' \
+  https://maps.mail.ru/osm/tools/overpass/api/interpreter \
+  -o /tmp/moscow-districts.json
+PYTHONPATH=src python -m address.backfill_districts /tmp/moscow-districts.json
+```
+
+После backfill перезапустите бот, чтобы process-wide `StreetCatalog` перечитал snapshot:
+
+```bash
+docker compose restart bot
+```
+
+При полной переподготовке справочника тот же snapshot можно передать сразу в pipeline:
+
+```bash
+PYTHONPATH=src python -m address.prepare_osm /tmp/moscow-osm.json \
+  --output /tmp/moscow-prepared \
+  --district-boundaries /tmp/moscow-districts.json
+```
+
+`address_text` при этом не меняется: это сохраняет существующий natural key/id домов. Повторный
+seed не стирает уже определённый район, если входной файл района не содержит.
 
 ## Порядок поиска
 

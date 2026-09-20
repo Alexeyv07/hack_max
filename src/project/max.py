@@ -5,8 +5,11 @@ from __future__ import annotations
 from maxapi import Bot, Dispatcher
 
 from auth.commands import register_auth_commands
+from chat_link.commands import register_chat_link_commands
+from chat_link.handlers import get_address_catalog
 from project.config import get_settings
 from project.logging_setup import get_logger
+from project.max_runtime import set_max_bot
 
 logger = get_logger(__name__)
 
@@ -30,8 +33,16 @@ async def run_max_bot() -> None:
     except Exception:
         logger.exception("Не удалось получить GET /me — open_app возьмёт fallback из конфига")
 
+    set_max_bot(bot)
+
+    # KAN-7: адресный picker работает только по process-wide snapshot.
+    # Прогреваем его до polling, чтобы первый callback не делал большой SELECT
+    # и не строил индексы уже после нажатия пользователя.
+    get_address_catalog()
+
     dp = Dispatcher()
     register_auth_commands(dp, bot)
+    register_chat_link_commands(dp, bot)
 
     logger.info("Polling Max-бота запущен")
     await dp.start_polling(bot)

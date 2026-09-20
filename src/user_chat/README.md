@@ -15,6 +15,8 @@ users.id  ← users_chat.user_id
 - `chats.chat_id` — PK, signed BigInteger, реальный MAX chat_id. Отдельный локальный
   id не нужен. Именование сохранено из `ChatMembership` и кода MAX-событий.
 - `chats.title` — название; `invite_link` — отдельная необязательная ссылка.
+  `chat_type='chat'` помечает подтверждённую групповую MAX-сущность. `NULL` оставлен
+  для legacy-записей старого mock-flow и не считается домовым чатом.
   В `maxapi` chat_id — int, ссылка `Chat.link` может быть None.
 - `address_id` — обязательный FK с `ON DELETE RESTRICT`, обычный неуникальный индекс.
   На один дом допускается несколько чатов. Координаты и текст адреса не копируются.
@@ -57,11 +59,13 @@ Handlers не коммитят: границу транзакции задаёт
 | --- | --- |
 | `create_chat(session, ChatCreate(...))` | `Chat`; неизвестный адрес или существующий chat_id → ValueError |
 | `get_chat(session, chat_id)` | `Chat` либо None |
-| `list_chats_by_address(session, address_id)` | все чаты адреса, включая пустые |
+| `detach_chat(session, chat_id)` | помечает чат `removed`, очищает invite link и все локальные membership после `bot_removed` |
+| `list_chats_by_address(session, address_id)` | подтверждённые групповые чаты адреса, включая пустые |
 | `add_user_to_chat(session, chat_id, max_user_id=...)` | True при добавлении, False при повторе; неизвестный пользователь/чат → ValueError |
+| `bind_known_chat_member(session, chat_id, max_user_id=...)` | то же persistence после внешней проверки реального membership в MAX |
 | `remove_user_from_chat(session, chat_id, max_user_id=...)` | True при удалении связи, False при её отсутствии |
 | `list_chat_members(session, chat_id)` | список `ChatMember`; неизвестный/пустой чат → [] |
-| `list_memberships_for_user(session, max_user_id)` | прежний `ChatMembership` для events, теперь из БД; без членства → [] |
+| `list_memberships_for_user(session, max_user_id)` | `ChatMembership` только для подтверждённых групп; legacy DIALOG не учитывается |
 
 Добавление использует `INSERT ... ON CONFLICT DO NOTHING`, поэтому параллельные
 повторы также не создают дубль. PK/FK остаются последней защитой от гонок;
