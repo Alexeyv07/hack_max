@@ -18,6 +18,7 @@ import address.db  # noqa: E402, F401
 import auth.db  # noqa: E402, F401
 import chat_link.db  # noqa: E402, F401
 import events.db  # noqa: E402, F401
+import notify.db  # noqa: E402, F401
 import parse_mc.db  # noqa: E402, F401
 import parse_news.db  # noqa: E402, F401
 import user_chat.db  # noqa: E402, F401

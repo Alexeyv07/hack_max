@@ -49,6 +49,20 @@ ml_enrich:
   place_enabled: true
   spacy_model: ru_core_news_md
 
+notify:
+  # Защита от спама на demo/local: включать только явно через NOTIFY_ENABLED=true.
+  enabled: false
+  poll_interval_seconds: 30
+  timezone: Europe/Moscow
+  digest_hour: 20
+  digest_jitter_minutes: 60
+  digest_lookback_hours: 24
+  digest_top_k: 5
+  retry_interval_seconds: 3600
+  summarizer_provider: none
+  summarizer_timeout_seconds: 12
+  summarizer_retry_count: 1
+
 runtime:
   enable_bot: true
   enable_api: true

@@ -80,6 +80,8 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "EVENTS_CITY_RADIUS_M": "events.city_radius_m",
         "ML_DEDUP_ENABLED": "ml_dedup.enabled",
         "ML_DEDUP_ACTIVE_DAYS": "ml_dedup.active_days",
+        "NOTIFY_ENABLED": "notify.enabled",
+        "SUMMARIZER_PROVIDER": "notify.summarizer_provider",
         "DOCS_URL": "docs.url",
         "DOCS_GITHUB_URL": "docs.github_url",
     }
@@ -243,6 +245,23 @@ class McParserConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class NotifyConfig:
+    """KAN notify: дайджесты чатов и личные приоритетные уведомления."""
+
+    enabled: bool = False
+    poll_interval_seconds: int = 30
+    timezone: str = "Europe/Moscow"
+    digest_hour: int = 20
+    digest_jitter_minutes: int = 60
+    digest_lookback_hours: int = 24
+    digest_top_k: int = 5
+    retry_interval_seconds: int = 3600
+    summarizer_provider: str = "none"
+    summarizer_timeout_seconds: float = 12.0
+    summarizer_retry_count: int = 1
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeConfig:
     """Какие сервисы поднимать в одном процессе main."""
 
@@ -273,6 +292,7 @@ class Settings:
     ml_enrich: MlEnrichConfig = field(default_factory=MlEnrichConfig)
     news_parser: NewsParserConfig = field(default_factory=NewsParserConfig)
     mc_parser: McParserConfig = field(default_factory=McParserConfig)
+    notify: NotifyConfig = field(default_factory=NotifyConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     docs: DocsConfig = field(default_factory=DocsConfig)
 
@@ -351,6 +371,7 @@ def load_settings() -> Settings:
     ml_enrich_raw = raw.get("ml_enrich") or {}
     news_parser_raw = raw.get("news_parser") or {}
     mc_parser_raw = raw.get("mc_parser") or {}
+    notify_raw = raw.get("notify") or {}
     runtime_raw = raw.get("runtime") or {}
     docs_raw = raw.get("docs") or {}
 
@@ -457,6 +478,21 @@ def load_settings() -> Settings:
                 )
             ),
             sources=_parse_mc_sources(mc_parser_raw.get("sources")),
+        ),
+        notify=NotifyConfig(
+            enabled=bool(notify_raw.get("enabled", False)),
+            poll_interval_seconds=int(notify_raw.get("poll_interval_seconds", 30)),
+            timezone=str(notify_raw.get("timezone", "Europe/Moscow")),
+            digest_hour=int(notify_raw.get("digest_hour", 20)),
+            digest_jitter_minutes=int(notify_raw.get("digest_jitter_minutes", 60)),
+            digest_lookback_hours=int(notify_raw.get("digest_lookback_hours", 24)),
+            digest_top_k=int(notify_raw.get("digest_top_k", 5)),
+            retry_interval_seconds=int(notify_raw.get("retry_interval_seconds", 3600)),
+            summarizer_provider=(
+                str(notify_raw.get("summarizer_provider", "none")).strip().lower()
+            ),
+            summarizer_timeout_seconds=float(notify_raw.get("summarizer_timeout_seconds", 12.0)),
+            summarizer_retry_count=int(notify_raw.get("summarizer_retry_count", 1)),
         ),
         runtime=RuntimeConfig(
             enable_bot=bool(runtime_raw.get("enable_bot", True)),
