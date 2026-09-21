@@ -4,16 +4,20 @@ from typing import Any
 
 from maxapi.enums import ChatType
 from maxapi.exceptions.max import MaxApiError
+from maxapi.types import LinkButton
+from maxapi.utils.deep_linking import create_start_link
+from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 from sqlalchemy.orm import Session
 
 from chat_link.handlers.links import (
+    create_request,
     finalize_group,
     get_request_by_token,
     mark_joined,
     pending_for_actor,
 )
 from chat_link.models import ConnectOutcome, JoinOutcome
-from user_chat.handlers import bind_known_chat_member, get_chat
+from user_chat.handlers import bind_known_chat_member, get_chat, list_chats_by_address
 from user_chat.models import Chat
 
 
@@ -163,16 +167,152 @@ async def connect_added_group(
     """Автоматически связать `bot_added` с активным onboarding пользователя."""
     request = pending_for_actor(session, actor_max_user_id)
     if request is None:
-        return ConnectOutcome(
-            False,
-            chat_id,
-            False,
-            "Не нашёл активную заявку на подключение дома. Выберите адрес в личном чате с ботом.",
-        )
+        # Новый flow позволяет сначала добавить бота в группу, а адрес выбрать уже потом.
+        # В таком случае bot_added не должен пугать пользователя ошибкой: прямой bind-flow
+        # завершит привязку после выбора адреса.
+        return ConnectOutcome(False, chat_id, False)
     return await connect_group_chat(
         bot,
         session,
         token=request.token,
         chat_id=chat_id,
         admin_max_user_id=actor_max_user_id,
+    )
+
+
+async def connect_added_group_to_address(
+    bot: Any,
+    session: Session,
+    *,
+    chat_id: int,
+    admin_max_user_id: int,
+    address_id: int,
+) -> ConnectOutcome:
+    """Привязать уже добавленную MAX-группу к выбранному после этого адресу.
+
+    Это основной admin-flow: бот сначала появляется в группе, затем администратор
+    открывает deep-link и выбирает дом. Адрес можно занять только одним активным
+    домовым чатом.
+    """
+    if not await bot_can_read_group(bot, chat_id):
+        return ConnectOutcome(
+            False,
+            chat_id,
+            False,
+            "Сначала назначьте бота администратором и включите право «Читать все сообщения».",
+        )
+
+    member = await bot.get_chat_member(chat_id, admin_max_user_id)
+    if member is None or not (
+        getattr(member, "is_admin", False) or getattr(member, "is_owner", False)
+    ):
+        return ConnectOutcome(
+            False,
+            chat_id,
+            False,
+            "Привязать адрес может только администратор этого группового чата.",
+        )
+
+    existing_chat = get_chat(session, chat_id)
+    if existing_chat is not None:
+        if existing_chat.chat_type == "chat":
+            return ConnectOutcome(
+                False,
+                chat_id,
+                False,
+                "Этот MAX-чат уже привязан к адресу.",
+            )
+        if existing_chat.address_id != address_id:
+            return ConnectOutcome(
+                False,
+                chat_id,
+                False,
+                "Этот MAX-чат уже был связан с другим адресом и не может быть перепривязан автоматически.",
+            )
+
+    occupied = [
+        chat for chat in list_chats_by_address(session, address_id) if chat.chat_id != chat_id
+    ]
+    if occupied:
+        return ConnectOutcome(
+            False,
+            chat_id,
+            False,
+            "Для этого адреса уже подключён другой домовой чат. Выберите другой адрес.",
+        )
+
+    request, chats = create_request(
+        session,
+        max_user_id=admin_max_user_id,
+        address_id=address_id,
+    )
+    if chats:
+        return ConnectOutcome(
+            False,
+            chat_id,
+            False,
+            "Для этого адреса уже подключён другой домовой чат. Выберите другой адрес.",
+        )
+    return await connect_group_chat(
+        bot,
+        session,
+        token=request.token,
+        chat_id=chat_id,
+        admin_max_user_id=admin_max_user_id,
+    )
+
+
+def _group_link_keyboard(url: str | None, *, text: str) -> Any | None:
+    if not url:
+        return None
+    builder = InlineKeyboardBuilder()
+    builder.row(LinkButton(text=text, url=url))
+    return builder.as_markup()
+
+
+async def announce_group_address_setup(bot: Any, chat_id: int) -> None:
+    """Подсказать в новой группе, как выбрать адрес уже после добавления бота."""
+    username = getattr(getattr(bot, "me", None), "username", None)
+    bind_link = create_start_link(username, f"chat_bind_{chat_id}") if username else None
+    text = (
+        "Бот добавлен в чат. Чтобы подключить этот чат к дому, администратору нужно:\n"
+        "1. Назначить бота администратором с правом «Читать все сообщения».\n"
+        "2. Нажать «Выбрать адрес» и указать дом.\n\n"
+        "К адресу можно привязать чат, только если другой домовой чат к нему ещё не подключён."
+    )
+    if not bind_link:
+        text += (
+            "\n\nНе удалось создать кнопку выбора адреса. "
+            "Откройте бота в личном чате и попробуйте ещё раз."
+        )
+    keyboard = _group_link_keyboard(bind_link, text="Выбрать адрес")
+    await bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        attachments=[keyboard] if keyboard is not None else None,
+    )
+
+
+async def announce_connected_group(
+    bot: Any,
+    chat_id: int,
+    *,
+    requester_added: bool = True,
+) -> None:
+    """Сообщить группе об успешной привязке и дать соседям referral-кнопку."""
+    username = getattr(getattr(bot, "me", None), "username", None)
+    referral = create_start_link(username, f"chat_{chat_id}") if username else None
+    text = (
+        "Чат привязан к дому. Теперь сервис будет использовать сообщения этого домового чата "
+        "для событий рядом с жителями."
+    )
+    if referral:
+        text += "\n\nСоседи могут привязать дом кнопкой ниже после того, как вступят в этот чат."
+    if not requester_added:
+        text += "\n\nИнициатору нужно вступить в этот чат и нажать кнопку «Привязать дом» ниже."
+    keyboard = _group_link_keyboard(referral, text="Привязать дом")
+    await bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        attachments=[keyboard] if keyboard is not None else None,
     )

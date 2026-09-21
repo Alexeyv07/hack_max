@@ -17,6 +17,7 @@ class AddressSearchResponse(BaseModel):
 
 class AddressSelectRequest(BaseModel):
     address_id: int
+    chat_id: int | None = None
 
 
 class ChatOption(BaseModel):

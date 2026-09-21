@@ -91,7 +91,7 @@ def existing_chats_keyboard(chats: list[Any]):
     return builder.as_markup()
 
 
-def method_keyboard(bot: Any):
+def method_keyboard(bot: Any, *, target_chat_id: int | None = None):
     me = getattr(bot, "me", None)
     username = getattr(me, "username", None)
     contact_id = getattr(me, "user_id", None)
@@ -99,12 +99,13 @@ def method_keyboard(bot: Any):
     builder = InlineKeyboardBuilder()
     builder.row(CallbackButton(text="Выбрать место жительства", payload="cl:method:native"))
     builder.row(CallbackButton(text="Указать почтовый индекс", payload="cl:method:postal"))
+    suffix = f"_bind_{target_chat_id}" if target_chat_id is not None else ""
     builder.row(
         OpenAppButton(
             text="Указать на карте",
             web_app=username,
             contact_id=contact_id,
-            payload="chat_link_map",
+            payload=f"chat_link_map{suffix}",
         )
     )
     builder.row(
@@ -112,7 +113,7 @@ def method_keyboard(bot: Any):
             text="Ввести текстом",
             web_app=username,
             contact_id=contact_id,
-            payload="chat_link_text",
+            payload=f"chat_link_text{suffix}",
         )
     )
     return builder.as_markup()

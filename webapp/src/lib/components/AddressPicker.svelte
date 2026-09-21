@@ -8,6 +8,7 @@
 		type SelectResult
 	} from '$lib/api/chatLink';
 	import {
+		buildChatLinkMode,
 		clearActiveChatLinkMode,
 		saveActiveChatLinkMode,
 		type ChatLinkMode
@@ -15,7 +16,10 @@
 	import { getMaxUserIdForStorage } from '$lib/maxUser';
 	import { loadYandexMaps, type YandexMapInstance } from '$lib/yandexMaps';
 
-	let { mode }: { mode: 'map' | 'text' } = $props();
+	let { mode, targetChatId = null }: {
+		mode: 'map' | 'text';
+		targetChatId?: number | null;
+	} = $props();
 
 	type PickerDraft = {
 		version: 6;
@@ -30,7 +34,7 @@
 
 	const DRAFT_TTL_MS = 30 * 60 * 1000;
 	const MAP_ZOOM = 16;
-	let activeMode: ChatLinkMode = $derived(mode === 'map' ? 'chat_link_map' : 'chat_link_text');
+	let activeMode: ChatLinkMode = $derived(buildChatLinkMode(mode, targetChatId));
 
 	let query = $state('');
 	let options = $state<AddressOption[]>([]);
@@ -53,7 +57,7 @@
 	let mapDisposed = false;
 
 	function storageKey() {
-		return `chat-link-picker-v6:${getMaxUserIdForStorage()}:${mode}`;
+		return `chat-link-picker-v6:${getMaxUserIdForStorage()}:${mode}:${targetChatId ?? 'resident'}`;
 	}
 
 	function legacyStorageKeys() {
@@ -292,7 +296,7 @@
 		loading = true;
 		error = '';
 		try {
-			result = await selectAddress(selected.id);
+			result = await selectAddress(selected.id, targetChatId);
 			showAdminHelp = false;
 			if (mode === 'map') {
 				yandexMap?.destroy();
@@ -447,7 +451,9 @@
 	{:else}
 		<div class="done">
 			<b>{result.address.address_text}</b>
-			{#if result.mode === 'existing_chat' && result.chats.length}
+			{#if result.mode === 'group_connected'}
+				<p>✅ Домовой чат успешно привязан к этому адресу. Можно вернуться в групповой чат.</p>
+			{:else if result.mode === 'existing_chat' && result.chats.length}
 				<p>
 					Для этого дома уже подключён чат соседей. Вступите по ссылке — после
 					фактического вступления бот привяжет ваш профиль к дому.
@@ -484,7 +490,9 @@
 					Я администратор чата
 				</button>
 			{/if}
-			<button class="secondary" type="button" onclick={startAnother}>Добавить ещё адрес</button>
+			{#if result.mode !== 'group_connected'}
+				<button class="secondary" type="button" onclick={startAnother}>Добавить ещё адрес</button>
+			{/if}
 		</div>
 	{/if}
 

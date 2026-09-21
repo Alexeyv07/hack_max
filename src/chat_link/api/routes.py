@@ -13,6 +13,8 @@ from chat_link.api.schemas import (
     ChatOption,
 )
 from chat_link.handlers import (
+    announce_connected_group,
+    connect_added_group_to_address,
     create_request,
     get_address_catalog,
     mark_waiting_group,
@@ -60,6 +62,36 @@ async def select_address(
     address = get_address_catalog().get(payload.address_id)
     if address is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Адрес не найден")
+    bot = get_max_bot()
+    if payload.chat_id is not None:
+        if bot is None:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "MAX-бот сейчас недоступен")
+        try:
+            outcome = await connect_added_group_to_address(
+                bot,
+                session,
+                chat_id=payload.chat_id,
+                admin_max_user_id=max_user_id,
+                address_id=payload.address_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        if not outcome.connected:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                outcome.message or "Не удалось привязать чат к адресу",
+            )
+        await announce_connected_group(
+            bot,
+            payload.chat_id,
+            requester_added=outcome.requester_added,
+        )
+        return AddressSelectResponse(
+            address=_option(address),
+            mode="group_connected",
+            chats=[],
+        )
+
     try:
         request, chats = create_request(
             session,
@@ -69,7 +101,6 @@ async def select_address(
     except ValueError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
-    bot = get_max_bot()
     if not chats:
         mark_waiting_group(session, token=request.token)
     username = getattr(getattr(bot, "me", None), "username", None) if bot else None

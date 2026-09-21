@@ -40,6 +40,16 @@ def test_bot_added_uses_user_who_added_bot(monkeypatch) -> None:
     dp = FakeDispatcher()
     bot = SimpleNamespace()
     scheduled: list[tuple[int, int]] = []
+    announce = AsyncMock()
+
+    @contextmanager
+    def fake_session_scope():
+        yield object()
+
+    monkeypatch.setattr(flow, "session_scope", fake_session_scope)
+    monkeypatch.setattr(flow, "get_chat", lambda session, chat_id: None)
+    monkeypatch.setattr(flow, "pending_for_actor", lambda session, user_id: None)
+    monkeypatch.setattr(flow, "announce_group_address_setup", announce)
     monkeypatch.setattr(
         flow,
         "_schedule_added_group_connect",
@@ -54,6 +64,7 @@ def test_bot_added_uses_user_who_added_bot(monkeypatch) -> None:
     )
     asyncio.run(dp.handlers["bot_added"](event))
 
+    announce.assert_awaited_once_with(bot, -100500)
     assert scheduled == [(-100500, 321)]
 
 
@@ -98,6 +109,8 @@ def test_group_auto_connect_waits_for_bot_admin_rights(monkeypatch) -> None:
     monkeypatch.setattr(flow, "session_scope", fake_session_scope)
     monkeypatch.setattr(flow.asyncio, "sleep", sleep)
 
+    announce = AsyncMock()
+    monkeypatch.setattr(flow, "announce_connected_group", announce)
     bot = SimpleNamespace(
         me=SimpleNamespace(username="smart_city_bot"),
         send_message=AsyncMock(),
@@ -115,8 +128,8 @@ def test_group_auto_connect_waits_for_bot_admin_rights(monkeypatch) -> None:
     assert ready.await_count == 2
     sleep.assert_awaited_once_with(0)
     connect.assert_awaited_once()
-    bot.send_message.assert_awaited_once()
-    assert "Чат привязан к дому" in bot.send_message.await_args.kwargs["text"]
+    announce.assert_awaited_once_with(bot, -100500, requester_added=True)
+    bot.send_message.assert_not_awaited()
 
 
 def test_bot_removed_detaches_chat_and_cancels_pending_connect(monkeypatch) -> None:
