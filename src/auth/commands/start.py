@@ -14,9 +14,10 @@ from auth.handlers.authorize import authorize_from_event
 from chat_link.handlers import bind_referral_member, claim_admin_request
 from project.config import get_settings
 from project.database import session_scope
-from user_chat.handlers import has_connected_chat
+from user_chat.handlers import get_chat, has_connected_chat
 
 CHAT_LINK_START_PAYLOAD = "chat_link:start"
+CHAT_BIND_PREFIX = "chat_bind_"
 
 
 def build_welcome_text(
@@ -24,6 +25,7 @@ def build_welcome_text(
     *,
     admin_token: str | None = None,
     notice: str | None = None,
+    binding_group: bool = False,
 ) -> str:
     safe_name = escape(name)
     docs_url = get_settings().docs.url
@@ -40,15 +42,21 @@ def build_welcome_text(
             "групповой чат и назначьте его администратором с правом "
             "«Читать все сообщения». После этого привязка завершится автоматически."
         )
+    if binding_group:
+        text += (
+            "\n\nВы подключаете уже добавленный групповой чат. "
+            "Теперь выберите адрес дома для этого чата."
+        )
     return text
 
 
-def build_welcome_keyboard(bot: Any, *, show_events: bool) -> Any:
+def build_welcome_keyboard(bot: Any, *, show_events: bool, binding_group: bool = False) -> Any:
     me = getattr(bot, "me", None)
     username = getattr(me, "username", None)
     user_id = getattr(me, "user_id", None)
     keyboard = InlineKeyboardBuilder()
-    buttons: list[Any] = [CallbackButton(text="Добавить чат", payload=CHAT_LINK_START_PAYLOAD)]
+    add_text = "Выбрать адрес для чата" if binding_group else "Добавить чат"
+    buttons: list[Any] = [CallbackButton(text=add_text, payload=CHAT_LINK_START_PAYLOAD)]
     if show_events:
         buttons.append(OpenAppButton(text="Смотреть события", web_app=username, contact_id=user_id))
     keyboard.row(*buttons)
@@ -79,6 +87,7 @@ async def _render_welcome(
     *,
     admin_token: str | None = None,
     notice: str | None = None,
+    target_chat_id: int | None = None,
 ) -> None:
     data = await context.get_data()
     old_mid = data.get("flow_mid")
@@ -86,9 +95,18 @@ async def _render_welcome(
         _display_name(user),
         admin_token=admin_token,
         notice=notice,
+        binding_group=target_chat_id is not None,
     )
-    attachments = [build_welcome_keyboard(bot, show_events=_show_events(user.max_user_id))]
+    attachments = [
+        build_welcome_keyboard(
+            bot,
+            show_events=_show_events(user.max_user_id),
+            binding_group=target_chat_id is not None,
+        )
+    ]
     await context.clear()
+    if target_chat_id is not None:
+        await context.update_data(target_chat_id=target_chat_id)
     if old_mid:
         try:
             await bot.edit_message(
@@ -136,7 +154,20 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
         admin_token = (
             payload.removeprefix("chat_admin_") if payload.startswith("chat_admin_") else None
         )
+        target_chat_id = None
         notice = None
+        if payload.startswith(CHAT_BIND_PREFIX):
+            try:
+                parsed_chat_id = int(payload.removeprefix(CHAT_BIND_PREFIX))
+            except ValueError:
+                notice = "Ссылка на подключение чата некорректна."
+            else:
+                with session_scope() as session:
+                    existing = get_chat(session, parsed_chat_id)
+                if existing is not None and existing.chat_type == "chat":
+                    notice = "Этот домовой чат уже привязан к адресу."
+                else:
+                    target_chat_id = parsed_chat_id
         if admin_token:
             try:
                 with session_scope() as session:
@@ -147,7 +178,11 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
                     )
             except ValueError as exc:
                 notice = str(exc)
-        if payload.startswith("chat_") and not payload.startswith("chat_admin_"):
+        if (
+            payload.startswith("chat_")
+            and not payload.startswith("chat_admin_")
+            and not payload.startswith(CHAT_BIND_PREFIX)
+        ):
             try:
                 chat_id = int(payload.removeprefix("chat_"))
             except ValueError:
@@ -168,6 +203,7 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             user,
             admin_token=admin_token,
             notice=notice,
+            target_chat_id=target_chat_id,
         )
 
     @dp.message_created(CommandStart())

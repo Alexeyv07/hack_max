@@ -14,6 +14,7 @@ from chat_link.handlers import (
     bot_can_read_group,
     claim_admin_request,
     connect_added_group,
+    connect_added_group_to_address,
     connect_group_chat,
     create_request,
     existing_group_chats,
@@ -144,6 +145,59 @@ def test_added_group_connects_from_actor_without_command(db_session) -> None:
     assert outcome.connected
     assert get_chat(db_session, -9010).address_id == request.address_id
     assert [member.max_user_id for member in list_chat_members(db_session, -9010)] == [101]
+
+
+def test_added_group_can_choose_address_after_bot_was_added(db_session) -> None:
+    address = _address(db_session)
+    admin = _user(db_session, 101)
+    bot = FakeBot(
+        admins={101},
+        bot_admin=True,
+        bot_permissions=["read_all_messages"],
+    )
+
+    outcome = asyncio.run(
+        connect_added_group_to_address(
+            bot,
+            db_session,
+            chat_id=-9020,
+            admin_max_user_id=admin.max_user_id,
+            address_id=address.id,
+        )
+    )
+
+    assert outcome.connected
+    assert outcome.requester_added
+    assert get_chat(db_session, -9020).address_id == address.id
+    assert [member.max_user_id for member in list_chat_members(db_session, -9020)] == [101]
+
+
+def test_added_group_rejects_address_that_already_has_chat(db_session) -> None:
+    address = _address(db_session)
+    admin = _user(db_session, 101)
+    create_chat(
+        db_session,
+        ChatCreate(chat_id=-9021, address_id=address.id, title="Уже подключённый чат"),
+    )
+    bot = FakeBot(
+        admins={101},
+        bot_admin=True,
+        bot_permissions=["read_all_messages"],
+    )
+
+    outcome = asyncio.run(
+        connect_added_group_to_address(
+            bot,
+            db_session,
+            chat_id=-9022,
+            admin_max_user_id=admin.max_user_id,
+            address_id=address.id,
+        )
+    )
+
+    assert not outcome.connected
+    assert "уже подключён" in (outcome.message or "")
+    assert get_chat(db_session, -9022) is None
 
 
 def test_bot_group_readiness_requires_admin_and_read_all_messages() -> None:

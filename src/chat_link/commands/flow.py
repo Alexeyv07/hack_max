@@ -10,7 +10,6 @@ from address.street_catalog import normalize_ui_text
 from chat_link.commands.keyboards import (
     admin_setup_keyboard,
     existing_chats_keyboard,
-    group_referral_keyboard,
     list_keyboard,
     method_keyboard,
     postal_input_keyboard,
@@ -19,15 +18,19 @@ from chat_link.commands.keyboards import (
 )
 from chat_link.commands.states import ChatLinkStates
 from chat_link.handlers import (
+    announce_connected_group,
+    announce_group_address_setup,
     bot_can_read_group,
     connect_added_group,
+    connect_added_group_to_address,
     create_request,
     get_address_catalog,
     mark_waiting_group,
+    pending_for_actor,
 )
 from project.database import session_scope
 from project.logging_setup import get_logger
-from user_chat.handlers import bind_known_chat_member, detach_chat
+from user_chat.handlers import bind_known_chat_member, detach_chat, get_chat
 
 logger = get_logger(__name__)
 
@@ -100,12 +103,21 @@ async def _show_methods(event: Any, context: Any, bot: Any) -> None:
     mid = _screen_mid(event)
     if mid:
         await context.update_data(flow_mid=mid)
-    await event.edit(
-        text=(
+    data = await context.get_data()
+    target_chat_id = data.get("target_chat_id")
+    if target_chat_id is None:
+        text = (
             "Как хотите указать место жительства?\n\n"
             "Индекс только сужает список домов — он не считается выбранным адресом."
-        ),
-        attachments=[method_keyboard(bot)],
+        )
+    else:
+        text = (
+            "Выберите адрес, к которому нужно привязать этот домовой чат.\n\n"
+            "Индекс только сужает список домов — он не считается выбранным адресом."
+        )
+    await event.edit(
+        text=text,
+        attachments=[method_keyboard(bot, target_chat_id=target_chat_id)],
         notify=False,
     )
 
@@ -228,6 +240,43 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
     if address is None:
         await event.ack(notification="Адрес больше не доступен. Начните выбор заново.")
         return
+
+    data = await context.get_data()
+    target_chat_id = data.get("target_chat_id")
+    if target_chat_id is not None:
+        with session_scope() as session:
+            outcome = await connect_added_group_to_address(
+                bot,
+                session,
+                chat_id=int(target_chat_id),
+                admin_max_user_id=user_id,
+                address_id=address_id,
+            )
+        if not outcome.connected:
+            await event.edit(
+                text=f"Не удалось привязать чат.\n\n{outcome.message or 'Попробуйте ещё раз.'}",
+                attachments=[method_keyboard(bot, target_chat_id=int(target_chat_id))],
+                notify=False,
+            )
+            return
+
+        await announce_connected_group(
+            bot,
+            int(target_chat_id),
+            requester_added=outcome.requester_added,
+        )
+        await context.update_data(address_id=address_id)
+        await event.edit(
+            text=(
+                "✅ Чат успешно привязан к адресу:\n"
+                f"{address.address_text}\n\n"
+                "Можно вернуться в групповой чат."
+            ),
+            attachments=[],
+            notify=False,
+        )
+        return
+
     with session_scope() as session:
         request, chats = create_request(session, max_user_id=user_id, address_id=address_id)
     await context.update_data(address_id=address_id, link_token=request.token)
@@ -265,7 +314,7 @@ async def _show_resident_setup(event: Any, context: Any, bot: Any) -> None:
     if address is None or not token:
         await event.edit(
             text="Сессия выбора адреса устарела. Выберите адрес ещё раз.",
-            attachments=[method_keyboard(bot)],
+            attachments=[method_keyboard(bot, target_chat_id=data.get("target_chat_id"))],
             notify=False,
         )
         return
@@ -294,7 +343,7 @@ async def _show_admin_setup(event: Any, context: Any, bot: Any) -> None:
     if address is None:
         await event.edit(
             text="Сессия выбора адреса устарела. Выберите адрес ещё раз.",
-            attachments=[method_keyboard(bot)],
+            attachments=[method_keyboard(bot, target_chat_id=data.get("target_chat_id"))],
             notify=False,
         )
         return
@@ -309,18 +358,6 @@ async def _show_admin_setup(event: Any, context: Any, bot: Any) -> None:
         attachments=[admin_setup_keyboard()],
         notify=False,
     )
-
-
-def _group_welcome(bot: Any, chat_id: int) -> tuple[str, Any | None]:
-    username = getattr(getattr(bot, "me", None), "username", None)
-    referral = create_start_link(username, f"chat_{chat_id}") if username else None
-    text = (
-        "Чат привязан к дому. Теперь сервис будет использовать сообщения этого домового чата "
-        "для событий рядом с жителями."
-    )
-    if referral:
-        text += "\n\nСоседи могут привязать дом кнопкой ниже после того, как вступят в этот чат."
-    return text, group_referral_keyboard(referral)
 
 
 async def _finish_added_group_when_ready(
@@ -343,20 +380,18 @@ async def _finish_added_group_when_ready(
                         actor_max_user_id=actor_max_user_id,
                     )
                 if not outcome.connected:
-                    await bot.send_message(
-                        chat_id=chat_id,
-                        text=outcome.message or "Не удалось подключить домовой чат.",
-                    )
+                    # Нет старой заявки — это нормальный новый flow: адрес будет выбран
+                    # после добавления бота через кнопку в групповом чате.
+                    if not outcome.message:
+                        return
+                    await bot.send_message(chat_id=chat_id, text=outcome.message)
                     return
 
-                text, referral_keyboard = _group_welcome(bot, chat_id)
-                if not outcome.requester_added:
-                    text += (
-                        "\n\nИнициатору нужно вступить в этот чат и нажать кнопку "
-                        "«Привязать дом» ниже."
-                    )
-                attachments = [referral_keyboard] if referral_keyboard is not None else None
-                await bot.send_message(chat_id=chat_id, text=text, attachments=attachments)
+                await announce_connected_group(
+                    bot,
+                    chat_id,
+                    requester_added=outcome.requester_added,
+                )
                 return
         except asyncio.CancelledError:
             raise
@@ -434,7 +469,11 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
 
         parts = payload.split(":")
         if payload == "cl:method:native":
-            await context.set_data({"flow_mid": _screen_mid(event)})
+            current = await context.get_data()
+            data = {"flow_mid": _screen_mid(event)}
+            if current.get("target_chat_id") is not None:
+                data["target_chat_id"] = current["target_chat_id"]
+            await context.set_data(data)
             await context.set_state(ChatLinkStates.choosing)
             await _show_city(event, context)
             return
@@ -555,12 +594,13 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             return
 
         await context.set_state(ChatLinkStates.choosing)
-        await context.set_data(
-            {
-                "flow_mid": mid,
-                "postal_code": text,
-            }
-        )
+        next_data = {
+            "flow_mid": mid,
+            "postal_code": text,
+        }
+        if data.get("target_chat_id") is not None:
+            next_data["target_chat_id"] = data["target_chat_id"]
+        await context.set_data(next_data)
         if not mid:
             return
 
@@ -584,6 +624,16 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
         try:
             chat_id = int(event.chat_id)
             actor_max_user_id = int(event.user.user_id)
+            with session_scope() as session:
+                existing = get_chat(session, chat_id)
+                pending = pending_for_actor(session, actor_max_user_id)
+            if existing is not None and existing.chat_type == "chat":
+                return
+
+            if pending is None:
+                await announce_group_address_setup(bot, chat_id)
+            # Оставляем совместимость со старым flow: если заявка уже была создана
+            # до добавления бота, она всё ещё сможет завершиться автоматически.
             _schedule_added_group_connect(
                 bot,
                 chat_id=chat_id,
