@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import os
+
+import project.config as config_module
 from project.config import get_settings, reset_settings_cache
 
 
 def test_notify_is_disabled_by_default(monkeypatch) -> None:
+    monkeypatch.setattr(config_module, "load_dotenv", lambda *args, **kwargs: False)
     monkeypatch.delenv("NOTIFY_ENABLED", raising=False)
     monkeypatch.delenv("SUMMARIZER_PROVIDER", raising=False)
+    for key in list(os.environ):
+        if key.startswith("NOTIFY__"):
+            monkeypatch.delenv(key, raising=False)
     reset_settings_cache()
     try:
         cfg = get_settings().notify

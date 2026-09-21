@@ -7,6 +7,7 @@ from maxapi import Bot, Dispatcher
 from auth.commands import register_auth_commands
 from chat_link.commands import register_chat_link_commands
 from chat_link.handlers import get_address_catalog
+from notify.commands import register_notify_commands
 from project.config import get_settings
 from project.logging_setup import get_logger
 from project.max_runtime import set_max_bot
@@ -43,6 +44,7 @@ async def run_max_bot() -> None:
     dp = Dispatcher()
     register_auth_commands(dp, bot)
     register_chat_link_commands(dp, bot)
+    register_notify_commands(dp)
 
     logger.info("Polling Max-бота запущен")
     await dp.start_polling(bot)
