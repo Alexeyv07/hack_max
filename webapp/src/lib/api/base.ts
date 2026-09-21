@@ -1,0 +1,17 @@
+import { env } from '$env/dynamic/public';
+
+/**
+ * База API без завершающего `/`.
+ * Локально: `/api` (Vite proxy → backend).
+ * GitHub Pages: абсолютный origin backend, напр. `https://api.example.com`.
+ */
+export function apiBase(): string {
+	const raw = (env.PUBLIC_API_BASE || '/api').trim();
+	return raw.replace(/\/$/, '') || '/api';
+}
+
+/** Собрать URL бэкенда: `apiUrl('/events/feed')`. */
+export function apiUrl(path: string): string {
+	const p = path.startsWith('/') ? path : `/${path}`;
+	return `${apiBase()}${p}`;
+}

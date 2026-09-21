@@ -1,61 +1,50 @@
-# sv
+# WebApp (SvelteKit mini-app)
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+Статический фронт для Max: лента событий + chat_link (карта / текст).
 
-## Creating a project
+## Локально
 
-If you're seeing this, you've probably already done this step. Congrats!
+Нужен backend на `:8000` (`python -m main`).
 
-```sh
-# create a new project
-npx sv create my-app
+```bash
+cd webapp
+cp .env.example .env   # PUBLIC_API_BASE=/api
+npm install
+npm run dev            # http://localhost:5173
 ```
 
-To recreate this project with the same configuration:
+- `/api/*` проксируется на `API_PROXY_TARGET` (по умолчанию `http://127.0.0.1:8000`).
+- На `localhost` / `127.0.0.1` user id **всегда** `159064979` (не из Max Bridge).
+- На GitHub Pages / в Max — id из Bridge (`initDataUnsafe` / `initData` / hash).
 
-```sh
-# recreate this project
-npx sv@0.17.0 create --template minimal --types ts --no-install webapp
-```
+## Релиз → GitHub Pages
 
-## Developing
+Триггер: тег `v*` или Actions → **WebApp Pages**.
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+1. Repo **variable** `WEBAPP_API_BASE` = публичный origin API (например `https://api.example.com`).
+2. Опционально secret `VITE_YANDEX_MAPS_API_KEY`.
+3. `git tag v0.1.0 && git push origin v0.1.0`
 
-```sh
-npm run dev
+Сборка с `BASE_PATH=/hack_max` → https://alexeyv07.github.io/hack_max/  
+В настройках бота Max укажите этот URL.
 
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
-
+CORS на API должен разрешать `https://alexeyv07.github.io` (`api.cors_origins` / `API_CORS_ORIGINS`).
 
 ## KAN-7 address picker
 
 При `start_param=chat_link_map` WebApp показывает карту и ближайшие дома из локального
 `StreetCatalog`; при `start_param=chat_link_text` — живые подсказки уже по части адреса. Оба
-режима вызывают `/api/chat-link/select` и продолжают тот же flow подключения группового чата,
+режима вызывают `/chat-link/select` и продолжают тот же flow подключения группового чата,
 что бот. Незавершённый picker сохраняет черновик в `localStorage` на 30 минут, а активный
 address-mode кешируется отдельно. Поэтому reload или пересоздание текущего WebView не сбрасывает
 введённый текст, положение карты или выбранный дом и не заставляет flow снова проходить экран
 «Открываем…». После успешного выбора черновик очищается: новое открытие начинается с нового
 адреса; на экране результата также есть кнопка «Добавить ещё адрес».
+
 Поиск адресов и nearest lookup публичные и не требуют user id. Он нужен только при финальном
-`/api/chat-link/select`: сначала читается `window.WebApp.initDataUnsafe.user.id`, затем официальный
-`initData`, а при reload WebView — `WebAppData` из URL fragment. Тестового hardcode нет. MAX Bridge
-подключается из официального CDN `https://st.max.ru/js/max-web-app.js`.
+`/chat-link/select`: на localhost — `159064979`, в Max — Bridge
+(`initDataUnsafe` → `initData` → `WebAppData` во fragment). MAX Bridge подключается из
+`https://st.max.ru/js/max-web-app.js`.
 
 Карта рендерится через Yandex Maps JS API 3.0; ключ приходит из `VITE_YANDEX_MAPS_API_KEY`.
 Адреса и nearest lookup остаются локальными через backend `StreetCatalog`, Yandex используется

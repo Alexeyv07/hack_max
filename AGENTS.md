@@ -153,14 +153,20 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
 
 ## WebApp (KAN-16)
 
-- SvelteKit mini-app в `webapp/`: TikTok-лента nearby | city.
+- SvelteKit mini-app в `webapp/` (`adapter-static`): TikTok-лента nearby | city.
 - Данные **только** с API (`GET /events/feed`) → БД.
-- API base захардкожен: `/api` (Vite proxy → backend).
-- User id: Max Bridge (`https://st.max.ru/js/max-web-app.js`) →
-  `window.WebApp.initDataUnsafe.user.id` → заголовок `X-Max-User-Id`.
-- Запросы к API: заголовок `ngrok-skip-browser-warning: true`.
-- Dev-прокси: `/api` → `http://127.0.0.1:8000` (`webapp/vite.config.ts`,
-  в Docker — `API_PROXY_TARGET`).
+- **Публикация:** GitHub Pages `https://alexeyv07.github.io/hack_max/` —
+  workflow `.github/workflows/webapp-pages.yaml` на тег `v*` (или workflow_dispatch).
+  Сборка: `BASE_PATH=/hack_max`, `PUBLIC_API_BASE` = repo var `WEBAPP_API_BASE`
+  (публичный origin API без `/api`). Рядом на Pages лежит mdBook в `/docs/`.
+- **Локально:** `npm run dev` → http://localhost:5173; `PUBLIC_API_BASE=/api`
+  (Vite proxy → `API_PROXY_TARGET` / `:8000`). User id **не** из Bridge —
+  фейковый `159064979` на hostname `localhost` / `127.0.0.1`.
+- **На Pages / в Max:** user id из Max Bridge
+  (`window.WebApp.initDataUnsafe.user.id` / initData / hash) → заголовок
+  `X-Max-User-Id`.
+- CORS: `api.cors_origins` в conf (вкл. `https://alexeyv07.github.io`) или
+  `API_CORS_ORIGINS`.
 - UI: full-height snap-карточки, табы «Новости рядом / города», свайп вправо → город,
   картинка с lightbox, цветовая полоса по importance, SVG при `disaster_flag`,
   дата / источник (ссылка) / локация в одну строку; длинный body — синяя ссылка «ещё»,
@@ -171,30 +177,15 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
 - Приветствие (`bot_started` / `/start`) шлёт inline-кнопку типа **`open_app`**
   (`OpenAppButton`, текст «Открыть новости»).
 - Мини-приложение привязывается к боту на платформе MAX
-  ([docs/webapps](https://dev.max.ru/docs/webapps/introduction)): HTTPS URL webapp.
+  ([docs/webapps](https://dev.max.ru/docs/webapps/introduction)): HTTPS URL =
+  GitHub Pages (`https://alexeyv07.github.io/hack_max/`).
 - Identity кнопки: `GET /me` → `web_app` (username) + `contact_id`.
 
-### Ngrok (HTTPS для Max, без локальной установки)
-
-- Секрет в корневом `.env`: **`NGROK=`** (authtoken). Не коммитить.
-- Compose-сервис `ngrok` (`ngrok/ngrok`): `NGROK` → `NGROK_AUTHTOKEN`.
-- Два флоу webapp — см. README «WebApp: два флоу» (Docker vs `npm run dev`).
-- URL: `python scripts/ngrok_url.py` или http://localhost:4040  
-  (если туннель выключен — публичная ссылка даёт 404).
-- Upstream по умолчанию `webapp:5173`; для host Vite:
-  `NGROK_UPSTREAM=host.docker.internal:5173`.
-- **API через тот же туннель:** Max → ngrok → Vite `:5173` → proxy `/api` →
-  backend `:8000`. Отдельный ngrok на API **не нужен** — фронт бьёт в
-  относительный `/api` на том же origin. Если в Network виден `127.0.0.1:8000`
-  с ERR/timeout — чинить `API_PROXY_TARGET`, а не второй туннель.
-- Webapp proxy `/api` → `API_PROXY_TARGET` (host: `127.0.0.1:8000`,
-  в compose webapp по умолчанию `host.docker.internal:8000`).
-- Vite: `server.allowedHosts: true` (иначе Host от ngrok → 403).
 ## Конфиг
 
 - `APP_ENVIRONMENT=local|prod` → `conf/local.yaml` / `conf/prod.yaml`.
 - Секреты только в `.env` (`MAX_BOT_TOKEN`, пароли, ключи LLM).
-- Env перекрывает YAML (`DATABASE_HOST`, `API_PORT`, …).
+- Env перекрывает YAML (`DATABASE_HOST`, `API_PORT`, `API_CORS_ORIGINS`, …).
 
 ## Команды
 
@@ -206,7 +197,7 @@ python -m main
 
 # WebApp (KAN-16), в другом терминале — данные с API/БД:
 # cd webapp && npm install && npm run dev
-# → http://localhost:5173  (прокси /api → :8000)
+# → http://localhost:5173  (прокси /api → :8000; user_id=159064979)
 
 # ML classify (KAN-13), отдельно от runtime:
 pip install torch --index-url https://download.pytorch.org/whl/cu124

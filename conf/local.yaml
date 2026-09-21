@@ -30,6 +30,13 @@ docs:
 api:
   host: 0.0.0.0
   port: 8000
+  # WebApp: localhost + GitHub Pages (перекрыть: API_CORS_ORIGINS=a,b).
+  cors_origins:
+    - http://localhost:5173
+    - http://127.0.0.1:5173
+    - http://localhost:4173
+    - http://127.0.0.1:4173
+    - https://alexeyv07.github.io
 
 events:
   nearby_radius_m: 3000

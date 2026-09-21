@@ -1,0 +1,72 @@
+name: WebApp Pages
+
+# Релизная сборка webapp → корень GitHub Pages (рядом с docs/).
+# Триггер: push тега v* (например git tag v0.1.0 && git push origin v0.1.0)
+# или ручной workflow_dispatch.
+#
+# Repo variables / secrets:
+#   WEBAPP_API_BASE (var) — публичный origin API, напр. https://api.example.com
+#   VITE_YANDEX_MAPS_API_KEY (secret, optional) — карта chat_link
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  publish-webapp:
+    name: Build and deploy WebApp
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webapp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Install
+        run: npm ci || npm install
+
+      - name: Require WEBAPP_API_BASE
+        env:
+          WEBAPP_API_BASE: ${{ vars.WEBAPP_API_BASE }}
+        run: |
+          if [ -z "$WEBAPP_API_BASE" ]; then
+            echo "::error::Задайте repository variable WEBAPP_API_BASE (публичный origin API без /api, напр. https://api.example.com)"
+            exit 1
+          fi
+          echo "PUBLIC_API_BASE=$WEBAPP_API_BASE"
+
+      - name: Build (GitHub Pages)
+        env:
+          BASE_PATH: /hack_max
+          PUBLIC_API_BASE: ${{ vars.WEBAPP_API_BASE }}
+          VITE_YANDEX_MAPS_API_KEY: ${{ secrets.VITE_YANDEX_MAPS_API_KEY }}
+        run: npm run build
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: webapp/build
+          publish_branch: gh-pages
+          # Корень сайта; docs/ сохраняется (mdbook destination_dir: docs).
+          keep_files: true
+          enable_jekyll: false
+          commit_message: "FEAT: Deploy webapp ${{ github.ref_name }} to GitHub Pages"

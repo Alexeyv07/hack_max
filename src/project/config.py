@@ -147,6 +147,14 @@ class MaxConfig:
 class ApiConfig:
     host: str = "0.0.0.0"
     port: int = 8000
+    # Origins WebApp (localhost + GitHub Pages). Перекрывается api.cors_origins / API_CORS_ORIGINS.
+    cors_origins: tuple[str, ...] = (
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+        "https://alexeyv07.github.io",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,6 +285,24 @@ class Settings:
     docs: DocsConfig = field(default_factory=DocsConfig)
 
 
+def _parse_cors_origins(raw: Any) -> tuple[str, ...]:
+    """Список CORS origins из YAML (list) или env API_CORS_ORIGINS (через запятую)."""
+    env_raw = os.environ.get("API_CORS_ORIGINS")
+    if env_raw is not None and env_raw.strip():
+        return tuple(part.strip() for part in env_raw.split(",") if part.strip())
+    if raw is None:
+        return ApiConfig().cors_origins
+    if isinstance(raw, str):
+        return (
+            tuple(part.strip() for part in raw.split(",") if part.strip())
+            or ApiConfig().cors_origins
+        )
+    if isinstance(raw, list):
+        origins = tuple(str(item).strip() for item in raw if str(item).strip())
+        return origins or ApiConfig().cors_origins
+    raise TypeError("api.cors_origins должен быть списком строк или строкой через запятую")
+
+
 def _parse_news_sources(raw: Any) -> dict[str, NewsSourceConfig]:
     if not raw:
         return {}
@@ -381,6 +407,7 @@ def load_settings() -> Settings:
         api=ApiConfig(
             host=str(api_raw.get("host", "0.0.0.0")),
             port=int(api_raw.get("port", 8000)),
+            cors_origins=_parse_cors_origins(api_raw.get("cors_origins")),
         ),
         events=EventsConfig(
             nearby_radius_m=float(events_raw.get("nearby_radius_m", 3000)),

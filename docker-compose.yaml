@@ -56,8 +56,7 @@ services:
     container_name: hack_max_webapp
     working_dir: /app
     command: >
-      sh -c "npm install --include=dev && npm run build &&
-      NODE_ENV=production npm run preview -- --host 0.0.0.0 --port 5173"
+      sh -c "npm install --include=dev && npm run dev -- --host 0.0.0.0 --port 5173"
     ports:
       - "5173:5173"
     volumes:
@@ -67,31 +66,11 @@ services:
       # По умолчанию API на хосте (python -m main). Для bot в compose:
       #   API_PROXY_TARGET=http://bot:8000
       API_PROXY_TARGET: ${API_PROXY_TARGET:-http://host.docker.internal:8000}
+      PUBLIC_API_BASE: /api
       VITE_YANDEX_MAPS_API_KEY: ${VITE_YANDEX_MAPS_API_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
-
-  ngrok:
-    image: ngrok/ngrok:latest
-    container_name: hack_max_ngrok
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      NGROK_AUTHTOKEN: ${NGROK:?Set NGROK=... in .env (ngrok authtoken)}
-    command:
-      - "http"
-      - "${NGROK_UPSTREAM:-webapp:5173}"
-      - "--request-header-add"
-      - "ngrok-skip-browser-warning:true"
-      - "--log=stdout"
-    ports:
-      - "4040:4040"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      - webapp
 
 volumes:
   postgres_data:

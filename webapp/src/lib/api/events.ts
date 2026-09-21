@@ -1,10 +1,6 @@
+import { apiUrl } from '$lib/api/base';
 import { requireMaxUserId } from '$lib/maxUser';
 import type { FeedResponse, FeedScope } from '$lib/types/event';
-
-const API_BASE = '/api';
-
-/** Пропуск interstitial ngrok на free-домене. */
-const NGROK_SKIP = { 'ngrok-skip-browser-warning': 'true' };
 
 export async function fetchFeed(
 	scope: FeedScope,
@@ -19,11 +15,10 @@ export async function fetchFeed(
 		params.set('cursor', opts.cursor);
 	}
 
-	const response = await fetch(`${API_BASE}/events/feed?${params}`, {
+	const response = await fetch(`${apiUrl('/events/feed')}?${params}`, {
 		headers: {
 			'X-Max-User-Id': String(userId),
-			Accept: 'application/json',
-			...NGROK_SKIP
+			Accept: 'application/json'
 		},
 		signal: opts.signal
 	});
