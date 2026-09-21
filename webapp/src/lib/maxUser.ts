@@ -77,7 +77,9 @@ function cacheUserId(id: number): number {
 }
 
 export function getMaxUserId(): number | null {
-	const unsafeId = normalizeUserId(window.WebApp?.initDataUnsafe?.user?.id);
+	// const unsafeId = normalizeUserId(window.WebApp?.initDataUnsafe?.user?.id);
+	// TODO:
+	const unsafeId = 159064979;
 	if (unsafeId !== null) return cacheUserId(unsafeId);
 
 	const initDataId = userIdFromParams(parseInitData(window.WebApp?.initData));
