@@ -46,7 +46,7 @@ class NotifyDeliveryRow(Base):
 
 
 class NotifyDigestRow(Base):
-    """Последняя успешная суточная рассылка для домового чата."""
+    """Последняя обработанная дата дайджеста и время фактической отправки."""
 
     __tablename__ = "notify_digests"
 
@@ -58,6 +58,7 @@ class NotifyDigestRow(Base):
     )
     last_digest_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class NotifyCursorRow(Base):

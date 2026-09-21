@@ -50,6 +50,7 @@ def test_notify_state_rows_are_persisted(db_session) -> None:
     assert delivery.attempts == 0
     assert delivery.acked_at is None
     assert digest.last_digest_date is None
+    assert digest.last_message_at is None
     assert cursor.last_event_id == event.id
 
 

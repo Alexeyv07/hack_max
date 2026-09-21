@@ -253,8 +253,7 @@ class NotifyConfig:
     timezone: str = "Europe/Moscow"
     digest_hour: int = 20
     digest_jitter_minutes: int = 60
-    digest_lookback_hours: int = 24
-    digest_top_k: int = 5
+    digest_min_new_messages: int = 30
     retry_interval_seconds: int = 3600
     summarizer_provider: str = "none"
     summarizer_timeout_seconds: float = 12.0
@@ -485,8 +484,7 @@ def load_settings() -> Settings:
             timezone=str(notify_raw.get("timezone", "Europe/Moscow")),
             digest_hour=int(notify_raw.get("digest_hour", 20)),
             digest_jitter_minutes=int(notify_raw.get("digest_jitter_minutes", 60)),
-            digest_lookback_hours=int(notify_raw.get("digest_lookback_hours", 24)),
-            digest_top_k=int(notify_raw.get("digest_top_k", 5)),
+            digest_min_new_messages=int(notify_raw.get("digest_min_new_messages", 30)),
             retry_interval_seconds=int(notify_raw.get("retry_interval_seconds", 3600)),
             summarizer_provider=(
                 str(notify_raw.get("summarizer_provider", "none")).strip().lower()

@@ -60,8 +60,8 @@ notify:
   timezone: Europe/Moscow
   digest_hour: 20
   digest_jitter_minutes: 60
-  digest_lookback_hours: 24
-  digest_top_k: 5
+  # Суммаризировать только если накопилось строго больше этого числа новых сообщений.
+  digest_min_new_messages: 30
   retry_interval_seconds: 3600
   summarizer_provider: none
   summarizer_timeout_seconds: 12
