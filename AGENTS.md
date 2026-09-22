@@ -27,7 +27,8 @@
 
 Включение сервисов — `conf/*.yaml` → `runtime.enable_bot` / `runtime.enable_api` /
 `runtime.enable_news_parser` / `runtime.enable_mc_parser`
-(или env `ENABLE_BOT` / `ENABLE_API` / `ENABLE_NEWS_PARSER` / `ENABLE_MC_PARSER`).
+(или env `ENABLE_BOT` / `ENABLE_API` / `ENABLE_NEWS_PARSER` / `ENABLE_MC_PARSER` /
+`ENABLE_CHAT_PARSER`).
 Для отладки можно закомментировать `create_task` в `main.py`.
 
 ## Parser common (KAN-13)
@@ -93,7 +94,12 @@ sources → RawNewsArticle → ParserCandidate → persist_candidate → events
 - Контракт: `src/parse_news/README.md`. Миграции: курсоры, addresses components,
   `events.geo_by` / `published_at`.
 
-KAN-10 (чаты) и KAN-12 — отдельные воркеры; общая середина — `parser_common` (KAN-13).
+KAN-10 (чаты) — `parse_chat`: listener на Max `message_created` для
+**всех** подключённых чатов; минимальный фильтр (бот/команда/пусто/стикер/флуд),
+картинки из `attachments` → `image_url`; place NER иначе geo чата;
+важность — classify ML. Флаг `runtime.enable_chat_parser`.
+
+KAN-12 — отдельный воркер; общая середина — `parser_common` (KAN-13).
 
 ## MC parser / ЖЭК (KAN-28)
 

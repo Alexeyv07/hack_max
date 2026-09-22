@@ -76,6 +76,7 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "ENABLE_API": "runtime.enable_api",
         "ENABLE_NEWS_PARSER": "runtime.enable_news_parser",
         "ENABLE_MC_PARSER": "runtime.enable_mc_parser",
+        "ENABLE_CHAT_PARSER": "runtime.enable_chat_parser",
         "EVENTS_NEARBY_RADIUS_M": "events.nearby_radius_m",
         "EVENTS_CITY_RADIUS_M": "events.city_radius_m",
         "ML_DEDUP_ENABLED": "ml_dedup.enabled",
@@ -251,6 +252,22 @@ class McParserConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ChatParserConfig:
+    """KAN-10: минимальный фильтр шума (важность — у classify ML)."""
+
+    enabled: bool = True
+    min_chars: int = 3
+    flood_window_seconds: int = 90
+    flood_max_repeats: int = 3
+    # Max GET /updates: 1 = сразу гнать каждое сообщение по полному flow.
+    updates_limit: int = 1
+    # Целиком короткие приветствия (не подстрока в длинном тексте).
+    greeting_only: tuple[str, ...] = ()
+    # Фото без текста → привязать к следующему сообщению того же автора.
+    photo_attach_window_seconds: int = 600
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeConfig:
     """Какие сервисы поднимать в одном процессе main."""
 
@@ -258,6 +275,8 @@ class RuntimeConfig:
     enable_api: bool = True
     enable_news_parser: bool = True
     enable_mc_parser: bool = True
+    # Слушатель чатов вешается на Max Dispatcher (нужен enable_bot).
+    enable_chat_parser: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +300,7 @@ class Settings:
     ml_enrich: MlEnrichConfig = field(default_factory=MlEnrichConfig)
     news_parser: NewsParserConfig = field(default_factory=NewsParserConfig)
     mc_parser: McParserConfig = field(default_factory=McParserConfig)
+    chat_parser: ChatParserConfig = field(default_factory=ChatParserConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     docs: DocsConfig = field(default_factory=DocsConfig)
 
@@ -341,6 +361,16 @@ def _parse_mc_sources(raw: Any) -> dict[str, McSourceConfig]:
     return sources
 
 
+def _parse_str_list(raw: Any) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if isinstance(raw, str):
+        return tuple(part.strip() for part in raw.split(",") if part.strip())
+    if isinstance(raw, list):
+        return tuple(str(item).strip() for item in raw if str(item).strip())
+    raise TypeError("ожидался список строк или строка через запятую")
+
+
 def _resolve_environment() -> str:
     # Поддерживаем и распространённую опечатку APP_ENVIROMENT.
     raw = os.environ.get("APP_ENVIRONMENT") or os.environ.get("APP_ENVIROMENT") or "local"
@@ -377,6 +407,7 @@ def load_settings() -> Settings:
     ml_enrich_raw = raw.get("ml_enrich") or {}
     news_parser_raw = raw.get("news_parser") or {}
     mc_parser_raw = raw.get("mc_parser") or {}
+    chat_parser_raw = raw.get("chat_parser") or {}
     runtime_raw = raw.get("runtime") or {}
     docs_raw = raw.get("docs") or {}
 
@@ -485,11 +516,23 @@ def load_settings() -> Settings:
             ),
             sources=_parse_mc_sources(mc_parser_raw.get("sources")),
         ),
+        chat_parser=ChatParserConfig(
+            enabled=bool(chat_parser_raw.get("enabled", True)),
+            min_chars=int(chat_parser_raw.get("min_chars", 3)),
+            flood_window_seconds=int(chat_parser_raw.get("flood_window_seconds", 90)),
+            flood_max_repeats=int(chat_parser_raw.get("flood_max_repeats", 3)),
+            updates_limit=max(1, int(chat_parser_raw.get("updates_limit", 1))),
+            greeting_only=_parse_str_list(chat_parser_raw.get("greeting_only")),
+            photo_attach_window_seconds=int(
+                chat_parser_raw.get("photo_attach_window_seconds", 600)
+            ),
+        ),
         runtime=RuntimeConfig(
             enable_bot=bool(runtime_raw.get("enable_bot", True)),
             enable_api=bool(runtime_raw.get("enable_api", True)),
             enable_news_parser=bool(runtime_raw.get("enable_news_parser", True)),
             enable_mc_parser=bool(runtime_raw.get("enable_mc_parser", True)),
+            enable_chat_parser=bool(runtime_raw.get("enable_chat_parser", True)),
         ),
         docs=DocsConfig(
             url=str(docs_raw.get("url", "https://alexeyv07.github.io/hack_max/docs/")),
