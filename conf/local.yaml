@@ -30,6 +30,13 @@ docs:
 api:
   host: 0.0.0.0
   port: 8000
+  # WebApp: localhost + GitHub Pages (перекрыть: API_CORS_ORIGINS=a,b).
+  cors_origins:
+    - http://localhost:5173
+    - http://127.0.0.1:5173
+    - http://localhost:4173
+    - http://127.0.0.1:4173
+    - https://alexeyv07.github.io
 
 events:
   nearby_radius_m: 3000
@@ -58,6 +65,30 @@ runtime:
   enable_api: true
   enable_news_parser: true
   enable_mc_parser: true
+  enable_chat_parser: true
+
+# KAN-10: минимальный фильтр (важность — classify ML)
+chat_parser:
+  enabled: true
+  min_chars: 3
+  flood_window_seconds: 90
+  flood_max_repeats: 3
+  updates_limit: 50
+  photo_attach_window_seconds: 600
+  greeting_only:
+    - привет
+    - здравствуйте
+    - здарова
+    - добрый день
+    - добрый вечер
+    - доброе утро
+    - привет всем
+    - всем привет
+    - ку
+    - хай
+    - ок
+    - окей
+    - ладно
 
 news_parser:
   # bootstrap|production: оба делают backfill до lookback_days; bootstrap ещё пишет snapshot.

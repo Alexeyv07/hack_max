@@ -57,7 +57,6 @@ Time: только ML (`ml/time`); без ONNX поля `null`. Classify: ONNX �
 | `bot_entrypoint.py` | Docker bot: проверка ML-артефактов, `alembic upgrade`, seed, `main` |
 | `classify_try.py` | REPL importance (ONNX → rules) |
 | `smoke_parser_collect.py` | live smoke news/mc collect |
-| `ngrok_url.py` | публичный HTTPS URL туннеля |
 
 ```bash
 set PYTHONPATH=src
@@ -91,7 +90,7 @@ python ml/dedup/eval_threshold.py --config ml/dedup/config.yaml
 
 ## Режимы запуска
 
-Нужен `.env` из `.env.example` (`MAX_BOT_TOKEN`, для Max — `NGROK`).
+Нужен `.env` из `.env.example` (`MAX_BOT_TOKEN`).
 
 ### Postgres
 
@@ -112,36 +111,42 @@ docker compose up -d postgres
 назначает его администратором с правом `read_all_messages`, после чего связь подтверждается MAX API
 и завершается автоматически. Подробнее: `src/chat_link/README.md`.
 
-### WebApp: два флоу
+### WebApp: локально и GitHub Pages
 
-Публичный HTTPS — сервис **ngrok** в Compose (`NGROK=` в `.env`).
+Публичный HTTPS для Max — **GitHub Pages** (`https://alexeyv07.github.io/hack_max/`).
+Релизная сборка: push тега `v*` → workflow `WebApp Pages` (см. `.github/workflows/webapp-pages.yaml`).
+
+В настройках репозитория задайте variable **`WEBAPP_API_BASE`** — публичный origin API
+(без `/api`, например `https://api.example.com`). CORS: `api.cors_origins` в conf /
+`API_CORS_ORIGINS`. В настройках бота Max укажите URL Pages.
+
+#### Локальная разработка
+
+`localhost` **не** читает user id из Max Bridge: всегда фейковый **`159064979`**.
+API — через Vite proxy `/api` → `:8000`.
 
 ```bash
-python scripts/ngrok_url.py   # или http://localhost:4040
-```
-
-URL вида `https://….ngrok-free.dev` вставляется в настройки бота на платформе MAX.  
-После каждого нового туннеля сверяйте URL через `python scripts/ngrok_url.py`: если в MAX остался старый endpoint, mini-app покажет `ERR_NGROK_3200 ... is offline`. В этом случае поднимите `webapp ngrok` и обновите URL mini-app в настройках MAX.
-
-#### Флоу 1 — webapp в Docker
-
-```bash
-pip install -e ".[dev]"
-alembic upgrade head
 python -m main                    # :8000
-
-docker compose up -d webapp ngrok # :5173 + публичный URL
+cd webapp && npm install && npm run dev   # :5173
+# → http://localhost:5173
 ```
 
-#### Флоу 2 — webapp на хосте
+Или webapp в Docker:
 
 ```bash
-python -m main
-cd webapp && npm install && npm run dev   # :5173, proxy /api → :8000
-
-# опционально туннель:
-# $env:NGROK_UPSTREAM="host.docker.internal:5173"; docker compose up -d ngrok
+docker compose up -d webapp       # :5173, PUBLIC_API_BASE=/api
 ```
+
+#### Релиз на Pages
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+# или Actions → WebApp Pages → Run workflow
+```
+
+Сборка: `BASE_PATH=/hack_max`, `PUBLIC_API_BASE=$WEBAPP_API_BASE` → ветка `gh-pages`
+(каталог `docs/` от mdBook сохраняется).
 
 ### A. Локально bot + API
 
@@ -190,7 +195,8 @@ docker compose up --build
 - `alembic upgrade head`, seed addresses/events при пустых таблицах.
 
 - Postgres: `localhost:5432`
-- WebApp: http://localhost:5173
+- WebApp (локально): http://localhost:5173
+- WebApp (Max / Pages): https://alexeyv07.github.io/hack_max/
 - API/bot: http://localhost:8000
 
 ## Миграции (Alembic)

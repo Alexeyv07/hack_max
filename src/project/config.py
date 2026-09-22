@@ -76,6 +76,7 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "ENABLE_API": "runtime.enable_api",
         "ENABLE_NEWS_PARSER": "runtime.enable_news_parser",
         "ENABLE_MC_PARSER": "runtime.enable_mc_parser",
+        "ENABLE_CHAT_PARSER": "runtime.enable_chat_parser",
         "EVENTS_NEARBY_RADIUS_M": "events.nearby_radius_m",
         "EVENTS_CITY_RADIUS_M": "events.city_radius_m",
         "ML_DEDUP_ENABLED": "ml_dedup.enabled",
@@ -147,6 +148,14 @@ class MaxConfig:
 class ApiConfig:
     host: str = "0.0.0.0"
     port: int = 8000
+    # Origins WebApp (localhost + GitHub Pages). Перекрывается api.cors_origins / API_CORS_ORIGINS.
+    cors_origins: tuple[str, ...] = (
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+        "https://alexeyv07.github.io",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +252,20 @@ class McParserConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ChatParserConfig:
+    """KAN-10: минимальный фильтр шума (важность — у classify ML)."""
+
+    enabled: bool = True
+    min_chars: int = 3
+    flood_window_seconds: int = 90
+    flood_max_repeats: int = 3
+    # Max GET /updates: больше 1 — быстрее слив очереди (обработка в фоне).
+    updates_limit: int = 50
+    greeting_only: tuple[str, ...] = ()
+    photo_attach_window_seconds: int = 600
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeConfig:
     """Какие сервисы поднимать в одном процессе main."""
 
@@ -250,6 +273,8 @@ class RuntimeConfig:
     enable_api: bool = True
     enable_news_parser: bool = True
     enable_mc_parser: bool = True
+    # Слушатель чатов вешается на Max Dispatcher (нужен enable_bot).
+    enable_chat_parser: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,8 +298,27 @@ class Settings:
     ml_enrich: MlEnrichConfig = field(default_factory=MlEnrichConfig)
     news_parser: NewsParserConfig = field(default_factory=NewsParserConfig)
     mc_parser: McParserConfig = field(default_factory=McParserConfig)
+    chat_parser: ChatParserConfig = field(default_factory=ChatParserConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     docs: DocsConfig = field(default_factory=DocsConfig)
+
+
+def _parse_cors_origins(raw: Any) -> tuple[str, ...]:
+    """Список CORS origins из YAML (list) или env API_CORS_ORIGINS (через запятую)."""
+    env_raw = os.environ.get("API_CORS_ORIGINS")
+    if env_raw is not None and env_raw.strip():
+        return tuple(part.strip() for part in env_raw.split(",") if part.strip())
+    if raw is None:
+        return ApiConfig().cors_origins
+    if isinstance(raw, str):
+        return (
+            tuple(part.strip() for part in raw.split(",") if part.strip())
+            or ApiConfig().cors_origins
+        )
+    if isinstance(raw, list):
+        origins = tuple(str(item).strip() for item in raw if str(item).strip())
+        return origins or ApiConfig().cors_origins
+    raise TypeError("api.cors_origins должен быть списком строк или строкой через запятую")
 
 
 def _parse_news_sources(raw: Any) -> dict[str, NewsSourceConfig]:
@@ -315,6 +359,16 @@ def _parse_mc_sources(raw: Any) -> dict[str, McSourceConfig]:
     return sources
 
 
+def _parse_str_list(raw: Any) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if isinstance(raw, str):
+        return tuple(part.strip() for part in raw.split(",") if part.strip())
+    if isinstance(raw, list):
+        return tuple(str(item).strip() for item in raw if str(item).strip())
+    raise TypeError("ожидался список строк или строка через запятую")
+
+
 def _resolve_environment() -> str:
     # Поддерживаем и распространённую опечатку APP_ENVIROMENT.
     raw = os.environ.get("APP_ENVIRONMENT") or os.environ.get("APP_ENVIROMENT") or "local"
@@ -351,6 +405,7 @@ def load_settings() -> Settings:
     ml_enrich_raw = raw.get("ml_enrich") or {}
     news_parser_raw = raw.get("news_parser") or {}
     mc_parser_raw = raw.get("mc_parser") or {}
+    chat_parser_raw = raw.get("chat_parser") or {}
     runtime_raw = raw.get("runtime") or {}
     docs_raw = raw.get("docs") or {}
 
@@ -381,6 +436,7 @@ def load_settings() -> Settings:
         api=ApiConfig(
             host=str(api_raw.get("host", "0.0.0.0")),
             port=int(api_raw.get("port", 8000)),
+            cors_origins=_parse_cors_origins(api_raw.get("cors_origins")),
         ),
         events=EventsConfig(
             nearby_radius_m=float(events_raw.get("nearby_radius_m", 3000)),
@@ -458,11 +514,23 @@ def load_settings() -> Settings:
             ),
             sources=_parse_mc_sources(mc_parser_raw.get("sources")),
         ),
+        chat_parser=ChatParserConfig(
+            enabled=bool(chat_parser_raw.get("enabled", True)),
+            min_chars=int(chat_parser_raw.get("min_chars", 3)),
+            flood_window_seconds=int(chat_parser_raw.get("flood_window_seconds", 90)),
+            flood_max_repeats=int(chat_parser_raw.get("flood_max_repeats", 3)),
+            updates_limit=max(1, int(chat_parser_raw.get("updates_limit", 50))),
+            greeting_only=_parse_str_list(chat_parser_raw.get("greeting_only")),
+            photo_attach_window_seconds=int(
+                chat_parser_raw.get("photo_attach_window_seconds", 600)
+            ),
+        ),
         runtime=RuntimeConfig(
             enable_bot=bool(runtime_raw.get("enable_bot", True)),
             enable_api=bool(runtime_raw.get("enable_api", True)),
             enable_news_parser=bool(runtime_raw.get("enable_news_parser", True)),
             enable_mc_parser=bool(runtime_raw.get("enable_mc_parser", True)),
+            enable_chat_parser=bool(runtime_raw.get("enable_chat_parser", True)),
         ),
         docs=DocsConfig(
             url=str(docs_raw.get("url", "https://alexeyv07.github.io/hack_max/docs/")),

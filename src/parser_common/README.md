@@ -9,7 +9,8 @@
 |-----|--------|
 | **KAN-11** (`parse_news`) | fetch RSS/HTML → `RawNewsArticle` → `ParserCandidate` → `persist_candidate` |
 | **KAN-28** (`parse_mc`) | fetch УК/ЖЭК HTML → `RawMcNotice` → fan-out улиц → `ParserCandidate` |
-| **KAN-10/12** (другие воркеры) | fetch источника → `ParserCandidate` → `persist_candidate` |
+| **KAN-10** (`parse_chat`) | Max `message_created` → фильтр шума → `ParserCandidate` → `persist_candidate` |
+| **KAN-12** (позже) | публичные каналы Max → `ParserCandidate` → `persist_candidate` |
 | **KAN-13** (этот пакет) | title/body, importance, disaster, **active_from/to (ML)**, place NER → addresses → `EventDraft` |
 | **KAN-19** (`ml_dedup`) | NEW / DUPLICATE / UPDATE **внутри** `persist_candidate` |
 | **KAN-14** (`events`) | хранение + read API ленты/карты |

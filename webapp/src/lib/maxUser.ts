@@ -17,6 +17,9 @@ declare global {
 	}
 }
 
+/** Локальная разработка без Max Bridge (`npm run dev` на localhost). */
+export const LOCAL_DEV_USER_ID = 159064979;
+
 export function readyMaxWebApp(): void {
 	try {
 		window.WebApp?.ready?.();
@@ -26,6 +29,15 @@ export function readyMaxWebApp(): void {
 }
 
 const USER_ID_CACHE_KEY = 'max-webapp-user-id-v1';
+
+function isLocalDevHost(): boolean {
+	try {
+		const host = window.location.hostname;
+		return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+	} catch {
+		return false;
+	}
+}
 
 function parseInitData(raw: string | undefined): URLSearchParams | null {
 	if (!raw) return null;
@@ -77,6 +89,11 @@ function cacheUserId(id: number): number {
 }
 
 export function getMaxUserId(): number | null {
+	// Браузер на localhost: всегда фейковый user (не из Bridge / WebApp).
+	if (isLocalDevHost()) {
+		return cacheUserId(LOCAL_DEV_USER_ID);
+	}
+
 	const unsafeId = normalizeUserId(window.WebApp?.initDataUnsafe?.user?.id);
 	if (unsafeId !== null) return cacheUserId(unsafeId);
 
@@ -105,7 +122,9 @@ export function getMaxUserIdForStorage(): string {
 export function requireMaxUserId(): number {
 	const id = getMaxUserId();
 	if (id === null) {
-		throw new Error('MAX не передал данные пользователя. Закройте мини-приложение и откройте его заново из кнопки бота.');
+		throw new Error(
+			'MAX не передал данные пользователя. Закройте мини-приложение и откройте его заново из кнопки бота.'
+		);
 	}
 	return id;
 }
