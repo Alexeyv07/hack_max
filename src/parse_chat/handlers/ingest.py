@@ -81,8 +81,8 @@ def persist_chat_message(
     """
     Записать прошедшее фильтр сообщение в events.
 
-    Гео: place NER / StreetCatalog по тексту; если не вышло — адрес чата.
-    Classify / time / dedup — в parser_common / ml_dedup (ML не трогаем).
+    Гео: spaCy / StreetCatalog по тексту; если не вышло — адрес чата.
+    Time: всегда ONNX. Classify / dedup — в normalize / resolve_draft.
     """
     chat_row = chat if chat is not None else load_active_chat_row(session, message.chat_id)
     if chat_row is None:

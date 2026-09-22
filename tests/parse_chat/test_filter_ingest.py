@@ -324,6 +324,7 @@ def test_process_chat_event_end_to_end(db_session, monkeypatch) -> None:
                 flood_window_seconds=90,
                 flood_max_repeats=3,
                 greeting_only=("привет",),
+                photo_attach_window_seconds=600,
             ),
         ),
     )

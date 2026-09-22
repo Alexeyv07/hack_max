@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from maxapi import Bot, Dispatcher
@@ -18,7 +19,7 @@ logger = get_logger(__name__)
 
 
 def _patch_get_updates_limit(bot: Bot, *, limit: int) -> None:
-    """Ограничить батч Max get_updates — по одному событию на poll."""
+    """Ограничить батч Max get_updates."""
     original = bot.get_updates
 
     async def get_updates_capped(
@@ -36,7 +37,33 @@ def _patch_get_updates_limit(bot: Bot, *, limit: int) -> None:
         )
 
     bot.get_updates = get_updates_capped  # type: ignore[method-assign]
-    logger.info("Max get_updates limit=%s (inline chat/news latency)", limit)
+    logger.info("Max get_updates limit=%s", limit)
+
+
+def _warm_chat_ml() -> None:
+    """Прогреть classify + time + dedup ONNX до первого сообщения."""
+    sample = "прогрев: отключили воду во дворе с 10:00 до 18:00"
+    try:
+        from parser_common.classify import classify_importance
+
+        classify_importance(sample)
+        logger.info("warm ML: classify ok")
+    except Exception:
+        logger.debug("warm classify skipped", exc_info=True)
+    try:
+        from parser_common.time_extract import extract_active_window
+
+        extract_active_window(sample, use_model=True)
+        logger.info("warm ML: time ok")
+    except Exception:
+        logger.debug("warm time skipped", exc_info=True)
+    try:
+        from ml_dedup.embed import embed_text
+
+        embed_text(sample, allow_hash_fallback=True)
+        logger.info("warm ML: dedup embed ok")
+    except Exception:
+        logger.debug("warm embed skipped", exc_info=True)
 
 
 async def run_max_bot() -> None:
@@ -47,7 +74,6 @@ async def run_max_bot() -> None:
         raise RuntimeError("MAX_BOT_TOKEN не задан — бот не может стартовать")
 
     bot = Bot(settings.max.bot_token)
-    # Нужен для OpenAppButton (username / contact_id).
     try:
         bot.me = await bot.get_me()
         logger.info(
@@ -59,24 +85,22 @@ async def run_max_bot() -> None:
         logger.exception("Не удалось получить GET /me — open_app возьмёт fallback из конфига")
 
     set_max_bot(bot)
-
-    # KAN-7: адресный picker работает только по process-wide snapshot.
-    # Прогреваем его до polling, чтобы первый callback не делал большой SELECT
-    # и не строил индексы уже после нажатия пользователя.
     get_address_catalog()
 
     chat_on = settings.runtime.enable_chat_parser and settings.chat_parser.enabled
     if chat_on:
         _patch_get_updates_limit(bot, limit=settings.chat_parser.updates_limit)
+        # Прогрев в фоне — не блокируем старт polling.
+        asyncio.create_task(asyncio.to_thread(_warm_chat_ml), name="warm-chat-ml")
 
-    # use_create_task=False: события строго по одному (await handle), без параллельного батча.
-    dp = Dispatcher(use_create_task=False)
+    # True: handlers не сериализуют polling. parse_chat сам fire-and-forget.
+    dp = Dispatcher(use_create_task=True)
     register_auth_commands(dp, bot)
     register_chat_link_commands(dp, bot)
     if chat_on:
         register_parse_chat_commands(dp, bot)
         logger.info(
-            "parse_chat: inline 1-msg flow (updates_limit=%s, no queue/batch)",
+            "parse_chat: low-latency bg persist (updates_limit=%s, spaCy+time+classify+dedup)",
             settings.chat_parser.updates_limit,
         )
 

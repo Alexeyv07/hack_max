@@ -73,7 +73,7 @@ chat_parser:
   min_chars: 3
   flood_window_seconds: 90
   flood_max_repeats: 3
-  updates_limit: 1
+  updates_limit: 50
   photo_attach_window_seconds: 600
   greeting_only:
     - привет

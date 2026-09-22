@@ -259,11 +259,9 @@ class ChatParserConfig:
     min_chars: int = 3
     flood_window_seconds: int = 90
     flood_max_repeats: int = 3
-    # Max GET /updates: 1 = сразу гнать каждое сообщение по полному flow.
-    updates_limit: int = 1
-    # Целиком короткие приветствия (не подстрока в длинном тексте).
+    # Max GET /updates: больше 1 — быстрее слив очереди (обработка в фоне).
+    updates_limit: int = 50
     greeting_only: tuple[str, ...] = ()
-    # Фото без текста → привязать к следующему сообщению того же автора.
     photo_attach_window_seconds: int = 600
 
 
@@ -521,7 +519,7 @@ def load_settings() -> Settings:
             min_chars=int(chat_parser_raw.get("min_chars", 3)),
             flood_window_seconds=int(chat_parser_raw.get("flood_window_seconds", 90)),
             flood_max_repeats=int(chat_parser_raw.get("flood_max_repeats", 3)),
-            updates_limit=max(1, int(chat_parser_raw.get("updates_limit", 1))),
+            updates_limit=max(1, int(chat_parser_raw.get("updates_limit", 50))),
             greeting_only=_parse_str_list(chat_parser_raw.get("greeting_only")),
             photo_attach_window_seconds=int(
                 chat_parser_raw.get("photo_attach_window_seconds", 600)

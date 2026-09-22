@@ -36,6 +36,14 @@ Drop только:
 
 Стикеры не считаются фото.
 
-## Гео / режим 1-msg
+## Latency (для демо)
 
-Как раньше: NER по тексту, иначе адрес чата; `updates_limit: 1`, без батча.
+Сообщение из чата **не ждёт** news/mc и не блокирует Max polling:
+
+1. Handler сразу возвращается (`create_task` + dedicated thread pool)
+2. Полный ML: spaCy geo → fallback чат; time-ONNX; classify; dedup
+3. `updates_limit: 50` — быстрее слив get_updates
+4. При старте бота прогреваются classify + time + dedup
+
+Для показа судьям можно временно выключить тяжёлые парсеры:
+`runtime.enable_news_parser: false`, `enable_mc_parser: false`.
