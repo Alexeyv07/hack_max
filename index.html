@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="text-scale" content="scale" />
+		<script src="https://st.max.ru/js/max-web-app.js"></script>
+		<link href="./_app/immutable/entry/start.Dgmr2nHI.js" rel="modulepreload">
+		<link href="./_app/immutable/chunks/BDFRLmHU.js" rel="modulepreload">
+		<link href="./_app/immutable/chunks/CVEgoPYa.js" rel="modulepreload">
+		<link href="./_app/immutable/entry/app.BfDhTuvt.js" rel="modulepreload">
+		<link href="./_app/immutable/chunks/xihTtKlq.js" rel="modulepreload">
+		<link href="./_app/immutable/nodes/0.BO4s_vmc.js" rel="modulepreload">
+		<link href="./_app/immutable/nodes/2.BUMANeGu.js" rel="modulepreload">
+		<link href="./_app/env.js" rel="modulepreload">
+		
+		<link href="./_app/immutable/assets/0.B7J900Ec.css" rel="stylesheet">
+		<link href="./_app/immutable/assets/2.Fp7ixR9J.css" rel="stylesheet">
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">
+			<script>
+				{
+					__sveltekit_n7alyz = {
+						base: new URL(".", location).pathname.slice(0, -1),
+						assets: "/hack_max",
+						env: null
+					};
+
+					const element = document.currentScript.parentElement;
+
+					import("./_app/env.js").then(({ env }) => {
+						__sveltekit_n7alyz.env = env;
+
+						Promise.all([
+							import("./_app/immutable/entry/start.Dgmr2nHI.js"),
+							import("./_app/immutable/entry/app.BfDhTuvt.js")
+						]).then(([kit, app]) => {
+							kit.start(app, element);
+						});
+					});
+				}
+			</script>
+		</div>
+	</body>
+</html>
