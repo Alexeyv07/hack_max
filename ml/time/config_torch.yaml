@@ -1,32 +1,33 @@
 # PyTorch fine-tune time window (active_from / active_to)
+# Данные: python ml/time/build_train_from_sources.py
 
 model_name: cointegrated/rubert-tiny2
 max_length: 160
 train_path: ml/time/data/train.jsonl
-val_path: null          # null = взять val_ratio из train
+val_path: ml/time/data/val.jsonl
 test_path: null
 val_ratio: 0.15
-seed: 19
+seed: 33
 
-# RTX 3060 4GB — комфортные дефолты
-epochs: 4
+# RTX 3060 4GB — чуть дольше учим регрессию offsets
+epochs: 8
 train_batch_size: 12
 eval_batch_size: 24
 learning_rate: 2.0e-5
 weight_decay: 0.01
-warmup_ratio: 0.06
+warmup_ratio: 0.08
 max_grad_norm: 1.0
 gradient_accumulation_steps: 1
 fp16: true
 dataloader_num_workers: 0
 
-# веса loss: classification vs regression
+# веса loss: classification vs regression (регрессия важнее для MAE)
 loss_cls_weight: 1.0
-loss_reg_weight: 1.0
+loss_reg_weight: 2.0
 # SmoothL1 beta (часы)
-smooth_l1_beta: 1.0
+smooth_l1_beta: 6.0
 
-early_stopping_patience: 2
+early_stopping_patience: 3
 
 output_dir: ml/time/checkpoints/rubert_time
 export_onnx: true

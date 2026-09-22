@@ -45,32 +45,57 @@
 
 | файл | роль |
 |------|------|
-| `train.jsonl` | **пользовательская** разметка (основной train) — в git не лежит |
-| `bootstrap.jsonl` | синтетика из `bootstrap_data.py` |
-| `val.jsonl` / `test.jsonl` | опционально; иначе auto-split в `train_torch.py` |
+| `train.jsonl` | основной train (собирается скриптом, в git не лежит) |
+| `val.jsonl` | фиксированный val (тот же скрипт) |
+| `label_report.json` | статистика последней сборки |
+| `bootstrap.jsonl` | старая синтетика из `bootstrap_data.py` (smoke) |
 
-`train.jsonl` — user-supplied. Скрипты **не** создают его автоматически
-(кроме опционального `--merge-into-train`, который только **дописывает**).
+## Сборка качественного датасета (рекомендуется)
+
+Источники:
+
+1. `src/parser_common/data/bootstrap_events.jsonl.gz` (news + mc)
+2. экспорты домовых чатов MAX (`messages.json`)
+3. curated gold из чатов (ЖКХ-окна) + реалистичная синтетика (короткие горизонты)
+
+```bash
+python ml/time/build_train_from_sources.py
+# опционально:
+# python ml/time/build_train_from_sources.py --chat PATH --synthetic-n 1200
+```
+
+Пишет `train.jsonl` + `val.jsonl` + `label_report.json`.
+
+Разметка:
+
+- детерминированный парсер `ru_window.py` (паттерны `с … по …`, `DD.MM HH:MM`,
+  `завтра с 9:30 до 17:00`, опрессовка `7-21 июля`, …);
+- offsets клипаются до ±30 суток (`max_abs_offset_h=720`);
+- отсекаются счета/тарифы/реклама без event-окна;
+- conf ≥ 0.8.
+
+Старый путь (`bootstrap_data.py`) остаётся для smoke; для обучения time
+используйте `build_train_from_sources.py`.
 
 ## Объёмы (ориентир под rubert-tiny2 / RTX 3060 4GB)
 
 | цель | строк | заметки |
 |------|-------|---------|
 | smoke пайплайна | ~200–400 | `bootstrap.jsonl` |
-| хакатон-MVP | 1–2k | смесь MC (окна работ) + news (даты в тексте) |
+| качественный train | ~1–1.5k | real chat/mc/news + synth, offsets ≤ 30д |
 | дальше | 3k+ | больше реальных объявлений ЖКХ с точными часами |
 
 Баланс: не только «оба bound есть» — нужны примеры только `from`, только `to`, оба `null`.
 
 ## Откуда брать тексты
 
-**ЖКХ / MC.** Плановые отключения, ремонты, «с … по …», «до конца недели».
-`reference` = дата публикации объявления.
+**ЖКХ / MC / чаты.** Плановые отключения, ремонты, «с … по …», «до конца недели».
+`reference` = дата публикации / дата сообщения в чате.
 
 **Локальные новости.** Перекрытия, мероприятия с датами в тексте.
 Если в тексте нет окна — `active_from`/`active_to` = `null`.
 
-**Синтетика.**
+**Синтетика (legacy smoke):**
 
 ```bash
 python ml/time/bootstrap_data.py
@@ -81,12 +106,15 @@ python ml/time/bootstrap_data.py --merge-into-train
 ```
 
 `bootstrap_data.py` **никогда** не перезаписывает `train.jsonl`.
+`build_train_from_sources.py` **перезаписывает** `train.jsonl` / `val.jsonl`.
 
 ## Чеклист перед train
 
+- [ ] `python ml/time/build_train_from_sources.py` уже прогнан
 - [ ] JSONL парсится (`dataset_io.load_jsonl`)
 - [ ] у каждой строки валидный `reference` (timezone-aware предпочтительно)
 - [ ] `active_*` либо `null`, либо ISO-8601, парсятся в datetime
 - [ ] если оба bound заданы — `active_from <= active_to`
 - [ ] есть примеры с null-границами
-- [ ] val отдельно или `val_ratio` в конфиге
+- [ ] `val.jsonl` рядом или `val_ratio` в конфиге
+- [ ] `python ml/time/train_torch.py --config ml/time/config_torch.yaml`
