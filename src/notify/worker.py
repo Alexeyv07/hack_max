@@ -193,7 +193,7 @@ async def run_digest_cycle(
 
         text = decorate_digest(text, bot_link=_bot_join_link(bot))
         try:
-            await bot.send_message(chat_id=target.chat_id, text=text)
+            await bot.send_message(chat_id=target.chat_id, text=text, format="markdown")
         except asyncio.CancelledError:
             raise
         except Exception:

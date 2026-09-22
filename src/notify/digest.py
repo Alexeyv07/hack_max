@@ -123,7 +123,7 @@ def decorate_digest(text: str, *, bot_link: str | None) -> str:
     if body:
         parts.extend(("", body))
     if bot_link:
-        parts.extend(("", f"Присоединиться к боту: {bot_link}"))
+        parts.extend(("", f"[Присоединиться к боту]({bot_link})"))
     return "\n".join(parts)
 
 
