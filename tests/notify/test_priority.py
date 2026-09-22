@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 from address.db.address import AddressRow
 from auth.db.user import UserRow
 from events.db.event import EventRow
+from notify.commands import _finish_ack_callback
 from notify.db import NotifyCursorRow, NotifyDeliveryRow
 from notify.priority import (
     PRIORITY_CURSOR,
@@ -270,3 +271,27 @@ def test_ack_requires_delivery_owner_and_payload_is_strict(db_session) -> None:
     assert parse_ack_payload("notify:ack:0") is None
     assert parse_ack_payload("notify:ack:nope") is None
     assert parse_ack_payload("cl:noop") is None
+
+
+def test_ack_callback_gives_visual_confirmation() -> None:
+    event = SimpleNamespace(edit=AsyncMock(), ack=AsyncMock())
+
+    asyncio.run(_finish_ack_callback(event, acknowledged=True))
+
+    event.edit.assert_awaited_once_with(
+        attachments=[],
+        notification="Отмечено как увиденное",
+        notify=False,
+    )
+    event.ack.assert_not_awaited()
+
+
+def test_ack_callback_falls_back_to_plain_ack_if_edit_fails() -> None:
+    event = SimpleNamespace(
+        edit=AsyncMock(side_effect=RuntimeError("edit failed")),
+        ack=AsyncMock(),
+    )
+
+    asyncio.run(_finish_ack_callback(event, acknowledged=True))
+
+    event.ack.assert_awaited_once_with(notification="Отмечено как увиденное")
