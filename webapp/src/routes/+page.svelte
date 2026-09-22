@@ -14,6 +14,7 @@
 		clearActiveChatLinkMode,
 		isChatLinkMode,
 		loadActiveChatLinkMode,
+		parseChatLinkMode,
 		saveActiveChatLinkMode
 	} from '$lib/chatLinkSession';
 	import AddressPicker from '$lib/components/AddressPicker.svelte';
@@ -40,6 +41,7 @@
 	const cachedChatLinkMode = loadActiveChatLinkMode();
 	let startParam = $state<string | null>(cachedChatLinkMode);
 	let bridgeReady = $state(cachedChatLinkMode !== null);
+	let pickerStart = $derived(parseChatLinkMode(startParam));
 	let scope = $state<FeedScope>('nearby');
 	/** Nearby стартует в loading — до ответа API не показываем «новостей нет». */
 	let nearby = $state<FeedState>(emptyState(true));
@@ -214,10 +216,10 @@
 	});
 </script>
 
-{#if startParam === 'chat_link_map'}
-	<AddressPicker mode="map" />
-{:else if startParam === 'chat_link_text'}
-	<AddressPicker mode="text" />
+{#if pickerStart?.mode === 'map'}
+	<AddressPicker mode="map" targetChatId={pickerStart.targetChatId} />
+{:else if pickerStart?.mode === 'text'}
+	<AddressPicker mode="text" targetChatId={pickerStart.targetChatId} />
 {:else if bridgeReady}
 <div
 	class="feed-root"

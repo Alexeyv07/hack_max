@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -122,3 +123,29 @@ def test_start_reuses_existing_bot_screen(monkeypatch) -> None:
     bot.edit_message.assert_awaited_once()
     bot.send_message.assert_not_awaited()
     assert context.data == {"flow_mid": "old-mid"}
+
+
+def test_group_bind_deep_link_keeps_target_chat_in_context(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = _bot()
+    monkeypatch.setattr(start, "authorize_from_event", lambda event: _user())
+    monkeypatch.setattr(start, "_show_events", lambda max_user_id: False)
+
+    @contextmanager
+    def fake_session_scope():
+        yield object()
+
+    monkeypatch.setattr(start, "session_scope", fake_session_scope)
+    monkeypatch.setattr(start, "get_chat", lambda session, chat_id: None)
+    start.register_auth_commands(dp, bot)
+
+    context = FakeContext()
+    event = SimpleNamespace(chat_id=123, payload="chat_bind_-100500")
+    asyncio.run(dp.handlers["bot_started"](event, context))
+
+    assert context.data["target_chat_id"] == -100500
+    assert context.data["flow_mid"] == "welcome-mid"
+    kwargs = bot.send_message.await_args.kwargs
+    assert "уже добавленный групповой чат" in kwargs["text"]
+    buttons = kwargs["attachments"][0].payload.buttons
+    assert buttons[0][0].text == "Выбрать адрес для чата"
