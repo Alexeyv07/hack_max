@@ -18,6 +18,7 @@ from chat_link.handlers import (
     create_request,
     get_address_catalog,
     mark_waiting_group,
+    request_admin_approval,
 )
 from events.api.deps import DbSession, get_max_user_id
 from project.max_runtime import get_max_bot
@@ -103,6 +104,23 @@ async def select_address(
 
     if not chats:
         mark_waiting_group(session, token=request.token)
+    elif len(chats) == 1:
+        try:
+            request_admin_approval(
+                session,
+                token=request.token,
+                chat_id=chats[0].chat_id,
+            )
+        except ValueError:
+            # Legacy-чат без сохранённого администратора: оставляем прежний invite fallback.
+            pass
+        else:
+            return AddressSelectResponse(
+                address=_option(address),
+                mode="approval_pending",
+                token=request.token,
+                chats=[],
+            )
     username = getattr(getattr(bot, "me", None), "username", None) if bot else None
     admin_link = (
         create_start_link(username, f"chat_admin_{request.token}")

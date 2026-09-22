@@ -18,6 +18,7 @@ from chat_link.handlers.links import (
     mark_joined,
     mark_waiting_group,
     pending_for_actor,
+    request_admin_approval,
 )
 
 __all__ = [
@@ -38,4 +39,5 @@ __all__ = [
     "join_existing_chat",
     "mark_joined",
     "pending_for_actor",
+    "request_admin_approval",
 ]

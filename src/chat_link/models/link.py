@@ -7,7 +7,10 @@ from enum import StrEnum
 class ChatLinkStatus(StrEnum):
     WAITING_GROUP = "waiting_group"
     WAITING_JOIN = "waiting_join"
+    WAITING_APPROVAL = "waiting_approval"
+    APPROVAL_SENT = "approval_sent"
     CONNECTED = "connected"
+    REJECTED = "rejected"
     CANCELLED = "cancelled"
 
 

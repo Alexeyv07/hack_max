@@ -81,12 +81,15 @@ def list_keyboard(
 
 
 def existing_chats_keyboard(chats: list[Any]):
-    """Ссылки на уже подключённые группы: без callback и auto-add пользователя."""
+    """Выбор уже подключённого чата для admin-approval заявки."""
     builder = InlineKeyboardBuilder()
     for chat in chats[:12]:
-        if not chat.invite_link:
-            continue
-        builder.row(LinkButton(text=(chat.title or "Домовой чат")[:64], url=chat.invite_link))
+        builder.row(
+            CallbackButton(
+                text=(chat.title or "Домовой чат")[:64],
+                payload=f"cl:approval:{chat.chat_id}",
+            )
+        )
     builder.row(CallbackButton(text="← Выбрать другой адрес", payload="cl:method:native"))
     return builder.as_markup()
 

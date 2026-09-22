@@ -453,6 +453,8 @@
 			<b>{result.address.address_text}</b>
 			{#if result.mode === 'group_connected'}
 				<p>✅ Домовой чат успешно привязан к этому адресу. Можно вернуться в групповой чат.</p>
+			{:else if result.mode === 'approval_pending'}
+				<p>✅ Заявка отправлена администратору домового чата. Бот пришлёт результат после решения.</p>
 			{:else if result.mode === 'existing_chat' && result.chats.length}
 				<p>
 					Для этого дома уже подключён чат соседей. Вступите по ссылке — после

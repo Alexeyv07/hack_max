@@ -45,7 +45,7 @@ async def run_max_bot() -> None:
     register_auth_commands(dp, bot)
     # notify имеет фильтр по payload, а chat_link ниже ловит любой callback.
     # В MAX API выполняется первый подходящий handler, поэтому notify должен быть раньше.
-    register_notify_commands(dp)
+    register_notify_commands(dp, bot)
     register_chat_link_commands(dp, bot)
 
     logger.info("Polling Max-бота запущен")

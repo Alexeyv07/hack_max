@@ -30,6 +30,7 @@ from chat_link.handlers import (
     get_address_catalog,
     mark_waiting_group,
     pending_for_actor,
+    request_admin_approval,
 )
 from project.database import session_scope
 from project.logging_setup import get_logger
@@ -330,21 +331,41 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
         request, chats = create_request(session, max_user_id=user_id, address_id=address_id)
     await context.update_data(address_id=address_id, link_token=request.token)
     if chats:
-        linked = [chat for chat in chats if chat.invite_link]
-        names_without_link = [chat.title for chat in chats if not chat.invite_link]
-        text = (
-            f"Для этого дома уже подключён домовой чат:\n{address.address_text}\n\n"
-            "Вступите в него по ссылке ниже. После вступления MAX сам пришлёт событие, "
-            "и бот привяжет ваш профиль к дому."
-        )
-        if names_without_link:
-            text += (
-                "\n\nУ некоторых чатов нет публичной ссылки. Для них попросите "
-                "администратора прислать приглашение: " + ", ".join(names_without_link[:3])
+        if len(chats) == 1:
+            try:
+                with session_scope() as session:
+                    request_admin_approval(
+                        session,
+                        token=request.token,
+                        chat_id=chats[0].chat_id,
+                    )
+            except ValueError as exc:
+                await event.edit(
+                    text=(
+                        f"Для этого дома уже подключён домовой чат:\n{address.address_text}\n\n"
+                        f"Не удалось отправить заявку администратору: {exc}."
+                    ),
+                    attachments=[existing_chats_keyboard(chats)],
+                    notify=False,
+                )
+                return
+
+            await event.edit(
+                text=(
+                    f"✅ Заявка отправлена администратору чата «{chats[0].title}».\n\n"
+                    "Когда администратор примет или отклонит её, бот пришлёт результат сюда."
+                ),
+                attachments=[],
+                notify=False,
             )
+            return
+
         await event.edit(
-            text=text,
-            attachments=[existing_chats_keyboard(linked or chats)],
+            text=(
+                f"Для этого дома подключено несколько чатов:\n{address.address_text}\n\n"
+                "Выберите чат, администратору которого отправить заявку."
+            ),
+            attachments=[existing_chats_keyboard(chats)],
             notify=False,
         )
         return
@@ -514,6 +535,33 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             return
         if payload == "cl:noop":
             await _ack_callback(event)
+            return
+        if payload.startswith("cl:approval:"):
+            data = await context.get_data()
+            token = data.get("link_token")
+            try:
+                chat_id = int(payload.removeprefix("cl:approval:"))
+            except ValueError:
+                await event.ack(notification="Некорректный чат")
+                return
+            if not token:
+                await event.ack(notification="Сессия устарела. Выберите адрес ещё раз.")
+                return
+            try:
+                with session_scope() as session:
+                    request_admin_approval(session, token=token, chat_id=chat_id)
+                    chat = get_chat(session, chat_id)
+            except ValueError as exc:
+                await event.ack(notification=str(exc))
+                return
+            await event.edit(
+                text=(
+                    f"✅ Заявка отправлена администратору чата «{chat.title if chat else 'Домовой чат'}».\n\n"
+                    "Когда администратор примет или отклонит её, бот пришлёт результат сюда."
+                ),
+                attachments=[],
+                notify=False,
+            )
             return
 
         parts = payload.split(":")

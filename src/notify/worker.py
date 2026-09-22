@@ -10,6 +10,13 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from notify.admin_approval import (
+    AdminApproval,
+    approval_payload,
+    build_admin_approval_text,
+    list_pending_admin_approvals,
+    mark_approval_notified,
+)
 from notify.chat_source import ChatMessage, ChatMessageLoader, load_chat_messages
 from notify.digest import (
     DigestTarget,
@@ -39,6 +46,7 @@ from project.max_runtime import get_max_bot
 logger = get_logger(__name__)
 
 PriorityKeyboardFactory = Callable[[PriorityDelivery], Any]
+AdminApprovalKeyboardFactory = Callable[[AdminApproval], Any]
 DigestSummarizer = Callable[[Sequence[ChatMessage], NotifyConfig], Awaitable[str | None]]
 
 
@@ -54,6 +62,60 @@ def _build_priority_keyboard(delivery: PriorityDelivery) -> Any:
     builder = InlineKeyboardBuilder()
     builder.row(CallbackButton(text="Увидел", payload=ack_payload(delivery.delivery_id)))
     return builder.as_markup()
+
+
+def _build_admin_approval_keyboard(approval: AdminApproval) -> Any:
+    from maxapi.types import CallbackButton
+    from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
+
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        CallbackButton(
+            text="Принять",
+            payload=approval_payload(approval.request_id, "approve"),
+        ),
+        CallbackButton(
+            text="Отклонить",
+            payload=approval_payload(approval.request_id, "reject"),
+        ),
+    )
+    return builder.as_markup()
+
+
+async def run_admin_approval_cycle(
+    bot: Any,
+    *,
+    session_factory: sessionmaker[Session] | None = None,
+    keyboard_factory: AdminApprovalKeyboardFactory = _build_admin_approval_keyboard,
+) -> int:
+    """Отправить администратору новые заявки ровно один раз до его решения."""
+    factory = session_factory or get_session_factory()
+    with factory() as session:
+        pending = list_pending_admin_approvals(session)
+
+    sent = 0
+    for approval in pending:
+        try:
+            await bot.send_message(
+                chat_id=approval.admin_chat_id,
+                text=build_admin_approval_text(approval),
+                attachments=[keyboard_factory(approval)],
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(
+                "Не удалось отправить admin-approval уведомление",
+                extra={"request_id": approval.request_id, "chat_id": approval.chat_id},
+            )
+            continue
+
+        with factory() as session:
+            if mark_approval_notified(session, request_id=approval.request_id):
+                session.commit()
+                sent += 1
+
+    return sent
 
 
 def _target_is_still_due(
@@ -238,6 +300,7 @@ async def run_notify_worker() -> None:
         if bot is None:
             logger.debug("Notify worker ждёт запуска MAX bot")
         else:
+            await run_admin_approval_cycle(bot)
             await run_priority_cycle(bot, config=cfg)
             await run_digest_cycle(bot, config=cfg)
         await asyncio.sleep(max(1, cfg.poll_interval_seconds))
