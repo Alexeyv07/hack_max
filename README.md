@@ -1,9 +1,5 @@
 # Проект «Умный город» — бот и WebApp для мессенджера Max
 
-Лента событий рядом / по городу: парсеры СМИ и УК → normalize + ML → dedup → `events` → WebApp.
-
-Гайд для агентов: [`AGENTS.md`](./AGENTS.md). Пайплайн (mermaid): [`docs/pipeline_parser_to_feed.md`](./docs/pipeline_parser_to_feed.md).
-
 ## Contributing flow
 
 1. Ветка от `main`: `git checkout -b your-feature-name`
@@ -38,25 +34,13 @@ docs/                  # схемы пайплайна
 tests/ scripts/
 ```
 
-### Поток данных (кратко)
-
-```
-parse_* → ParserCandidate
-       → normalize (title/body, importance, disaster, active_*, geo)
-       → ml_dedup (NEW / DUP / UPDATE, окно 21 день)
-       → events → GET /events/feed
-```
-
-Geo: воркер (regex + spaCy LOC → StreetCatalog) → при `address_id=null` ещё `place_ner` в normalize.  
-Time: только ML (`ml/time`); без ONNX поля `null`. Classify: ONNX → rules (переобучать не обязательно).
-
 ## Скрипты (`scripts/`)
 
-| скрипт | зачем |
-|--------|--------|
-| `bot_entrypoint.py` | Docker bot: проверка ML-артефактов, `alembic upgrade`, seed, `main` |
-| `classify_try.py` | REPL importance (ONNX → rules) |
-| `smoke_parser_collect.py` | live smoke news/mc collect |
+| скрипт                    | зачем                                                               |
+|---------------------------|---------------------------------------------------------------------|
+| `bot_entrypoint.py`       | Docker bot: проверка ML-артефактов, `alembic upgrade`, seed, `main` |
+| `classify_try.py`         | REPL importance (ONNX → rules)                                      |
+| `smoke_parser_collect.py` | live smoke news/mc collect                                          |
 
 ```bash
 set PYTHONPATH=src
@@ -88,116 +72,19 @@ python ml/dedup/eval_threshold.py --config ml/dedup/config.yaml
 
 Артефакты → `ml/*/artifacts/` (в git не коммитим тяжёлые `.onnx`; монтируются в Docker).
 
-## Режимы запуска
+## Запуск
 
-Нужен `.env` из `.env.example` (`MAX_BOT_TOKEN`).
-
-### Postgres
+Нужен `.env` из `.env.example` (`MAX_BOT_TOKEN`, `CLOUDPUB_TOKEN`).
 
 ```bash
-docker compose up -d postgres
-```
+# Всё в Docker (postgres + bot + webapp + cloudpub):
+docker compose up -d --build
+docker compose logs -f cloudpub   # https://….cloudpub.ru → в Max
 
-`conf/local.yaml` → `localhost:5432`.
-
-### Подключение домового чата (KAN-7)
-
-`chat_link` реализует один onboarding-screen и 4 способа выбора дома: bot-picker
-`город → район → улица → дом`, индекс, карта WebApp на Яндекс Картах и текстовый WebApp-поиск.
-Обычный welcome ведёт жителя в поиск чата, отдельная кнопка открывает flow администратора. Для
-карты задайте `VITE_YANDEX_MAPS_API_KEY` в `.env`. Адресные списки строятся из in-memory
-`StreetCatalog`; реальные MAX group `chat_id` и membership
-сохраняются через `user_chat`. Если чат создаётся впервые, администратор добавляет бота в группу,
-назначает его администратором с правом `read_all_messages`, после чего связь подтверждается MAX API
-и завершается автоматически. Подробнее: `src/chat_link/README.md`.
-
-### WebApp: локально и GitHub Pages
-
-Публичный HTTPS для Max — **GitHub Pages** (`https://alexeyv07.github.io/hack_max/`).
-Релизная сборка: push тега `v*` → workflow `WebApp Pages` (см. `.github/workflows/webapp-pages.yaml`).
-
-В настройках репозитория задайте variable **`WEBAPP_API_BASE`** — публичный origin API
-(без `/api`, например `https://api.example.com`). CORS: `api.cors_origins` в conf /
-`API_CORS_ORIGINS`. В настройках бота Max укажите URL Pages.
-
-#### Локальная разработка
-
-`localhost` **не** читает user id из Max Bridge: всегда фейковый **`159064979`**.
-API — через Vite proxy `/api` → `:8000`.
-
-```bash
-python -m main                    # :8000
-cd webapp && npm install && npm run dev   # :5173
-# → http://localhost:5173
-```
-
-Или webapp в Docker:
-
-```bash
-docker compose up -d webapp       # :5173, PUBLIC_API_BASE=/api
-```
-
-#### Релиз на Pages
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-# или Actions → WebApp Pages → Run workflow
-```
-
-Сборка: `BASE_PATH=/hack_max`, `PUBLIC_API_BASE=$WEBAPP_API_BASE` → ветка `gh-pages`
-(каталог `docs/` от mdBook сохраняется).
-
-### A. Локально bot + API
-
-```bash
-docker compose up -d postgres
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e ".[dev]"
-pip install -e ".[ml-runtime]"   # onnxruntime, transformers, spacy
-python -m spacy download ru_core_news_md
-pre-commit install
-copy .env.example .env
-
-alembic upgrade head
-python -m address.seed src/address/data/moscow.jsonl.gz
+# Бот на хосте — не поднимайте сервис bot:
+docker compose up -d postgres webapp cloudpub
 python -m main
-# API: http://localhost:8000/docs
 ```
-
-```bash
-pytest
-```
-
-### B. Всё в Docker
-
-Перед сборкой желательны веса classify (и после разметки — time):
-
-```bash
-# GPU-машина:
-pip install torch --index-url https://download.pytorch.org/whl/cu124
-pip install -e ".[ml]"
-python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
-# → ml/classify/artifacts/importance_model.onnx
-# опционально time/dedup — см. ml/TRAIN.md
-```
-
-```bash
-copy .env.example .env
-docker compose up --build
-```
-
-Контейнер `bot`:
-- `pip install .[ml-runtime]` + `spacy download ru_core_news_md`;
-- COPY/mount: `ml/classify|time|dedup/artifacts`;
-- без ONNX — soft WARN и fallback (rules / null dates / hash embed);
-- `alembic upgrade head`, seed addresses/events при пустых таблицах.
-
-- Postgres: `localhost:5432`
-- WebApp (локально): http://localhost:5173
-- WebApp (Max / Pages): https://alexeyv07.github.io/hack_max/
-- API/bot: http://localhost:8000
 
 ## Миграции (Alembic)
 

@@ -39,6 +39,15 @@ function isLocalDevHost(): boolean {
 	}
 }
 
+/** Туннель CloudPub: в браузере без Bridge — тот же фейковый user, что на localhost. */
+function isCloudpubHost(): boolean {
+	try {
+		return window.location.hostname.endsWith('.cloudpub.ru');
+	} catch {
+		return false;
+	}
+}
+
 function parseInitData(raw: string | undefined): URLSearchParams | null {
 	if (!raw) return null;
 	try {
@@ -89,7 +98,7 @@ function cacheUserId(id: number): number {
 }
 
 export function getMaxUserId(): number | null {
-	// Браузер на localhost: всегда фейковый user (не из Bridge / WebApp).
+	// localhost: всегда фейковый user (не из Bridge).
 	if (isLocalDevHost()) {
 		return cacheUserId(LOCAL_DEV_USER_ID);
 	}
@@ -104,6 +113,11 @@ export function getMaxUserId(): number | null {
 	// когда глобальный объект Bridge появляется позже стартового рендера.
 	const hashId = userIdFromParams(initDataFromHash());
 	if (hashId !== null) return cacheUserId(hashId);
+
+	// CloudPub в обычном браузере (не из кнопки Max) — fallback как на localhost.
+	if (isCloudpubHost()) {
+		return cacheUserId(LOCAL_DEV_USER_ID);
+	}
 
 	return null;
 }

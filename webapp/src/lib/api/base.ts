@@ -2,8 +2,7 @@ import { env } from '$env/dynamic/public';
 
 /**
  * База API без завершающего `/`.
- * Локально: `/api` (Vite proxy → backend).
- * GitHub Pages: абсолютный origin backend, напр. `https://api.example.com`.
+ * По умолчанию `/api` (Vite proxy → backend на :8000).
  */
 export function apiBase(): string {
 	const raw = (env.PUBLIC_API_BASE || '/api').trim();

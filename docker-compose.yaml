@@ -16,7 +16,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # ML artifacts: COPY в образ + mount с хоста (после train — restart bot без rebuild).
   bot:
     build:
       context: .
@@ -34,7 +33,6 @@ services:
       TRANSFORMERS_OFFLINE: "1"
       HF_HUB_OFFLINE: "1"
     ports:
-      # API из main (runtime.enable_api) — для webapp proxy / локального :8000
       - "8000:8000"
     volumes:
       - ./src:/app/src
@@ -63,15 +61,27 @@ services:
       - ./webapp:/app
       - webapp_node_modules:/app/node_modules
     environment:
-      # По умолчанию API на хосте (python -m main). Для bot в compose:
-      #   API_PROXY_TARGET=http://bot:8000
-      API_PROXY_TARGET: ${API_PROXY_TARGET:-http://host.docker.internal:8000}
+      API_PROXY_TARGET: http://host.docker.internal:8000
       PUBLIC_API_BASE: /api
-      VITE_YANDEX_MAPS_API_KEY: ${VITE_YANDEX_MAPS_API_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
+  cloudpub:
+    image: cloudpub/cloudpub:latest
+    container_name: hack_max_cloudpub
+    restart: unless-stopped
+    network_mode: "service:webapp"
+    environment:
+      TOKEN: ${CLOUDPUB_TOKEN:-}
+      HTTP: localhost:5173
+    command: ["run"]
+    volumes:
+      - cloudpub_config:/home/cloudpub
+    depends_on:
+      - webapp
+
 volumes:
   postgres_data:
   webapp_node_modules:
+  cloudpub_config:
