@@ -154,7 +154,7 @@ def test_postal_street_callback_goes_to_houses(monkeypatch) -> None:
     asyncio.run(dp.handlers["message_callback"](event, context))
 
     event.edit.assert_awaited_once()
-    event.ack.assert_awaited_once()
+    event.ack.assert_not_awaited()
     assert "Сельскохозяйственная улица" in event.edit.await_args.kwargs["text"]
     assert "Выберите дом" in event.edit.await_args.kwargs["text"]
     assert context.data["street"] == "Сельскохозяйственная улица"
@@ -189,7 +189,7 @@ def test_admin_instructions_are_shown_only_after_admin_button(monkeypatch) -> No
 
     asyncio.run(dp.handlers["message_callback"](event, context))
 
-    event.ack.assert_awaited_once()
+    event.ack.assert_not_awaited()
     event.edit.assert_awaited_once()
     kwargs = event.edit.await_args.kwargs
     assert "Если вы администратор домового чата" in kwargs["text"]
@@ -214,7 +214,7 @@ def test_return_from_admin_help_shows_resident_text(monkeypatch) -> None:
 
     asyncio.run(dp.handlers["message_callback"](event, context))
 
-    event.ack.assert_awaited_once()
+    event.ack.assert_not_awaited()
     event.edit.assert_awaited_once()
     kwargs = event.edit.await_args.kwargs
     assert "Если вы обычный житель" in kwargs["text"]
@@ -222,3 +222,103 @@ def test_return_from_admin_help_shows_resident_text(monkeypatch) -> None:
     buttons = kwargs["attachments"][0].payload.buttons
     assert buttons[0][0].text == "Скопировать ссылку для админа"
     assert buttons[1][0].text == "Я администратор чата"
+
+
+def test_method_screen_uses_regular_message_edit(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = SimpleNamespace(
+        me=SimpleNamespace(username="test_bot", user_id=999),
+        edit_message=AsyncMock(),
+    )
+    flow.register_chat_link_commands(dp, bot)
+
+    context = FakeContext({"flow_mid": "mid"})
+    event = SimpleNamespace(
+        callback=SimpleNamespace(
+            payload="chat_link:start",
+            user=SimpleNamespace(user_id=123),
+        ),
+        ack=AsyncMock(),
+        edit=AsyncMock(),
+        message=SimpleNamespace(body=SimpleNamespace(mid="mid")),
+    )
+
+    asyncio.run(dp.handlers["message_callback"](event, context))
+
+    event.ack.assert_awaited_once()
+    event.edit.assert_not_awaited()
+    bot.edit_message.assert_awaited_once()
+    args = bot.edit_message.await_args.args
+    kwargs = bot.edit_message.await_args.kwargs
+    assert args == ("mid",)
+    buttons = kwargs["attachments"][0].payload.buttons
+    assert buttons[-1][0].text == "← Назад"
+
+
+def test_method_screen_has_back_to_welcome_button() -> None:
+    from chat_link.commands.keyboards import method_keyboard
+
+    bot = SimpleNamespace(me=SimpleNamespace(username="test_bot", user_id=999))
+    markup = method_keyboard(bot)
+    buttons = markup.payload.buttons
+
+    assert len(buttons) == 5
+    assert buttons[-1][0].text == "← Назад"
+    assert buttons[-1][0].payload == "cl:back:welcome"
+
+
+def test_back_from_method_screen_returns_to_welcome(monkeypatch) -> None:
+    from contextlib import contextmanager
+
+    dp = FakeDispatcher()
+    bot = SimpleNamespace(
+        me=SimpleNamespace(username="test_bot", user_id=999),
+        edit_message=AsyncMock(),
+    )
+
+    @contextmanager
+    def fake_session_scope():
+        yield object()
+
+    monkeypatch.setattr(flow, "session_scope", fake_session_scope)
+    monkeypatch.setattr(
+        flow,
+        "get_user_by_max_id",
+        lambda _session, max_user_id: SimpleNamespace(
+            max_user_id=max_user_id,
+            name="Алексей",
+            username="alexey",
+        ),
+    )
+    monkeypatch.setattr(flow, "has_connected_chat", lambda _session, _max_user_id: False)
+    flow.register_chat_link_commands(dp, bot)
+
+    context = FakeContext(
+        {
+            "flow_mid": "mid",
+            "city": "Москва",
+            "district": "Ростокино",
+        }
+    )
+    event = SimpleNamespace(
+        callback=SimpleNamespace(
+            payload="cl:back:welcome",
+            user=SimpleNamespace(user_id=123),
+        ),
+        ack=AsyncMock(),
+        edit=AsyncMock(),
+        message=SimpleNamespace(body=SimpleNamespace(mid="mid")),
+    )
+
+    asyncio.run(dp.handlers["message_callback"](event, context))
+
+    event.ack.assert_awaited_once()
+    event.edit.assert_not_awaited()
+    bot.edit_message.assert_awaited_once()
+    assert bot.edit_message.await_args.args == ("mid",)
+    kwargs = bot.edit_message.await_args.kwargs
+    assert kwargs["text"].startswith("Привет, Алексей!")
+    buttons = kwargs["attachments"][0].payload.buttons
+    assert buttons[0][0].text == "Добавить чат"
+    assert context.data == {"flow_mid": "mid"}
+    assert context.state is None

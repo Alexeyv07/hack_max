@@ -116,6 +116,7 @@ def method_keyboard(bot: Any, *, target_chat_id: int | None = None):
             payload=f"chat_link_text{suffix}",
         )
     )
+    builder.row(CallbackButton(text="← Назад", payload="cl:back:welcome"))
     return builder.as_markup()
 
 
