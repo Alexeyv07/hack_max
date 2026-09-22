@@ -14,5 +14,5 @@
   "onnx": "importance_model.onnx",
   "tokenizer_dir": "tokenizer",
   "num_labels": 3,
-  "base_model": "cointegrated/rubert-tiny2"
+  "base_model": "C:\\Users\\iosh\\Projects\\hack_max\\ml\\classify\\checkpoints\\rubert_importance\\best"
 }

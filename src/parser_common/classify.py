@@ -2,17 +2,19 @@
 Классификация важности события (ml_classify).
 
 importance и disaster_flag — разные поля:
-  importance 1|2|3 — вес/ранг для ленты
-  disaster_flag — отдельный признак ЧС (карта, city-feed policy)
+  importance 1|2|3 — срочная опасность / важно для быта / информационное
+  disaster_flag — отдельный признак городской ЧС (карта, city-feed policy)
 
 Каскад (первый успешный по confidence)::
 
     текст → ONNX rubert-tiny2 → keyword rules
 
+Rules (fallback): disaster → urgent(cat.1) → important(cat.2) → 3.
 ML предсказывает только importance.
 disaster_flag всегда считается keyword-rules (не выводится из importance==1).
 
 Обучение: ml/classify/train_torch.py (GPU). В src нет датасетов и train-кода.
+Критерии разметки: ml/classify/criteria_categories.txt
 """
 
 from __future__ import annotations
@@ -38,6 +40,23 @@ _DEFAULT_DISASTER = (
     "эвакуац",
     "обрушен",
 )
+# Срочная локальная опасность (importance=1), НЕ автоматически disaster_flag.
+_DEFAULT_URGENT = (
+    "запах газа",
+    "утечка газа",
+    "задымлен",
+    "пожар в квартир",
+    "пожар в подъезд",
+    "пожар в подвал",
+    "заливает",
+    "прорвало стояк",
+    "застряли в лифте",
+    "угрожает нож",
+    "с ножом",
+    "избивают",
+    "оборванн провод",
+    "оборванный провод",
+)
 _DEFAULT_IMPORTANT = (
     "отключили воду",
     "отключение воды",
@@ -46,11 +65,13 @@ _DEFAULT_IMPORTANT = (
     "отключили газ",
     "авария",
     "прорыв",
-    "пожар",
-    "затоп",
     "ремонт теплосети",
     "без отопления",
     "канализац",
+    "опрессовк",
+    "перекрыт",
+    "не работает лифт",
+    "домофон",
 )
 
 _RULES_PATH = PROJECT_ROOT / "ml" / "classify" / "rules.yaml"
@@ -64,16 +85,17 @@ class ClassifyResult:
 
 
 @lru_cache(maxsize=1)
-def _load_extra_keywords() -> tuple[tuple[str, ...], tuple[str, ...]]:
+def _load_extra_keywords() -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     if not _RULES_PATH.is_file():
-        return (), ()
+        return (), (), ()
     try:
         raw = yaml.safe_load(_RULES_PATH.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError):
-        return (), ()
+        return (), (), ()
     disaster = tuple(str(x).lower() for x in (raw.get("disaster") or []) if x)
+    urgent = tuple(str(x).lower() for x in (raw.get("urgent") or []) if x)
     important = tuple(str(x).lower() for x in (raw.get("important") or []) if x)
-    return disaster, important
+    return disaster, urgent, important
 
 
 def clear_rules_cache() -> None:
@@ -86,29 +108,32 @@ def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
     return any(needle in text for needle in needles)
 
 
-def _keyword_sets(text: str) -> tuple[bool, bool]:
+def _keyword_sets(text: str) -> tuple[bool, bool, bool]:
     normalized = normalize_text(text)
-    extra_disaster, extra_important = _load_extra_keywords()
+    extra_disaster, extra_urgent, extra_important = _load_extra_keywords()
     is_disaster = _contains_any(normalized, _DEFAULT_DISASTER + extra_disaster)
+    is_urgent = _contains_any(normalized, _DEFAULT_URGENT + extra_urgent)
     is_important = _contains_any(normalized, _DEFAULT_IMPORTANT + extra_important)
-    return is_disaster, is_important
+    return is_disaster, is_urgent, is_important
 
 
 def disaster_flag_by_rules(text: str) -> bool:
     """ЧС-маркер по keywords. Не зависит от predicted importance."""
-    is_disaster, _ = _keyword_sets(text)
+    is_disaster, _, _ = _keyword_sets(text)
     return is_disaster
 
 
 def classify_by_rules(text: str) -> ClassifyResult:
     """
     Rules без ML.
-    При совпадении disaster-keywords: importance=1 и disaster_flag=True
-    (эвристика fallback; в датасете/ML связка не обязательна).
+    Порядок: disaster → urgent (cat.1) → important (cat.2) → trivia (3).
+    disaster_flag только от disaster-keywords.
     """
-    is_disaster, is_important = _keyword_sets(text)
+    is_disaster, is_urgent, is_important = _keyword_sets(text)
     if is_disaster:
         return ClassifyResult(importance=1, disaster_flag=True, method="rules")
+    if is_urgent:
+        return ClassifyResult(importance=1, disaster_flag=False, method="rules")
     if is_important:
         return ClassifyResult(importance=2, disaster_flag=False, method="rules")
     return ClassifyResult(importance=3, disaster_flag=False, method="rules")

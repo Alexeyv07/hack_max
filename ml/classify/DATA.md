@@ -9,61 +9,55 @@
 | поле | обязательно | смысл |
 |------|-------------|--------|
 | `text` | да | сырой пост/новость |
-| `importance` | да | `1` высокий приоритет, `2` важное ЖКХ/муниципалка, `3` шум |
-| `disaster_flag` | нет (default `false`) | отдельный признак ЧС; **не** синоним `importance==1` |
-| `source` | нет | `chat` / `news` / `public` / `synthetic` |
+| `importance` | да | `1` срочная опасность, `2` важно для быта, `3` информационное |
+| `disaster_flag` | нет (default `false`) | городская ЧС; **не** синоним `importance==1` |
+| `source` | нет | `chat` / `news` / `mc` / `curated` / `synthetic` |
 
-Файлы в `ml/classify/data/` (в gitignore):
+Продуктовые критерии разметки: [`criteria_categories.txt`](./criteria_categories.txt)
+(копия инструкции «Критерии категорий событий»). Кратко:
 
-| файл | роль |
-|------|------|
-| `train.jsonl` | ручная + собранная разметка (основной train) |
-| `bootstrap.jsonl` | синтетика из `bootstrap_data.py` |
-| `val.jsonl` / `test.jsonl` | опционально; иначе split в train-скриптах |
+1. Сначала признаки **срочной опасности** (пожар/дым/газ/насилие/активное затопление…).
+2. Иначе **важно для быта** (отключения, лифт пустой, перекрытие въезда…).
+3. Иначе **информационное** (кот, афиша, потушенный пожар без ограничений…).
+4. Неоднозначные фразы без контекста **не** класть в train как золото.
 
 ## importance vs disaster_flag
 
-Это два поля, не одно.
+- `importance=1` + `disaster_flag=false` — локальная срочность (газ в подъезде, пожар в квартире).
+- `importance=1` + `disaster_flag=true` — городская ЧС (землетрясение, режим ЧС, хим. авария…).
+- Отключение воды / пустой лифт / перекрытие двора → `2`, `false`.
+- Кошки, объявления, завершённое без последствий → `3`, `false`.
 
-- `importance=1` без `disaster_flag` — критично для ленты, но не городская ЧС (city-feed такие режет).
-- `disaster_flag=true` — реальная ЧС (землетрясение, теракт, хим. авария, массовая эвакуация…). Обычно рядом стоит `importance=1`, но схема это не требует.
-- Отключение воды / локальный пожар / прорыв трубы → `importance=2`, `disaster_flag=false`.
-- Кошки, объявления, афиша → `3`, `false`.
+## Файлы в `ml/classify/data/`
 
-Ошибки разметки, которые уже ловили: ЖКХ в класс 1, локальный пожар с `disaster_flag=true`, криминальная хроника как ЧС.
+| файл | роль |
+|------|------|
+| `train.jsonl` / `val.jsonl` | сборка `build_train_from_sources.py` |
+| `label_report.json` | статистика последней сборки |
+| `bootstrap.jsonl` | legacy-синтетика `bootstrap_data.py` |
 
-## Объёмы (ориентир под rubert-tiny2 / 3060 4GB)
+## Сборка (рекомендуется)
+
+```bash
+python ml/classify/build_train_from_sources.py
+# python ml/classify/build_train_from_sources.py --synthetic-n 900 --dry-run
+```
+
+Источники: `bootstrap_events.jsonl.gz` + чаты MAX + curated gold (§3–6 критериев)
++ синтетика под те же правила. Offsets/важность клипуются балансом классов.
+
+## Объёмы
 
 | цель | строк | баланс |
 |------|-------|--------|
-| smoke пайплайна | ~300 | можно `bootstrap.jsonl` |
-| хакатон-MVP | 1.5–3k | не хуже ~1:2:2 по классам |
-| дальше | 5k+ | лучше quality-pass, чем сырой объём |
-
-Класс 1 редкий — не добивать бытовухой; oversample / `class_weight` ок.
-
-## Откуда брать тексты
-
-**Чаты.** Выгрузка → `weak_label.py` → ручной проход по всем `importance=1` и `disaster_flag=true`, плюс выборка остального.
-
-**Локальные СМИ / RSS.** ЧС → флаг + обычно класс 1; ЖКХ → 2; афиша → 3.
-
-**Синтетика.**
-
-```bash
-python ml/classify/bootstrap_data.py
-# пишет только data/bootstrap.jsonl
-
-# если нужно докинуть недостающие шаблоны в train — append, без overwrite:
-python ml/classify/bootstrap_data.py --merge-into-train
-```
-
-`bootstrap_data.py` **никогда** не перезаписывает `train.jsonl`.
+| smoke | ~300 | `bootstrap.jsonl` |
+| качественный train | ~1.5–2.5k | class_weight=balanced; cat.1 не раздувать шумом |
+| дальше | 5k+ | больше реальных chat/mc с ручным ревью cat.1 |
 
 ## Чеклист перед train
 
+- [ ] `python ml/classify/build_train_from_sources.py`
+- [ ] `pytest ml/classify/test_criteria_label.py`
 - [ ] JSONL парсится (`dataset_io.load_jsonl`)
-- [ ] есть все три класса
-- [ ] `disaster_flag` проставлен явно там, где ЧС (не надеяться на «класс 1 = ЧС»)
-- [ ] мало copy-paste дублей
-- [ ] val отдельно или auto-split в конфиге
+- [ ] есть все три класса; `disaster_flag` только у реальных ЧС
+- [ ] `python ml/classify/train_torch.py --config ml/classify/config_torch.yaml`
