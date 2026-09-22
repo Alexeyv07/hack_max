@@ -20,6 +20,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.api.cors_origins),
+        allow_origin_regex=r"https://.*\.cloudpub\.ru",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

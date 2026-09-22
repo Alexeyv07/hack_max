@@ -16,9 +16,12 @@ export default defineConfig(({ mode }) => {
 	return {
 		plugins: [sveltekit()],
 		server: {
+			// CloudPub (и любой туннель) ходит с чужим Host — иначе Vite 403.
+			allowedHosts: true,
 			proxy
 		},
 		preview: {
+			allowedHosts: true,
 			proxy
 		}
 	};

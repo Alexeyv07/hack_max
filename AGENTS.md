@@ -159,20 +159,18 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
 
 ## WebApp (KAN-16)
 
-- SvelteKit mini-app в `webapp/` (`adapter-static`): TikTok-лента nearby | city.
+- SvelteKit mini-app в `webapp/`: TikTok-лента nearby | city.
 - Данные **только** с API (`GET /events/feed`) → БД.
-- **Публикация:** GitHub Pages `https://alexeyv07.github.io/hack_max/` —
-  workflow `.github/workflows/webapp-pages.yaml` на тег `v*` (или workflow_dispatch).
-  Сборка: `BASE_PATH=/hack_max`, `PUBLIC_API_BASE` = repo var `WEBAPP_API_BASE`
-  (публичный origin API без `/api`). Рядом на Pages лежит mdBook в `/docs/`.
-- **Локально:** `npm run dev` → http://localhost:5173; `PUBLIC_API_BASE=/api`
-  (Vite proxy → `API_PROXY_TARGET` / `:8000`). User id **не** из Bridge —
-  фейковый `159064979` на hostname `localhost` / `127.0.0.1`.
-- **На Pages / в Max:** user id из Max Bridge
-  (`window.WebApp.initDataUnsafe.user.id` / initData / hash) → заголовок
-  `X-Max-User-Id`.
-- CORS: `api.cors_origins` в conf (вкл. `https://alexeyv07.github.io`) или
-  `API_CORS_ORIGINS`.
+- **Max / HTTPS:** CloudPub → `localhost:5173` (сеть контейнера webapp)
+  ([docs](https://cloudpub.ru/docs/docker)). `CLOUDPUB_TOKEN` в `.env`.
+  URL: `docker compose logs cloudpub`.
+  API: Vite `/api` → `host.docker.internal:8000` (проброшенный `:8000`).
+- **Запуск:** `docker compose up -d --build` (всё) или
+  `docker compose up -d postgres webapp cloudpub` + `python -m main`.
+- **Локально:** http://localhost:5173; user id `159064979` (не Bridge).
+- **В Max:** user id из Bridge → `X-Max-User-Id`.
+- Yandex Maps: ключ в `webapp/src/lib/yandexMaps.ts` (`YANDEX_MAPS_API_KEY`).
+- CORS: localhost + regex `https://.*\.cloudpub\.ru`.
 - UI: full-height snap-карточки, табы «Новости рядом / города», свайп вправо → город,
   картинка с lightbox, цветовая полоса по importance, SVG при `disaster_flag`,
   дата / источник (ссылка) / локация в одну строку; длинный body — синяя ссылка «ещё»,
@@ -184,13 +182,13 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
   (`OpenAppButton`, текст «Открыть новости»).
 - Мини-приложение привязывается к боту на платформе MAX
   ([docs/webapps](https://dev.max.ru/docs/webapps/introduction)): HTTPS URL =
-  GitHub Pages (`https://alexeyv07.github.io/hack_max/`).
+  CloudPub (`docker compose logs cloudpub`).
 - Identity кнопки: `GET /me` → `web_app` (username) + `contact_id`.
 
 ## Конфиг
 
 - `APP_ENVIRONMENT=local|prod` → `conf/local.yaml` / `conf/prod.yaml`.
-- Секреты только в `.env` (`MAX_BOT_TOKEN`, пароли, ключи LLM).
+- Секреты только в `.env` (`MAX_BOT_TOKEN`, `CLOUDPUB_TOKEN`, пароли).
 - Env перекрывает YAML (`DATABASE_HOST`, `API_PORT`, `API_CORS_ORIGINS`, …).
 
 ## Команды
@@ -201,9 +199,9 @@ set PYTHONPATH=src
 alembic upgrade head
 python -m main
 
-# WebApp (KAN-16), в другом терминале — данные с API/БД:
-# cd webapp && npm install && npm run dev
-# → http://localhost:5173  (прокси /api → :8000; user_id=159064979)
+# docker compose up -d --build
+# docker compose logs -f cloudpub
+# локально: http://localhost:5173
 
 # ML classify (KAN-13), отдельно от runtime:
 pip install torch --index-url https://download.pytorch.org/whl/cu124

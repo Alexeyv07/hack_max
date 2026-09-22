@@ -148,13 +148,13 @@ class MaxConfig:
 class ApiConfig:
     host: str = "0.0.0.0"
     port: int = 8000
-    # Origins WebApp (localhost + GitHub Pages). Перекрывается api.cors_origins / API_CORS_ORIGINS.
+    # Origins WebApp (localhost). CloudPub — allow_origin_regex в app.py.
+    # Перекрывается api.cors_origins / API_CORS_ORIGINS.
     cors_origins: tuple[str, ...] = (
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:4173",
         "http://127.0.0.1:4173",
-        "https://alexeyv07.github.io",
     )
 
 
