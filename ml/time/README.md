@@ -20,12 +20,13 @@ Title/summary / importance — не этот каталог (см. `ml/classify/
 | [MODEL.md](./MODEL.md) | мультиголова, offsets, артефакты |
 | `config_torch.yaml` | гиперпараметры под 3060 4GB |
 | `dataset_io.py` | load/write JSONL + offsets |
-| `bootstrap_data.py` | синтетика MC/news → `bootstrap.jsonl` |
+| `ru_window.py` | детерминированная разметка RU-окон |
+| `build_train_from_sources.py` | bootstrap_events + чаты → train/val |
+| `bootstrap_data.py` | legacy-синтетика → `bootstrap.jsonl` |
 | `train_torch.py` | fine-tune → checkpoint → ONNX |
 | `export_onnx.py` | re-export |
 
-`data/train.jsonl` — **user-supplied** (в git не коммитится). Рядом
-`data/.gitkeep`, чтобы каталог существовал.
+`data/train.jsonl` / `val.jsonl` — собираются скриптом (в git не коммитятся).
 
 ## Train
 
@@ -33,15 +34,17 @@ Title/summary / importance — не этот каталог (см. `ml/classify/
 pip install torch --index-url https://download.pytorch.org/whl/cu124
 pip install -e ".[ml]"
 
-# синтетика для smoke (train.jsonl не трогает):
-python ml/time/bootstrap_data.py
+# 1) качественный датасет из реальных событий + чатов:
+python ml/time/build_train_from_sources.py
 
-# скопировать bootstrap → train вручную или:
-# copy ml\time\data\bootstrap.jsonl ml\time\data\train.jsonl
-# либо append недостающих шаблонов:
-python ml/time/bootstrap_data.py --merge-into-train
-
+# 2) обучение (берёт data/train.jsonl + data/val.jsonl):
 python ml/time/train_torch.py --config ml/time/config_torch.yaml
+```
+
+Smoke-синтетика (опционально):
+
+```bash
+python ml/time/bootstrap_data.py
 ```
 
 Re-export:
@@ -52,5 +55,5 @@ python ml/time/export_onnx.py --checkpoint ml/time/checkpoints/rubert_time/best
 
 ## Runtime
 
-Код inference в `src/` появится отдельно — **не** импортировать `ml/` из runtime.
+Inference в `src/parser_common/time_onnx.py` — **не** импортировать `ml/` из runtime.
 Артефакты: `ml/time/artifacts/`.

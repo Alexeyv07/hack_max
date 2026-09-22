@@ -177,8 +177,8 @@ def train(config_path: Path) -> dict[str, Any]:
     if not train_path.is_file():
         raise SystemExit(
             f"Нет датасета {train_path}\n"
-            "Нет train.jsonl — см. ml/time/DATA.md "
-            "(сначала bootstrap_data.py и скопируйте/merge в train.jsonl)"
+            "Соберите данные: python ml/time/build_train_from_sources.py\n"
+            "См. ml/time/DATA.md"
         )
 
     train_rows = load_jsonl(train_path)

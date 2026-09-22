@@ -1,0 +1,16 @@
+{
+  "format": "rubert_time_window_onnx_v1",
+  "max_length": 160,
+  "offset_unit": "hours",
+  "outputs": [
+    "has_from_logit",
+    "has_to_logit",
+    "from_offset",
+    "to_offset"
+  ],
+  "has_threshold": 0.5,
+  "onnx": "time_window_model.onnx",
+  "tokenizer_dir": "tokenizer",
+  "base_model": "cointegrated/rubert-tiny2",
+  "note": "active_* = reference + timedelta(hours=offset) если sigmoid(has_*) >= threshold"
+}
