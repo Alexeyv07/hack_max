@@ -41,6 +41,7 @@ from user_chat.handlers import (
     get_chat,
     has_connected_chat,
     list_chats_by_address,
+    set_member_address,
 )
 
 logger = get_logger(__name__)
@@ -120,6 +121,7 @@ async def _show_welcome(event: Any, context: Any, bot: Any) -> None:
 
     data = await context.get_data()
     target_chat_id = data.get("target_chat_id")
+    resident_chat_id = data.get("resident_chat_id")
     flow_mid = _screen_mid(event) or data.get("flow_mid")
     await context.set_state(None)
     clean_data = {}
@@ -127,16 +129,23 @@ async def _show_welcome(event: Any, context: Any, bot: Any) -> None:
         clean_data["flow_mid"] = flow_mid
     if target_chat_id is not None:
         clean_data["target_chat_id"] = target_chat_id
+    if resident_chat_id is not None:
+        clean_data["resident_chat_id"] = resident_chat_id
     await context.set_data(clean_data)
 
     name = user.name or user.username or "друг"
     kwargs = {
-        "text": build_welcome_text(name, binding_group=target_chat_id is not None),
+        "text": build_welcome_text(
+            name,
+            binding_group=target_chat_id is not None,
+            choosing_residence=resident_chat_id is not None,
+        ),
         "attachments": [
             build_welcome_keyboard(
                 bot,
                 show_events=show_events,
                 binding_group=target_chat_id is not None,
+                choosing_residence=resident_chat_id is not None,
             )
         ],
         "format": Format.HTML,
@@ -156,19 +165,28 @@ async def _show_methods(event: Any, context: Any, bot: Any) -> None:
         await context.update_data(flow_mid=mid)
     data = await context.get_data()
     target_chat_id = data.get("target_chat_id")
-    if target_chat_id is None:
+    resident_chat_id = data.get("resident_chat_id")
+    if resident_chat_id is not None:
+        text = (
+            "Укажите адрес вашего дома, чтобы показывать события рядом с ним. "
+            "В одном чате могут состоять жители нескольких домов.\n\n"
+            "Индекс только сужает список домов — он не считается выбранным адресом."
+        )
+    elif target_chat_id is None:
         text = (
             "Как хотите указать место жительства?\n\n"
             "Индекс только сужает список домов — он не считается выбранным адресом."
         )
     else:
         text = (
-            "Выберите адрес, к которому нужно привязать этот домовой чат.\n\n"
+            "Выберите дом для этого чата. Можно будет добавить и другие дома двора.\n\n"
             "Индекс только сужает список домов — он не считается выбранным адресом."
         )
     kwargs = {
         "text": text,
-        "attachments": [method_keyboard(bot, target_chat_id=target_chat_id)],
+        "attachments": [
+            method_keyboard(bot, target_chat_id=target_chat_id, resident_chat_id=resident_chat_id)
+        ],
         "notify": False,
     }
     if mid:
@@ -300,6 +318,33 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
 
     data = await context.get_data()
     target_chat_id = data.get("target_chat_id")
+    resident_chat_id = data.get("resident_chat_id")
+    if resident_chat_id is not None:
+        try:
+            with session_scope() as session:
+                if not await bind_existing_chat_member(
+                    bot, session, chat_id=int(resident_chat_id), max_user_id=user_id
+                ):
+                    raise ValueError("Сначала вступите в этот групповой чат.")
+                set_member_address(
+                    session, int(resident_chat_id), max_user_id=user_id, address_id=address_id
+                )
+        except ValueError as exc:
+            await event.edit(
+                text=f"Не удалось сохранить адрес.\n\n{exc}",
+                attachments=[method_keyboard(bot, resident_chat_id=int(resident_chat_id))],
+                notify=False,
+            )
+            return
+        await event.edit(
+            text=(
+                f"✅ Ваш адрес сохранён: {address.address_text}\n\n"
+                "Теперь события рядом с вами доступны в мини-приложении."
+            ),
+            attachments=[build_welcome_keyboard(bot, show_events=True, choosing_residence=True)],
+            notify=False,
+        )
+        return
     if target_chat_id is not None:
         with session_scope() as session:
             outcome = await connect_added_group_to_address(
@@ -322,13 +367,14 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
             int(target_chat_id),
             requester_added=outcome.requester_added,
             address_text=address.address_text,
+            additional=outcome.message is not None,
         )
         await context.update_data(address_id=address_id)
         await event.edit(
             text=(
                 "✅ Чат успешно привязан к адресу:\n"
                 f"{address.address_text}\n\n"
-                "Можно вернуться в групповой чат."
+                "Можно добавить ещё один адрес через кнопку администратора в групповом чате."
             ),
             attachments=[],
             notify=False,
@@ -346,6 +392,9 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
                     if await bind_existing_chat_member(
                         bot, session, chat_id=chat.chat_id, max_user_id=user_id
                     ):
+                        set_member_address(
+                            session, chat.chat_id, max_user_id=user_id, address_id=address_id
+                        )
                         connected = True
             except ValueError as exc:
                 await event.edit(
@@ -559,6 +608,8 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             data = {"flow_mid": _screen_mid(event)}
             if current.get("target_chat_id") is not None:
                 data["target_chat_id"] = current["target_chat_id"]
+            if current.get("resident_chat_id") is not None:
+                data["resident_chat_id"] = current["resident_chat_id"]
             await context.set_data(data)
             await context.set_state(ChatLinkStates.choosing)
             await _show_city(event, context)
@@ -672,7 +723,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
         await bot.send_message(
             chat_id=int(chat_id),
             text=(
-                f"🏠 Этот домовой чат привязан к адресу:\n{address_text}\n\n"
+                f"🏠 Адреса этого чата:\n{address_text}\n\n"
                 "Если адрес указан неверно, сообщите администратору чата."
             ),
         )
@@ -712,6 +763,8 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
         }
         if data.get("target_chat_id") is not None:
             next_data["target_chat_id"] = data["target_chat_id"]
+        if data.get("resident_chat_id") is not None:
+            next_data["resident_chat_id"] = data["resident_chat_id"]
         await context.set_data(next_data)
         if not mid:
             return

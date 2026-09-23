@@ -78,7 +78,9 @@ def test_new_migration_reversible_and_does_not_infer_membership(engine) -> None:
     config = Config()
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_current_head() == "0018_notify_blocked"
+    assert scripts.get_current_head() == "0019_chat_addresses"
+    addresses_revision = scripts.get_revision("0019_chat_addresses")
+    assert addresses_revision.down_revision == "0018_notify_blocked"
     blocked_revision = scripts.get_revision("0018_notify_blocked")
     assert blocked_revision.down_revision == "0017_notify_chat_messages"
     chat_messages_revision = scripts.get_revision("0017_notify_chat_messages")
@@ -104,7 +106,7 @@ def test_new_migration_reversible_and_does_not_infer_membership(engine) -> None:
         revision.module.downgrade()
         connection.execute(insert(UserRow).values(max_user_id=7, chat_id=42))
         revision.module.upgrade()
-        assert connection.execute(select(users_chat)).all() == []
+        assert connection.exec_driver_sql("SELECT user_id, chat_id FROM users_chat").all() == []
         assert connection.execute(select(ChatRow.chat_id)).all() == []
         assert connection.execute(select(UserRow.max_user_id)).scalar_one() == 7
         assert inspect(connection).get_pk_constraint("users_chat")["constrained_columns"] == [

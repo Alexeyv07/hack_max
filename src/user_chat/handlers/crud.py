@@ -6,7 +6,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from address.db.address import AddressRow
-from user_chat.db import ChatRow, users_chat
+from user_chat.db import ChatRow, chat_addresses, users_chat
 from user_chat.models.chat import Chat, ChatCreate
 
 
@@ -36,6 +36,7 @@ def create_chat(session: Session, data: ChatCreate) -> Chat:
     if session.get(ChatRow, data.chat_id) is not None:
         raise ValueError(f"Чат chat_id={data.chat_id} уже существует")
     row = ChatRow(chat_id=data.chat_id, address=address, title=title, invite_link=invite_link)
+    row.addresses.append(address)
     row.chat_type = data.chat_type
     session.add(row)
     session.flush()
@@ -87,7 +88,36 @@ def list_chats_by_address(session: Session, address_id: int) -> list[Chat]:
     """Подтверждённые групповые MAX-чаты адреса, включая пустые."""
     rows = session.scalars(
         select(ChatRow)
-        .where(ChatRow.address_id == address_id, ChatRow.chat_type == "chat")
+        .join(chat_addresses, chat_addresses.c.chat_id == ChatRow.chat_id)
+        .where(chat_addresses.c.address_id == address_id, ChatRow.chat_type == "chat")
         .order_by(ChatRow.chat_id)
     )
     return [_to_domain(row) for row in rows]
+
+
+def list_chat_addresses(session: Session, chat_id: int) -> list[AddressRow]:
+    """Все дома чата, включая первый; для отключённой группы список пуст."""
+    return list(
+        session.scalars(
+            select(AddressRow)
+            .join(chat_addresses, chat_addresses.c.address_id == AddressRow.id)
+            .join(ChatRow, ChatRow.chat_id == chat_addresses.c.chat_id)
+            .where(ChatRow.chat_id == chat_id, ChatRow.chat_type == "chat")
+            .order_by(AddressRow.id)
+        ).all()
+    )
+
+
+def add_chat_address(session: Session, chat_id: int, address_id: int) -> bool:
+    """Добавить дом в уже подтверждённую группу; повтор не создаёт дубликат."""
+    chat = session.get(ChatRow, chat_id)
+    address = session.get(AddressRow, address_id)
+    if chat is None or chat.chat_type != "chat":
+        raise ValueError("Групповой чат ещё не подключён")
+    if address is None:
+        raise ValueError("Адрес не найден")
+    if any(existing.id == address_id for existing in chat.addresses):
+        return False
+    chat.addresses.append(address)
+    session.flush()
+    return True

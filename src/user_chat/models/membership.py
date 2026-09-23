@@ -15,6 +15,7 @@ class ChatMembership:
     """
 
     chat_id: int
+    address_id: int
     title: str
     lat: float
     lon: float

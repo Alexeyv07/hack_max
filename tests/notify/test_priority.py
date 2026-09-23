@@ -50,7 +50,9 @@ def _seed_member(
     )
     session.add_all([user, chat])
     session.flush()
-    session.execute(users_chat.insert().values(user_id=user.id, chat_id=chat.chat_id))
+    session.execute(
+        users_chat.insert().values(user_id=user.id, chat_id=chat.chat_id, address_id=address.id)
+    )
     return user
 
 

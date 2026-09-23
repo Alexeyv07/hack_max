@@ -24,6 +24,7 @@ from user_chat.handlers import (
     create_chat,
     list_chat_members,
     list_memberships_for_user,
+    set_member_address,
 )
 from user_chat.models import ChatCreate
 
@@ -54,6 +55,9 @@ def test_postgres_membership_and_delete_constraints() -> None:
                     chat = create_chat(session, ChatCreate(chat_id=-(2**40), address_id=address.id))
                     assert add_user_to_chat(session, chat.chat_id, max_user_id=user.max_user_id)
                     assert not add_user_to_chat(session, chat.chat_id, max_user_id=user.max_user_id)
+                    set_member_address(
+                        session, chat.chat_id, max_user_id=user.max_user_id, address_id=address.id
+                    )
                     assert len(list_chat_members(session, chat.chat_id)) == 1
                     assert list_memberships_for_user(session, user.max_user_id)[0].lat == 55
                     with pytest.raises(IntegrityError), session.begin_nested():

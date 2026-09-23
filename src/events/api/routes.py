@@ -1,4 +1,4 @@
-"""HTTP-роуты событий — GET лента/карта (общая выдача всем, только с адресом)."""
+"""HTTP-роуты событий — GET персональная nearby-лента и общая городская лента."""
 
 from __future__ import annotations
 
@@ -56,17 +56,17 @@ def get_feed(
     ] = None,
 ) -> FeedResponse:
     """
-    TikTok-лента nearby|city: одна выдача всем.
+    Nearby — по выбранному дому, city — общая выдача.
 
     Только события с определённым адресом. X-Max-User-Id обязателен (идентификация).
     """
-    _ = max_user_id
     try:
         page = crud.list_feed(
             session,
             scope=scope,
             limit=limit,
             cursor=cursor,
+            max_user_id=max_user_id,
         )
     except ValueError as exc:
         raise HTTPException(

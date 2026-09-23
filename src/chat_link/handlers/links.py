@@ -14,6 +14,7 @@ from user_chat.handlers import (
     get_chat,
     list_chats_by_address,
     promote_chat_to_group,
+    set_member_address,
 )
 from user_chat.models import Chat, ChatCreate
 
@@ -189,6 +190,7 @@ def finalize_group(
         raise ValueError("Пользователь не зарегистрирован")
 
     add_user_to_chat(session, chat_id, max_user_id=admin_max_user_id)
+    set_member_address(session, chat_id, max_user_id=admin_max_user_id, address_id=row.address_id)
     row.admin_user_id = admin.id
     row.chat_id = chat_id
     # Если админ и есть инициатор, он уже точно состоит в групповом чате.
@@ -211,6 +213,9 @@ def mark_joined(session: Session, *, token: str, chat_id: int) -> None:
     if requester is None:
         raise ValueError("Пользователь не зарегистрирован")
     add_user_to_chat(session, chat_id, max_user_id=requester.max_user_id)
+    set_member_address(
+        session, chat_id, max_user_id=requester.max_user_id, address_id=row.address_id
+    )
     row.chat_id = chat_id
     row.status = ChatLinkStatus.CONNECTED.value
     session.flush()

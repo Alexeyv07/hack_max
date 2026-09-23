@@ -25,7 +25,13 @@ from chat_link.handlers import (
     pending_for_actor,
 )
 from chat_link.models import ChatLinkStatus
-from user_chat.handlers import create_chat, get_chat, list_chat_members
+from user_chat.handlers import (
+    create_chat,
+    get_chat,
+    list_chat_addresses,
+    list_chat_members,
+    list_memberships_for_user,
+)
 from user_chat.models import ChatCreate
 
 
@@ -443,3 +449,53 @@ def test_group_address_lookup_shows_only_connected_group(db_session) -> None:
         ChatCreate(chat_id=-9028, address_id=address.id, title="Соседи", chat_type="chat"),
     )
     assert connected_group_address(db_session, -9028) == address.address_text
+
+
+def test_admin_adds_second_home_to_existing_courtyard_group(db_session) -> None:
+    first = _address(db_session)
+    second = AddressRow(
+        address_text="Москва, район Тестовый, улица Соседская, д. 2",
+        city="Москва",
+        district="район Тестовый",
+        street="улица Соседская",
+        house="2",
+        latitude=Decimal("55.7502000"),
+        longitude=Decimal("37.6102000"),
+    )
+    db_session.add(second)
+    admin = _user(db_session, 101)
+    db_session.flush()
+    bot = FakeBot(admins={admin.max_user_id}, bot_admin=True, bot_permissions=["read_all_messages"])
+    for address in (first, second):
+        result = asyncio.run(
+            connect_added_group_to_address(
+                bot, db_session, chat_id=-9025, admin_max_user_id=101, address_id=address.id
+            )
+        )
+        assert result.connected
+
+    assert get_chat(db_session, -9025).address_id == first.id
+    assert [row.id for row in list_chat_addresses(db_session, -9025)] == [first.id, second.id]
+    assert list_memberships_for_user(db_session, 101)[0].address_id == first.id
+    assert first.address_text in connected_group_address(db_session, -9025)
+    assert second.address_text in connected_group_address(db_session, -9025)
+    again = asyncio.run(
+        connect_added_group_to_address(
+            bot, db_session, chat_id=-9025, admin_max_user_id=101, address_id=second.id
+        )
+    )
+    assert again.connected
+    assert len(list_chat_addresses(db_session, -9025)) == 2
+
+
+def test_referral_prompts_personal_address_and_preserves_membership(db_session) -> None:
+    address = _address(db_session)
+    _user(db_session, 101)
+    create_chat(db_session, ChatCreate(chat_id=-9050, address_id=address.id, title="Двор"))
+
+    outcome = asyncio.run(
+        bind_referral_member(FakeBot(members={101}), db_session, chat_id=-9050, max_user_id=101)
+    )
+    assert outcome.joined
+    assert "Укажите свой адрес" in outcome.message
+    assert list_memberships_for_user(db_session, 101) == []

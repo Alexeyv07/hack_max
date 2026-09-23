@@ -252,7 +252,7 @@ def _priority_recipient_user_ids(session: Session, event: EventRow) -> list[int]
         select(UserRow.id)
         .join(users_chat, users_chat.c.user_id == UserRow.id)
         .join(ChatRow, ChatRow.chat_id == users_chat.c.chat_id)
-        .join(chat_address, chat_address.c.id == ChatRow.address_id)
+        .join(chat_address, chat_address.c.id == users_chat.c.address_id)
         .where(
             ChatRow.chat_type == "chat",
             UserRow.chat_id.is_not(None),
@@ -260,7 +260,7 @@ def _priority_recipient_user_ids(session: Session, event: EventRow) -> list[int]
     )
 
     if event.geo_by == "home":
-        query = query.where(ChatRow.address_id == event.address_id)
+        query = query.where(users_chat.c.address_id == event.address_id)
     elif event.geo_by == "street":
         if not event_address.city or not event_address.street:
             return []
