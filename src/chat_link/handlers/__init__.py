@@ -2,11 +2,13 @@ from chat_link.handlers.cache import get_address_catalog
 from chat_link.handlers.group import (
     announce_connected_group,
     announce_group_address_setup,
+    bind_existing_chat_member,
     bind_referral_member,
     bot_can_read_group,
     connect_added_group,
     connect_added_group_to_address,
     connect_group_chat,
+    connected_group_address,
     existing_group_chats,
     join_existing_chat,
 )
@@ -18,7 +20,6 @@ from chat_link.handlers.links import (
     mark_joined,
     mark_waiting_group,
     pending_for_actor,
-    request_admin_approval,
 )
 
 __all__ = [
@@ -30,14 +31,15 @@ __all__ = [
     "connect_added_group",
     "connect_added_group_to_address",
     "connect_group_chat",
+    "connected_group_address",
     "create_request",
     "finalize_group",
     "get_address_catalog",
     "get_request_by_token",
+    "bind_existing_chat_member",
     "existing_group_chats",
     "mark_waiting_group",
     "join_existing_chat",
     "mark_joined",
     "pending_for_actor",
-    "request_admin_approval",
 ]

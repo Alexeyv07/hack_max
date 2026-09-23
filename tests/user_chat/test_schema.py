@@ -78,7 +78,9 @@ def test_new_migration_reversible_and_does_not_infer_membership(engine) -> None:
     config = Config()
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_current_head() == "0015_notify_digest_cursor"
+    assert scripts.get_current_head() == "0016_membership_only"
+    membership_revision = scripts.get_revision("0016_membership_only")
+    assert membership_revision.down_revision == "0015_notify_digest_cursor"
     notify_revision = scripts.get_revision("0015_notify_digest_cursor")
     assert notify_revision.down_revision == "0014_notify_workers"
     notify_base = scripts.get_revision("0014_notify_workers")

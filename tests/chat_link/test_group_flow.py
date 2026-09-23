@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from decimal import Decimal
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from maxapi.enums import ChatType
 
@@ -10,12 +11,14 @@ from address.db import AddressRow
 from auth.handlers.authorize import authorize_user
 from auth.models.user import MaxUserPayload
 from chat_link.handlers import (
+    announce_connected_group,
     bind_referral_member,
     bot_can_read_group,
     claim_admin_request,
     connect_added_group,
     connect_added_group_to_address,
     connect_group_chat,
+    connected_group_address,
     create_request,
     existing_group_chats,
     join_existing_chat,
@@ -313,7 +316,8 @@ def test_existing_chat_does_not_auto_add_user(db_session) -> None:
     )
 
     assert not outcome.joined
-    assert outcome.invite_link == "https://max.ru/join/existing"
+    assert outcome.invite_link is None
+    assert "не состоите" in outcome.message
     assert bot.add_calls == []
     assert list_chat_members(db_session, -9003) == []
 
@@ -416,3 +420,26 @@ def test_referral_binds_only_after_max_membership(db_session) -> None:
     )
     assert inside.joined
     assert [member.max_user_id for member in list_chat_members(db_session, -9005)] == [101]
+
+
+def test_group_announcement_contains_full_address() -> None:
+    bot = SimpleNamespace(
+        me=SimpleNamespace(username=None),
+        send_message=AsyncMock(),
+    )
+    address = "Москва, район Тестовый, улица Соседская, д. 1"
+    asyncio.run(announce_connected_group(bot, -9001, address_text=address))
+    kwargs = bot.send_message.await_args.kwargs
+    assert kwargs["chat_id"] == -9001
+    assert address in kwargs["text"]
+    assert "сообщите администратору" in kwargs["text"]
+
+
+def test_group_address_lookup_shows_only_connected_group(db_session) -> None:
+    address = _address(db_session)
+    assert connected_group_address(db_session, -9028) is None
+    create_chat(
+        db_session,
+        ChatCreate(chat_id=-9028, address_id=address.id, title="Соседи", chat_type="chat"),
+    )
+    assert connected_group_address(db_session, -9028) == address.address_text

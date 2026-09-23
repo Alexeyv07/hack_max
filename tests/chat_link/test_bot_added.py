@@ -111,6 +111,16 @@ def test_group_auto_connect_waits_for_bot_admin_rights(monkeypatch) -> None:
 
     announce = AsyncMock()
     monkeypatch.setattr(flow, "announce_connected_group", announce)
+    monkeypatch.setattr(
+        flow,
+        "get_chat",
+        lambda session, chat_id: SimpleNamespace(address_id=17),
+    )
+    monkeypatch.setattr(
+        flow,
+        "get_address_catalog",
+        lambda: SimpleNamespace(get=lambda address_id: SimpleNamespace(address_text="Дом 17")),
+    )
     bot = SimpleNamespace(
         me=SimpleNamespace(username="smart_city_bot"),
         send_message=AsyncMock(),
@@ -128,7 +138,7 @@ def test_group_auto_connect_waits_for_bot_admin_rights(monkeypatch) -> None:
     assert ready.await_count == 2
     sleep.assert_awaited_once_with(0)
     connect.assert_awaited_once()
-    announce.assert_awaited_once_with(bot, -100500, requester_added=True)
+    announce.assert_awaited_once_with(bot, -100500, requester_added=True, address_text="Дом 17")
     bot.send_message.assert_not_awaited()
 
 
@@ -171,3 +181,31 @@ def test_bot_removed_detaches_chat_and_cancels_pending_connect(monkeypatch) -> N
     assert detached == [-100500]
     assert task.cancelled
     assert -100500 not in flow._GROUP_CONNECT_TASKS
+
+
+def test_address_command_reads_saved_group_address(monkeypatch) -> None:
+    from maxapi.filters.command import Command
+
+    class AddressDispatcher(FakeDispatcher):
+        def message_created(self, *args, **kwargs):
+            if any(
+                isinstance(filter_, Command) and "address" in filter_.commands for filter_ in args
+            ):
+                return self._decorator("address_command")
+            return self._decorator("message_created")
+
+    @contextmanager
+    def fake_session_scope():
+        yield object()
+
+    dp = AddressDispatcher()
+    bot = SimpleNamespace(send_message=AsyncMock())
+    monkeypatch.setattr(flow, "session_scope", fake_session_scope)
+    monkeypatch.setattr(flow, "connected_group_address", lambda session, chat_id: "Москва, д. 8")
+    flow.register_chat_link_commands(dp, bot)
+
+    asyncio.run(dp.handlers["address_command"](SimpleNamespace(chat_id=-100500)))
+
+    bot.send_message.assert_awaited_once()
+    assert bot.send_message.await_args.kwargs["chat_id"] == -100500
+    assert "Москва, д. 8" in bot.send_message.await_args.kwargs["text"]

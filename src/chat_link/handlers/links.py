@@ -73,36 +73,6 @@ def create_request(
     return _domain(row), chats
 
 
-def request_admin_approval(session: Session, *, token: str, chat_id: int) -> ChatLink:
-    """Перевести resident-заявку в ожидание решения администратора чата."""
-    row = _row_by_token(session, token)
-    if row is None or row.status != ChatLinkStatus.WAITING_JOIN.value:
-        raise ValueError("Заявка не найдена или уже обработана")
-
-    chat = get_chat(session, chat_id)
-    if chat is None or chat.chat_type != "chat" or chat.address_id != row.address_id:
-        raise ValueError("Домовой чат не соответствует выбранному адресу")
-
-    admin_user_id = session.scalar(
-        select(ChatLinkRow.admin_user_id)
-        .where(
-            ChatLinkRow.chat_id == chat_id,
-            ChatLinkRow.status == ChatLinkStatus.CONNECTED.value,
-            ChatLinkRow.admin_user_id.is_not(None),
-        )
-        .order_by(ChatLinkRow.updated_at.desc())
-        .limit(1)
-    )
-    if admin_user_id is None:
-        raise ValueError("Администратор этого чата пока не подключён к боту")
-
-    row.chat_id = chat_id
-    row.admin_user_id = int(admin_user_id)
-    row.status = ChatLinkStatus.WAITING_APPROVAL.value
-    session.flush()
-    return _domain(row)
-
-
 def get_request_by_token(session: Session, token: str) -> ChatLink | None:
     row = _row_by_token(session, token)
     return _domain(row) if row is not None else None
