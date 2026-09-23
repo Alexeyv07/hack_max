@@ -1,3 +1,4 @@
+import { apiUrl } from '$lib/api/base';
 import { waitForMaxUserId } from '$lib/maxUser';
 
 export type AddressOption = {
@@ -22,13 +23,8 @@ export type SelectResult = {
 	chats: ChatOption[];
 };
 
-const publicHeaders: HeadersInit = {
-	'ngrok-skip-browser-warning': 'true'
-};
-
 async function authenticatedHeaders(): Promise<HeadersInit> {
 	return {
-		...publicHeaders,
 		'X-Max-User-Id': String(await waitForMaxUserId()),
 		'Content-Type': 'application/json'
 	};
@@ -43,16 +39,14 @@ async function json<T>(response: Response): Promise<T> {
 }
 
 export async function searchAddresses(q: string): Promise<AddressOption[]> {
-	const response = await fetch(`/api/chat-link/addresses/search?q=${encodeURIComponent(q)}`, {
-		headers: publicHeaders
-	});
+	const response = await fetch(`${apiUrl('/chat-link/addresses/search')}?q=${encodeURIComponent(q)}`);
 	return (await json<{ items: AddressOption[] }>(response)).items;
 }
 
 export async function nearestAddresses(lat: number, lon: number): Promise<AddressOption[]> {
-	const response = await fetch(`/api/chat-link/addresses/nearest?lat=${lat}&lon=${lon}`, {
-		headers: publicHeaders
-	});
+	const response = await fetch(
+		`${apiUrl('/chat-link/addresses/nearest')}?lat=${lat}&lon=${lon}`
+	);
 	return (await json<{ items: AddressOption[] }>(response)).items;
 }
 
@@ -61,7 +55,7 @@ export async function selectAddress(
 	targetChatId: number | null = null
 ): Promise<SelectResult> {
 	return json(
-		await fetch('/api/chat-link/select', {
+		await fetch(apiUrl('/chat-link/select'), {
 			method: 'POST',
 			headers: await authenticatedHeaders(),
 			body: JSON.stringify({ address_id: addressId, chat_id: targetChatId })

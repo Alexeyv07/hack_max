@@ -42,6 +42,9 @@ declare global {
 
 let loading: Promise<YandexMapsApi> | null = null;
 
+/** Публичный ключ JS API (ограничение по HTTP Referer в кабинете Яндекса). */
+export const YANDEX_MAPS_API_KEY = '69c8bb32-bd29-45dd-b77f-2b33ca43131b';
+
 function loadErrorMessage() {
 	const host = window.location.hostname || 'домен miniapp';
 	return (
@@ -50,7 +53,7 @@ function loadErrorMessage() {
 	);
 }
 
-export function loadYandexMaps(apiKey: string): Promise<YandexMapsApi> {
+export function loadYandexMaps(apiKey: string = YANDEX_MAPS_API_KEY): Promise<YandexMapsApi> {
 	const key = apiKey.trim();
 	if (!key) {
 		return Promise.reject(new Error('Не задан ключ Yandex Maps API.'));

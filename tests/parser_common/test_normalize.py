@@ -33,6 +33,13 @@ def test_classify_important_water() -> None:
     assert result.disaster_flag is False
 
 
+def test_classify_urgent_gas() -> None:
+    result = classify_importance("Запах газа в подъезде, вызывайте аварийку", use_model=False)
+    assert result.importance == 1
+    assert result.disaster_flag is False
+    assert result.method == "rules"
+
+
 def test_classify_trivia() -> None:
     result = classify_importance("Пропала серая кошка, отзовитесь", use_model=False)
     assert result.importance == 3
