@@ -16,9 +16,10 @@
 	import { getMaxUserIdForStorage } from '$lib/maxUser';
 	import { loadYandexMaps, type YandexMapInstance } from '$lib/yandexMaps';
 
-	let { mode, targetChatId = null }: {
+	let { mode, targetChatId = null, residentChatId = null }: {
 		mode: 'map' | 'text';
 		targetChatId?: number | null;
+		residentChatId?: number | null;
 	} = $props();
 
 	type PickerDraft = {
@@ -34,7 +35,7 @@
 
 	const DRAFT_TTL_MS = 30 * 60 * 1000;
 	const MAP_ZOOM = 16;
-	let activeMode: ChatLinkMode = $derived(buildChatLinkMode(mode, targetChatId));
+	let activeMode: ChatLinkMode = $derived(buildChatLinkMode(mode, targetChatId, residentChatId));
 
 	let query = $state('');
 	let options = $state<AddressOption[]>([]);
@@ -57,7 +58,7 @@
 	let mapDisposed = false;
 
 	function storageKey() {
-		return `chat-link-picker-v6:${getMaxUserIdForStorage()}:${mode}:${targetChatId ?? 'resident'}`;
+		return `chat-link-picker-v6:${getMaxUserIdForStorage()}:${mode}:${targetChatId ?? `resident-${residentChatId ?? 'new'}`}`;
 	}
 
 	function legacyStorageKeys() {
@@ -295,7 +296,7 @@
 		loading = true;
 		error = '';
 		try {
-			result = await selectAddress(selected.id, targetChatId);
+			result = await selectAddress(selected.id, targetChatId, residentChatId);
 			showAdminHelp = false;
 			if (mode === 'map') {
 				yandexMap?.destroy();
@@ -454,6 +455,8 @@
 				<p>✅ Домовой чат успешно привязан к этому адресу. Можно вернуться в групповой чат.</p>
 			{:else if result.mode === 'already_member'}
 				<p>✅ Вы состоите в этом домовом чате. Чат привязан к вашему профилю.</p>
+			{:else if result.mode === 'resident_address'}
+				<p>✅ Ваш адрес сохранён. Теперь события рядом с вашим домом доступны в мини-приложении.</p>
 			{:else if showAdminHelp}
 				<p>
 					Добавьте бота в нужный групповой чат и назначьте его администратором с правом
@@ -477,8 +480,12 @@
 					Я администратор чата
 				</button>
 			{/if}
-			{#if result.mode !== 'group_connected'}
-				<button class="secondary" type="button" onclick={startAnother}>Добавить ещё адрес</button>
+			{#if result.mode === 'group_connected'}
+				<button class="secondary" type="button" onclick={startAnother}>Добавить ещё дом к чату</button>
+			{:else if result.mode === 'resident_address'}
+				<button class="secondary" type="button" onclick={startAnother}>Изменить свой адрес</button>
+			{:else}
+				<button class="secondary" type="button" onclick={startAnother}>Выбрать другой адрес</button>
 			{/if}
 		</div>
 	{/if}

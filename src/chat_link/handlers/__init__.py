@@ -9,6 +9,7 @@ from chat_link.handlers.group import (
     connect_added_group_to_address,
     connect_group_chat,
     connected_group_address,
+    connected_group_keyboard,
     existing_group_chats,
     join_existing_chat,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "connect_added_group_to_address",
     "connect_group_chat",
     "connected_group_address",
+    "connected_group_keyboard",
     "create_request",
     "finalize_group",
     "get_address_catalog",

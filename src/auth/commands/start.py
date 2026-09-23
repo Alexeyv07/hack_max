@@ -15,7 +15,7 @@ from auth.handlers.authorize import authorize_from_event
 from chat_link.handlers import bind_referral_member, claim_admin_request
 from project.config import get_settings
 from project.database import session_scope
-from user_chat.handlers import get_chat, has_connected_chat
+from user_chat.handlers import has_connected_chat
 
 CHAT_LINK_START_PAYLOAD = "chat_link:start"
 CHAT_BIND_PREFIX = "chat_bind_"
@@ -27,6 +27,7 @@ def build_welcome_text(
     admin_token: str | None = None,
     notice: str | None = None,
     binding_group: bool = False,
+    choosing_residence: bool = False,
 ) -> str:
     safe_name = escape(name)
     docs_url = get_settings().docs.url
@@ -46,17 +47,34 @@ def build_welcome_text(
     if binding_group:
         text += (
             "\n\nВы подключаете уже добавленный групповой чат. "
-            "Теперь выберите адрес дома для этого чата."
+            "Вы можете добавить к нему несколько адресов, например все дома вашего двора."
+        )
+    if choosing_residence:
+        text += (
+            "\n\nЧтобы показывать события рядом именно с вашим домом, "
+            "укажите свой адрес. Чат может объединять несколько домов."
         )
     return text
 
 
-def build_welcome_keyboard(bot: Any, *, show_events: bool, binding_group: bool = False) -> Any:
+def build_welcome_keyboard(
+    bot: Any,
+    *,
+    show_events: bool,
+    binding_group: bool = False,
+    choosing_residence: bool = False,
+) -> Any:
     me = getattr(bot, "me", None)
     username = getattr(me, "username", None)
     user_id = getattr(me, "user_id", None)
     keyboard = InlineKeyboardBuilder()
-    add_text = "Выбрать адрес для чата" if binding_group else "Добавить чат"
+    add_text = (
+        "Указать свой адрес"
+        if choosing_residence
+        else "Добавить адрес чата"
+        if binding_group
+        else "Добавить чат"
+    )
     buttons: list[Any] = [CallbackButton(text=add_text, payload=CHAT_LINK_START_PAYLOAD)]
     if show_events:
         buttons.append(OpenAppButton(text="Смотреть события", web_app=username, contact_id=user_id))
@@ -89,6 +107,7 @@ async def _render_welcome(
     admin_token: str | None = None,
     notice: str | None = None,
     target_chat_id: int | None = None,
+    resident_chat_id: int | None = None,
     recipient_chat_id: int | None = None,
 ) -> None:
     text = build_welcome_text(
@@ -96,17 +115,21 @@ async def _render_welcome(
         admin_token=admin_token,
         notice=notice,
         binding_group=target_chat_id is not None,
+        choosing_residence=resident_chat_id is not None,
     )
     attachments = [
         build_welcome_keyboard(
             bot,
             show_events=_show_events(user.max_user_id),
             binding_group=target_chat_id is not None,
+            choosing_residence=resident_chat_id is not None,
         )
     ]
     await context.clear()
     if target_chat_id is not None:
         await context.update_data(target_chat_id=target_chat_id)
+    if resident_chat_id is not None:
+        await context.update_data(resident_chat_id=resident_chat_id)
     # Каждый /start создаёт новый экран в конце переписки; прежние не редактируем.
     chat_id = (
         recipient_chat_id if recipient_chat_id is not None else getattr(event, "chat_id", None)
@@ -163,6 +186,7 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             payload.removeprefix("chat_admin_") if payload.startswith("chat_admin_") else None
         )
         target_chat_id = None
+        resident_chat_id = None
         notice = None
         if payload.startswith(CHAT_BIND_PREFIX):
             try:
@@ -170,12 +194,7 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             except ValueError:
                 notice = "Ссылка на подключение чата некорректна."
             else:
-                with session_scope() as session:
-                    existing = get_chat(session, parsed_chat_id)
-                if existing is not None and existing.chat_type == "chat":
-                    notice = "Этот домовой чат уже привязан к адресу."
-                else:
-                    target_chat_id = parsed_chat_id
+                target_chat_id = parsed_chat_id
         if admin_token:
             try:
                 with session_scope() as session:
@@ -204,6 +223,8 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
                         max_user_id=user.max_user_id,
                     )
                 notice = outcome.message
+                if outcome.joined:
+                    resident_chat_id = chat_id
         await _render_welcome(
             bot,
             event,
@@ -212,6 +233,7 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             admin_token=admin_token,
             notice=notice,
             target_chat_id=target_chat_id,
+            resident_chat_id=resident_chat_id,
         )
 
     @dp.message_created(CommandStart())

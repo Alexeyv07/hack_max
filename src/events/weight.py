@@ -160,7 +160,7 @@ def matches_feed_geo(*, scope: str, geo_by: str | None) -> bool:
     """
     Nearby — только street|home; city — только city.
 
-    Персонализация по чатам пока не используется.
+    Проверка выбранного адреса жителя выполняется отдельно в list_feed.
     """
     if geo_by is None:
         return False

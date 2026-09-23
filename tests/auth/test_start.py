@@ -137,7 +137,6 @@ def test_group_bind_deep_link_keeps_target_chat_in_context(monkeypatch) -> None:
         yield object()
 
     monkeypatch.setattr(start, "session_scope", fake_session_scope)
-    monkeypatch.setattr(start, "get_chat", lambda session, chat_id: None)
     start.register_auth_commands(dp, bot)
 
     context = FakeContext()
@@ -149,7 +148,7 @@ def test_group_bind_deep_link_keeps_target_chat_in_context(monkeypatch) -> None:
     kwargs = bot.send_message.await_args.kwargs
     assert "уже добавленный групповой чат" in kwargs["text"]
     buttons = kwargs["attachments"][0].payload.buttons
-    assert buttons[0][0].text == "Выбрать адрес для чата"
+    assert buttons[0][0].text == "Добавить адрес чата"
 
 
 def test_plain_start_delivered_as_two_update_types_sends_one_welcome(monkeypatch) -> None:

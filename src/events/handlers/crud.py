@@ -24,10 +24,12 @@ from events.weight import (
     allowed_in_feed,
     allowed_on_map,
     compute_weight,
+    haversine_m,
     map_icon_category,
     matches_feed_geo,
 )
 from project.logging_setup import get_logger
+from user_chat.handlers import list_memberships_for_user
 
 logger = get_logger(__name__)
 
@@ -303,9 +305,10 @@ def list_feed(
     scope: EventScope | str,
     limit: int = 20,
     cursor: str | None = None,
+    max_user_id: int | None = None,
 ) -> FeedPage:
     """
-    TikTok-лента: одна выдача всем, keyset (weight DESC, id DESC).
+    Nearby учитывает выбранный адрес жителя; city остаётся общей лентой.
 
     Правила:
     - только события с address_id + непустым Address.address_text;
@@ -318,6 +321,11 @@ def list_feed(
         raise ValueError("limit должен быть >= 1")
 
     parsed: FeedCursor | None = decode_feed_cursor(cursor) if cursor else None
+    residences = (
+        list_memberships_for_user(session, max_user_id)
+        if max_user_id is not None and scope_value == EventScope.NEARBY
+        else None
+    )
     scored: list[Event] = []
     now = datetime.now(UTC)
 
@@ -326,7 +334,35 @@ def list_feed(
             continue
         if not matches_feed_geo(scope=scope_value.value, geo_by=row.geo_by):
             continue
-        event = _to_domain(row, distance_m=None, now=now)
+        distance_m = None
+        if residences is not None:
+            if not residences:
+                continue
+            assert row.address is not None
+            distance_m = min(
+                haversine_m(
+                    float(row.address.latitude),
+                    float(row.address.longitude),
+                    residence.lat,
+                    residence.lon,
+                )
+                for residence in residences
+            )
+            if row.geo_by == "home":
+                if not any(residence.address_id == row.address_id for residence in residences):
+                    continue
+            elif not any(
+                haversine_m(
+                    float(row.address.latitude),
+                    float(row.address.longitude),
+                    residence.lat,
+                    residence.lon,
+                )
+                <= residence.nearby_radius_m
+                for residence in residences
+            ):
+                continue
+        event = _to_domain(row, distance_m=distance_m, now=now)
         if parsed is not None and not is_after_cursor(
             weight=event.weight,
             event_id=event.id,

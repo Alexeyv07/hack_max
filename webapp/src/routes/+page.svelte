@@ -217,9 +217,9 @@
 </script>
 
 {#if pickerStart?.mode === 'map'}
-	<AddressPicker mode="map" targetChatId={pickerStart.targetChatId} />
+	<AddressPicker mode="map" targetChatId={pickerStart.targetChatId} residentChatId={pickerStart.residentChatId} />
 {:else if pickerStart?.mode === 'text'}
-	<AddressPicker mode="text" targetChatId={pickerStart.targetChatId} />
+	<AddressPicker mode="text" targetChatId={pickerStart.targetChatId} residentChatId={pickerStart.residentChatId} />
 {:else if bridgeReady}
 <div
 	class="feed-root"

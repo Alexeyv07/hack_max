@@ -80,7 +80,9 @@ def list_keyboard(
     return builder.as_markup(), current.index, current.pages
 
 
-def method_keyboard(bot: Any, *, target_chat_id: int | None = None):
+def method_keyboard(
+    bot: Any, *, target_chat_id: int | None = None, resident_chat_id: int | None = None
+):
     me = getattr(bot, "me", None)
     username = getattr(me, "username", None)
     contact_id = getattr(me, "user_id", None)
@@ -88,7 +90,13 @@ def method_keyboard(bot: Any, *, target_chat_id: int | None = None):
     builder = InlineKeyboardBuilder()
     builder.row(CallbackButton(text="Выбрать место жительства", payload="cl:method:native"))
     builder.row(CallbackButton(text="Указать почтовый индекс", payload="cl:method:postal"))
-    suffix = f"_bind_{target_chat_id}" if target_chat_id is not None else ""
+    suffix = (
+        f"_bind_{target_chat_id}"
+        if target_chat_id is not None
+        else f"_resident_{resident_chat_id}"
+        if resident_chat_id is not None
+        else ""
+    )
     builder.row(
         OpenAppButton(
             text="Указать на карте",
@@ -147,6 +155,13 @@ def admin_setup_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(CallbackButton(text="← Я не администратор", payload="cl:admin:user"))
     builder.row(CallbackButton(text="← Выбрать другой адрес", payload="cl:method:native"))
+    return builder.as_markup()
+
+
+def add_more_addresses_keyboard():
+    """Продолжить привязку того же чата, не добавляя бота повторно."""
+    builder = InlineKeyboardBuilder()
+    builder.row(CallbackButton(text="Добавить ещё адрес", payload="chat_link:start"))
     return builder.as_markup()
 
 

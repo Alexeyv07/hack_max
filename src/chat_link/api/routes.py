@@ -21,7 +21,7 @@ from chat_link.handlers import (
 )
 from project.api_deps import DbSession, get_max_user_id
 from project.max_runtime import get_max_bot
-from user_chat.handlers import list_chats_by_address
+from user_chat.handlers import list_chats_by_address, set_member_address
 
 router = APIRouter(prefix="/chat-link", tags=["chat-link"])
 MaxUserId = Annotated[int, Depends(get_max_user_id)]
@@ -64,6 +64,27 @@ async def select_address(
     if address is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Адрес не найден")
     bot = get_max_bot()
+    if payload.chat_id is not None and payload.resident_chat_id is not None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите только один тип привязки"
+        )
+    if payload.resident_chat_id is not None:
+        if bot is None:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "MAX-бот сейчас недоступен")
+        try:
+            if not await bind_existing_chat_member(
+                bot, session, chat_id=payload.resident_chat_id, max_user_id=max_user_id
+            ):
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "Сначала вступите в этот чат")
+            set_member_address(
+                session,
+                payload.resident_chat_id,
+                max_user_id=max_user_id,
+                address_id=payload.address_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        return AddressSelectResponse(address=_option(address), mode="resident_address", chats=[])
     if payload.chat_id is not None:
         if bot is None:
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "MAX-бот сейчас недоступен")
@@ -87,6 +108,7 @@ async def select_address(
             payload.chat_id,
             requester_added=outcome.requester_added,
             address_text=address.address_text,
+            additional=outcome.message is not None,
         )
         return AddressSelectResponse(
             address=_option(address),
@@ -108,6 +130,12 @@ async def select_address(
                 if await bind_existing_chat_member(
                     bot, session, chat_id=chat.chat_id, max_user_id=max_user_id
                 ):
+                    set_member_address(
+                        session,
+                        chat.chat_id,
+                        max_user_id=max_user_id,
+                        address_id=payload.address_id,
+                    )
                     connected = True
         except ValueError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc

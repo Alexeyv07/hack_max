@@ -15,7 +15,7 @@ from events.api.deps import get_db_session
 from events.handlers import crud
 from events.models.event import EventCreate
 from project.config import reset_settings_cache
-from user_chat.handlers import add_user_to_chat, create_chat
+from user_chat.handlers import add_chat_address, add_user_to_chat, create_chat, set_member_address
 from user_chat.models import ChatCreate
 
 USER_HEADERS = {"X-Max-User-Id": "4242"}
@@ -67,6 +67,7 @@ def _seed_user_and_events(session_factory) -> None:
         nearby = _add_address(session, text="Москва, улица Тестовая, д. 1", lat=55.75, lon=37.62)
         create_chat(session, ChatCreate(chat_id=900_001, address_id=nearby.id))
         add_user_to_chat(session, 900_001, max_user_id=4242)
+        set_member_address(session, 900_001, max_user_id=4242, address_id=nearby.id)
         cat = _add_address(session, text="Москва, улица Тестовая, д. 2", lat=55.751, lon=37.621)
         far = _add_address(session, text="Москва, улица Тестовая, д. 3", lat=55.90, lon=37.62)
         water = _add_address(session, text="Москва, улица Тестовая, д. 4", lat=55.80, lon=37.62)
@@ -146,8 +147,8 @@ def test_feed_requires_user_header(client) -> None:
     assert response.status_code == 401
 
 
-def test_feed_shared_for_any_user_id(client) -> None:
-    """Header обязателен, чаты не нужны — одна лента всем."""
+def test_nearby_requires_selected_home(client) -> None:
+    """Nearby не раскрывает чужие домовые события до выбора адреса."""
     test_client, session_factory = client
     _seed_user_and_events(session_factory)
     response = test_client.get(
@@ -157,14 +158,10 @@ def test_feed_shared_for_any_user_id(client) -> None:
     )
     assert response.status_code == 200
     titles = {item["title"] for item in response.json()["items"]}
-    assert "Nearby ok" in titles
-    assert "Вода в районе" in titles
-    assert "Far city" not in titles
-    assert "Пропала кошка" not in titles
-    assert "Без локации" not in titles
+    assert titles == set()
 
 
-def test_feed_and_cursor(client) -> None:
+def test_feed_selected_address(client) -> None:
     test_client, session_factory = client
     _seed_user_and_events(session_factory)
 
@@ -176,7 +173,7 @@ def test_feed_and_cursor(client) -> None:
     assert first.status_code == 200
     body = first.json()
     assert body["count"] == 1
-    assert body["next_cursor"] is not None
+    assert body["next_cursor"] is None
     item = body["items"][0]
     assert item["lat"] is not None
     assert item["lon"] is not None
@@ -193,14 +190,6 @@ def test_feed_and_cursor(client) -> None:
     assert by_title["Nearby ok"]["image_url"] == "https://cdn.example/nearby.jpg"
     assert "Без локации" not in by_title
 
-    second = test_client.get(
-        "/events/feed",
-        params={"scope": "nearby", "limit": 1, "cursor": body["next_cursor"]},
-        headers=USER_HEADERS,
-    )
-    assert second.status_code == 200
-    assert first.json()["items"][0]["id"] != second.json()["items"][0]["id"]
-
 
 def test_map_only_important(client) -> None:
     test_client, session_factory = client
@@ -214,7 +203,7 @@ def test_map_only_important(client) -> None:
     assert "Пропала кошка" not in titles
 
 
-def test_same_feed_for_different_users(client) -> None:
+def test_nearby_is_personal_for_different_users(client) -> None:
     test_client, session_factory = client
     _seed_user_and_events(session_factory)
     with session_factory.begin() as session:
@@ -224,13 +213,15 @@ def test_same_feed_for_different_users(client) -> None:
         )
         create_chat(session, ChatCreate(chat_id=900_002, address_id=address.id))
         add_user_to_chat(session, 900_002, max_user_id=999)
+        set_member_address(session, 900_002, max_user_id=999, address_id=address.id)
 
     a = test_client.get("/events/feed", params={"scope": "nearby"}, headers=USER_HEADERS)
     b = test_client.get(
         "/events/feed", params={"scope": "nearby"}, headers={"X-Max-User-Id": "999"}
     )
     assert a.status_code == 200 and b.status_code == 200
-    assert [i["id"] for i in a.json()["items"]] == [i["id"] for i in b.json()["items"]]
+    assert {i["title"] for i in a.json()["items"]} == {"Nearby ok"}
+    assert b.json()["items"] == []
 
 
 def test_write_endpoints_removed(client) -> None:
@@ -238,3 +229,38 @@ def test_write_endpoints_removed(client) -> None:
     assert test_client.post("/events", json={}).status_code in {404, 405}
     assert test_client.patch("/events/1", json={}).status_code in {404, 405}
     assert test_client.delete("/events/1").status_code in {404, 405}
+
+
+def test_same_courtyard_chat_has_separate_home_feeds(client) -> None:
+    test_client, session_factory = client
+    with session_factory.begin() as session:
+        first = _add_address(session, text="Москва, двор 1", lat=55.75, lon=37.62)
+        second = _add_address(session, text="Москва, двор 2", lat=55.7502, lon=37.6202)
+        authorize_user(session, MaxUserPayload(max_user_id=4242))
+        authorize_user(session, MaxUserPayload(max_user_id=999))
+        create_chat(session, ChatCreate(chat_id=900_010, address_id=first.id))
+        add_chat_address(session, 900_010, second.id)
+        add_user_to_chat(session, 900_010, max_user_id=4242)
+        add_user_to_chat(session, 900_010, max_user_id=999)
+        set_member_address(session, 900_010, max_user_id=4242, address_id=first.id)
+        set_member_address(session, 900_010, max_user_id=999, address_id=second.id)
+        for title, address in (("Работы в первом доме", first), ("Работы во втором доме", second)):
+            crud.create_event(
+                session,
+                EventCreate(
+                    title=title,
+                    body="Отключение",
+                    importance=2,
+                    source="news",
+                    address_id=address.id,
+                    geo_by="home",
+                ),
+            )
+
+    one = test_client.get("/events/feed", params={"scope": "nearby"}, headers=USER_HEADERS)
+    two = test_client.get(
+        "/events/feed", params={"scope": "nearby"}, headers={"X-Max-User-Id": "999"}
+    )
+    assert one.status_code == two.status_code == 200
+    assert [item["title"] for item in one.json()["items"]] == ["Работы в первом доме"]
+    assert [item["title"] for item in two.json()["items"]] == ["Работы во втором доме"]

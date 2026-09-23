@@ -25,11 +25,27 @@ users_chat = Table(
         primary_key=True,
         index=True,
     ),
+    Column("address_id", Integer, ForeignKey("addresses.id", ondelete="RESTRICT"), nullable=True),
+)
+
+chat_addresses = Table(
+    "chat_addresses",
+    Base.metadata,
+    Column(
+        "chat_id", BigInteger, ForeignKey("chats.chat_id", ondelete="CASCADE"), primary_key=True
+    ),
+    Column(
+        "address_id",
+        Integer,
+        ForeignKey("addresses.id", ondelete="RESTRICT"),
+        primary_key=True,
+        index=True,
+    ),
 )
 
 
 class ChatRow(Base):
-    """Один MAX-чат; несколько чатов могут ссылаться на один адрес."""
+    """Один MAX-чат; address_id — первый адрес (совместимость со старым парсером)."""
 
     __tablename__ = "chats"
 
@@ -44,6 +60,7 @@ class ChatRow(Base):
         ForeignKey("addresses.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     address: Mapped[AddressRow] = relationship("AddressRow")
+    addresses: Mapped[list[AddressRow]] = relationship("AddressRow", secondary=chat_addresses)
     users: Mapped[list[UserRow]] = relationship(
         "UserRow", secondary=users_chat, passive_deletes=True
     )

@@ -13,6 +13,7 @@ from auth.handlers.authorize import authorize_user
 from auth.models.user import MaxUserPayload
 from user_chat.db import ChatRow, users_chat
 from user_chat.handlers import (
+    add_chat_address,
     add_user_to_chat,
     create_chat,
     detach_chat,
@@ -20,6 +21,7 @@ from user_chat.handlers import (
     list_chat_members,
     list_memberships_for_user,
     remove_user_from_chat,
+    set_member_address,
 )
 from user_chat.models import ChatCreate
 
@@ -56,6 +58,9 @@ def test_users_and_chats_are_many_to_many(db_session, chat, address, user) -> No
     assert add_user_to_chat(db_session, chat.chat_id, max_user_id=user.max_user_id)
     assert add_user_to_chat(db_session, chat.chat_id, max_user_id=other_user.max_user_id)
     assert add_user_to_chat(db_session, other_chat.chat_id, max_user_id=user.max_user_id)
+    set_member_address(db_session, chat.chat_id, max_user_id=7, address_id=address.id)
+    set_member_address(db_session, other_chat.chat_id, max_user_id=7, address_id=address.id)
+    set_member_address(db_session, chat.chat_id, max_user_id=8, address_id=address.id)
     assert {member.user_id for member in list_chat_members(db_session, chat.chat_id)} == {
         user.id,
         other_user.id,
@@ -104,6 +109,9 @@ def test_remove_membership_keeps_other_chat_and_parents(db_session, chat, addres
 
 def test_membership_reads_current_address_coordinates(db_session, chat, address, user) -> None:
     add_user_to_chat(db_session, chat.chat_id, max_user_id=user.max_user_id)
+    set_member_address(
+        db_session, chat.chat_id, max_user_id=user.max_user_id, address_id=address.id
+    )
     membership = list_memberships_for_user(db_session, user.max_user_id)[0]
     assert membership.chat_id == chat.chat_id
     assert membership.title == chat.title
@@ -121,8 +129,11 @@ def test_handlers_leave_transaction_to_caller(db_session, chat, user) -> None:
     assert db_session.scalar(select(users_chat.c.user_id)) is None
 
 
-def test_detach_chat_marks_removed_and_clears_memberships(db_session, chat, user) -> None:
+def test_detach_chat_marks_removed_and_clears_memberships(db_session, chat, address, user) -> None:
     add_user_to_chat(db_session, chat.chat_id, max_user_id=user.max_user_id)
+    set_member_address(
+        db_session, chat.chat_id, max_user_id=user.max_user_id, address_id=address.id
+    )
     assert has_connected_chat(db_session, user.max_user_id)
 
     assert detach_chat(db_session, chat.chat_id)
@@ -134,3 +145,46 @@ def test_detach_chat_marks_removed_and_clears_memberships(db_session, chat, user
     assert list_chat_members(db_session, chat.chat_id) == []
     assert list_memberships_for_user(db_session, user.max_user_id) == []
     assert not has_connected_chat(db_session, user.max_user_id)
+
+
+def test_courtyard_chat_members_select_separate_addresses(db_session, chat, address, user) -> None:
+    """Один MAX-чат, два дома, два собственных адреса без подмены друг друга."""
+    second = AddressRow(
+        address_text="Москва, улица Соседская, д. 2",
+        latitude=Decimal("55.8124000"),
+        longitude=Decimal("37.6124000"),
+    )
+    foreign = AddressRow(
+        address_text="Москва, улица Соседская, д. 3",
+        latitude=Decimal("55.8130000"),
+        longitude=Decimal("37.6130000"),
+    )
+    db_session.add_all([second, foreign])
+    db_session.flush()
+    assert add_chat_address(db_session, chat.chat_id, second.id)
+    assert not add_chat_address(db_session, chat.chat_id, second.id)
+    assert not has_connected_chat(db_session, user.max_user_id)
+
+    second_user = authorize_user(db_session, MaxUserPayload(max_user_id=8))
+    add_user_to_chat(db_session, chat.chat_id, max_user_id=user.max_user_id)
+    add_user_to_chat(db_session, chat.chat_id, max_user_id=second_user.max_user_id)
+    assert not has_connected_chat(db_session, user.max_user_id)
+    assert list_memberships_for_user(db_session, user.max_user_id) == []
+    with pytest.raises(ValueError, match="нет среди домов чата"):
+        set_member_address(
+            db_session, chat.chat_id, max_user_id=user.max_user_id, address_id=foreign.id
+        )
+
+    set_member_address(
+        db_session, chat.chat_id, max_user_id=user.max_user_id, address_id=address.id
+    )
+    set_member_address(
+        db_session, chat.chat_id, max_user_id=second_user.max_user_id, address_id=second.id
+    )
+    assert list_memberships_for_user(db_session, user.max_user_id)[0].address_id == address.id
+    assert list_memberships_for_user(db_session, second_user.max_user_id)[0].address_id == second.id
+    assert has_connected_chat(db_session, second_user.max_user_id)
+
+    set_member_address(db_session, chat.chat_id, max_user_id=user.max_user_id, address_id=second.id)
+    assert list_memberships_for_user(db_session, user.max_user_id)[0].address_id == second.id
+    assert list_memberships_for_user(db_session, second_user.max_user_id)[0].address_id == second.id

@@ -17,8 +17,12 @@ from chat_link.api import routes
 from chat_link.api.schemas import AddressSelectRequest
 from chat_link.db import ChatLinkRow
 from chat_link.models import ChatLinkStatus
-from user_chat.db import ChatRow
-from user_chat.handlers import list_chat_members
+from user_chat.db import ChatRow, chat_addresses
+from user_chat.handlers import (
+    add_chat_address,
+    list_chat_members,
+    list_memberships_for_user,
+)
 
 
 def _seed(session):
@@ -38,6 +42,7 @@ def _seed(session):
     chat = ChatRow(chat_id=-7001, address_id=address.id, title="Домовой чат", chat_type="chat")
     session.add(chat)
     session.flush()
+    session.execute(chat_addresses.insert().values(chat_id=chat.chat_id, address_id=address.id))
     session.add(
         ChatLinkRow(
             token="old-setup-token",
@@ -122,6 +127,7 @@ def test_multiple_chats_only_binds_verified_members(db_session, monkeypatch):
     other = ChatRow(chat_id=-7002, address_id=address.id, title="Другой чат", chat_type="chat")
     db_session.add(other)
     db_session.flush()
+    db_session.execute(chat_addresses.insert().values(chat_id=other.chat_id, address_id=address.id))
     lookup = AsyncMock(
         side_effect=lambda chat_id, user_id: (
             SimpleNamespace(is_admin=False) if chat_id == other.chat_id else None
@@ -202,3 +208,34 @@ def test_migration_closes_old_admin_approvals(db_session):
     assert statuses["old-pending"] == ChatLinkStatus.CANCELLED.value
     assert statuses["old-sent"] == ChatLinkStatus.CANCELLED.value
     assert statuses["old-setup-token"] == ChatLinkStatus.CONNECTED.value
+
+
+def test_referral_resident_selects_only_group_addresses(db_session, monkeypatch):
+    first, _admin, resident, chat = _seed(db_session)
+    second = AddressRow(
+        address_text="Москва, Тестовая улица, д. 2",
+        latitude=Decimal("55.7502000"),
+        longitude=Decimal("37.6102000"),
+    )
+    foreign = AddressRow(
+        address_text="Москва, Другая улица, д. 3",
+        latitude=Decimal("55.8000000"),
+        longitude=Decimal("37.6500000"),
+    )
+    db_session.add_all([second, foreign])
+    db_session.flush()
+    add_chat_address(db_session, chat.chat_id, second.id)
+    lookup = AsyncMock(return_value=SimpleNamespace(is_admin=False))
+    _configure(monkeypatch, db_session, SimpleNamespace(get_chat_member=lookup))
+
+    bad = AddressSelectRequest(address_id=foreign.id, resident_chat_id=chat.chat_id)
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(routes.select_address(bad, db_session, resident.max_user_id))
+    assert error.value.status_code == 409
+    assert list_memberships_for_user(db_session, resident.max_user_id) == []
+
+    good = AddressSelectRequest(address_id=second.id, resident_chat_id=chat.chat_id)
+    result = asyncio.run(routes.select_address(good, db_session, resident.max_user_id))
+    assert result.mode == "resident_address"
+    assert list_memberships_for_user(db_session, resident.max_user_id)[0].address_id == second.id
+    assert first.id != second.id
