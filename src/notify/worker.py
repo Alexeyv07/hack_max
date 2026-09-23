@@ -27,9 +27,11 @@ from notify.digest import (
 from notify.priority import (
     PriorityDelivery,
     ack_payload,
+    block_user_notifications,
     build_priority_text,
     delivery_is_due,
     enqueue_new_priority_deliveries,
+    is_suspended_dialog_error,
     list_due_priority_deliveries,
     mark_delivery_sent,
 )
@@ -125,7 +127,23 @@ async def run_priority_cycle(
             )
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            if is_suspended_dialog_error(exc):
+                with factory() as session:
+                    blocked = block_user_notifications(
+                        session,
+                        user_id=delivery.user_id,
+                        blocked_at=datetime.now(UTC),
+                        reason="chat.denied:dialog.suspended",
+                    )
+                    session.commit()
+                if blocked:
+                    logger.warning(
+                        "MAX отклонил личный диалог user_id=%s (403 dialog.suspended); "
+                        "повторы остановлены до нового /start",
+                        delivery.user_id,
+                    )
+                continue
             logger.exception(
                 "Не удалось отправить личное priority-уведомление",
                 extra={
