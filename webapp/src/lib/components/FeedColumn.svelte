@@ -74,12 +74,12 @@
 	{:else if !loading && items.length === 0}
 		<div class="state">
 			{#if scope === 'nearby'}
-				<p>Новости рядом закончились</p>
+				<p>Рядом с вашей улицей пока тихо</p>
 				{#if onrequestcity}
 					<button type="button" class="cta" onclick={onrequestcity}>
 						К новостям города →
 					</button>
-					<p class="sub">Или смахните вправо</p>
+					<p class="sub">Подключите чат соседей в боте или смахните вправо</p>
 				{/if}
 			{:else}
 				<p>Новостей города пока нет</p>

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -16,17 +16,29 @@ from events.cursor import (
     FeedCursor,
     decode_feed_cursor,
     encode_feed_cursor,
+    is_after_cursor,
 )
 from events.db.event import EventRow
 from events.models.event import Event, EventCreate, EventSource, EventUpdate
 from events.weight import (
     allowed_on_map,
+    apply_nearby_boosts,
+    bbox_delta_degrees,
     compute_weight,
+    event_is_active_now,
+    haversine_m,
     map_icon_category,
+    proximity_band,
+    streets_match,
 )
 from project.logging_setup import get_logger
+from user_chat.handlers.membership import list_memberships_for_user
+from user_chat.models.membership import ChatMembership
 
 logger = get_logger(__name__)
+
+# Верхняя граница кандидатов для персональной nearby (bbox → haversine в Python).
+_NEARBY_CANDIDATE_CAP = 2_000
 
 
 class EventScope(StrEnum):
@@ -34,11 +46,22 @@ class EventScope(StrEnum):
     CITY = "city"
 
 
+@dataclass(frozen=True, slots=True)
+class FeedOrigin:
+    """Точка «дома» пользователя для nearby (первая улица чата + радиус)."""
+
+    lat: float
+    lon: float
+    radius_m: float
+    chat_count: int
+
+
 @dataclass(slots=True)
 class FeedPage:
     items: list[Event]
     next_cursor: str | None
     scope: EventScope
+    origin: FeedOrigin | None = None
 
 
 @dataclass(slots=True)
@@ -93,17 +116,25 @@ def _to_domain(
     *,
     distance_m: float | None = None,
     now: datetime | None = None,
+    weight_override: float | None = None,
+    proximity: str | None = None,
+    same_street: bool = False,
+    is_active_now: bool | None = None,
 ) -> Event:
-    weight = compute_weight(
-        importance=row.importance,
-        source=row.source,
-        distance_m=distance_m,
-        geo_by=row.geo_by,
-        published_at=row.published_at,
-        created_at=row.created_at,
-        source_msg_id=row.source_msg_id,
-        outlet_reliability=_outlet_reliability_map(),
-        now=now,
+    weight = (
+        weight_override
+        if weight_override is not None
+        else compute_weight(
+            importance=row.importance,
+            source=row.source,
+            distance_m=distance_m,
+            geo_by=row.geo_by,
+            published_at=row.published_at,
+            created_at=row.created_at,
+            source_msg_id=row.source_msg_id,
+            outlet_reliability=_outlet_reliability_map(),
+            now=now,
+        )
     )
     address = row.address
     return Event(
@@ -128,7 +159,180 @@ def _to_domain(
         created_at=row.created_at,
         updated_at=row.updated_at,
         distance_m=distance_m,
+        proximity=proximity,
+        same_street=same_street,
+        is_active_now=is_active_now,
     )
+
+
+def _min_distance_m(
+    *,
+    event_lat: float,
+    event_lon: float,
+    origins: Sequence[ChatMembership],
+) -> float:
+    return min(haversine_m(o.lat, o.lon, event_lat, event_lon) for o in origins)
+
+
+def _same_street_for_origins(
+    event_street: str | None,
+    origins: Sequence[ChatMembership],
+) -> bool:
+    return any(streets_match(event_street, origin.street) for origin in origins)
+
+
+def _bbox_predicate(origins: Sequence[ChatMembership], radius_m: float):
+    """OR по bbox вокруг каждой улицы чата (грубый prefilter до haversine)."""
+    clauses = []
+    for origin in origins:
+        d_lat, d_lon = bbox_delta_degrees(lat=origin.lat, radius_m=radius_m)
+        clauses.append(
+            and_(
+                AddressRow.latitude.between(origin.lat - d_lat, origin.lat + d_lat),
+                AddressRow.longitude.between(origin.lon - d_lon, origin.lon + d_lon),
+            )
+        )
+    return or_(*clauses)
+
+
+def _feed_origin(memberships: Sequence[ChatMembership], radius_m: float) -> FeedOrigin:
+    first = memberships[0]
+    return FeedOrigin(
+        lat=first.lat,
+        lon=first.lon,
+        radius_m=radius_m,
+        chat_count=len(memberships),
+    )
+
+
+def _list_nearby_feed(
+    session: Session,
+    *,
+    memberships: Sequence[ChatMembership],
+    limit: int,
+    cursor: str | None,
+    now: datetime,
+) -> FeedPage:
+    radius_m = float(memberships[0].nearby_radius_m)
+    origin = _feed_origin(memberships, radius_m)
+    stmt = (
+        _addressed_event_stmt()
+        .where(
+            EventRow.importance.in_((1, 2)),
+            EventRow.geo_by.in_(("street", "home")),
+            _bbox_predicate(memberships, radius_m),
+        )
+        .limit(_NEARBY_CANDIDATE_CAP)
+    )
+    rows = list(session.scalars(stmt).unique().all())
+    scored: list[Event] = []
+    for row in rows:
+        assert row.address is not None
+        event_lat = float(row.address.latitude)
+        event_lon = float(row.address.longitude)
+        distance = _min_distance_m(
+            event_lat=event_lat,
+            event_lon=event_lon,
+            origins=memberships,
+        )
+        if distance > radius_m:
+            continue
+        same_street = _same_street_for_origins(row.address.street, memberships)
+        active = event_is_active_now(
+            active_from=row.active_from,
+            active_to=row.active_to,
+            now=now,
+        )
+        base = compute_weight(
+            importance=row.importance,
+            source=row.source,
+            distance_m=distance,
+            geo_by=row.geo_by,
+            published_at=row.published_at,
+            created_at=row.created_at,
+            source_msg_id=row.source_msg_id,
+            outlet_reliability=_outlet_reliability_map(),
+            now=now,
+        )
+        rank = apply_nearby_boosts(
+            base,
+            same_street=same_street,
+            is_active_now=active,
+        )
+        scored.append(
+            _to_domain(
+                row,
+                distance_m=distance,
+                now=now,
+                weight_override=rank,
+                proximity=proximity_band(distance),
+                same_street=same_street,
+                is_active_now=active,
+            )
+        )
+
+    scored.sort(key=lambda item: (item.weight, item.id), reverse=True)
+    parsed: FeedCursor | None = decode_feed_cursor(cursor) if cursor else None
+    if parsed is not None:
+        scored = [
+            item
+            for item in scored
+            if is_after_cursor(weight=item.weight, event_id=item.id, cursor=parsed)
+        ]
+
+    page_items = scored[:limit]
+    next_cursor: str | None = None
+    if len(scored) > limit:
+        last = page_items[-1]
+        next_cursor = encode_feed_cursor(FeedCursor(weight=last.weight, event_id=last.id))
+
+    return FeedPage(
+        items=page_items,
+        next_cursor=next_cursor,
+        scope=EventScope.NEARBY,
+        origin=origin,
+    )
+
+
+def _list_city_feed(
+    session: Session,
+    *,
+    limit: int,
+    cursor: str | None,
+    now: datetime,
+) -> FeedPage:
+    stmt = (
+        _addressed_event_stmt()
+        .where(
+            EventRow.importance.in_((1, 2)),
+            EventRow.geo_by == "city",
+        )
+        .order_by(EventRow.weight.desc(), EventRow.id.desc())
+    )
+    parsed: FeedCursor | None = decode_feed_cursor(cursor) if cursor else None
+    if parsed is not None:
+        stmt = stmt.where(
+            or_(
+                EventRow.weight < parsed.weight,
+                and_(EventRow.weight == parsed.weight, EventRow.id < parsed.event_id),
+            )
+        )
+
+    rows = list(session.scalars(stmt.limit(limit + 1)).unique().all())
+    page_rows = rows[:limit]
+    items: list[Event] = []
+    for row in page_rows:
+        event = _to_domain(row, distance_m=None, now=now)
+        # Курсор и ORDER BY по persisted weight — иначе page2 дублирует page1.
+        event.weight = float(row.weight)
+        items.append(event)
+
+    next_cursor: str | None = None
+    if len(rows) > limit:
+        last = items[-1]
+        next_cursor = encode_feed_cursor(FeedCursor(weight=last.weight, event_id=last.id))
+
+    return FeedPage(items=items, next_cursor=next_cursor, scope=EventScope.CITY)
 
 
 def list_existing_source_msg_ids(
@@ -295,55 +499,47 @@ def list_feed(
     scope: EventScope | str,
     limit: int = 20,
     cursor: str | None = None,
+    max_user_id: int | None = None,
 ) -> FeedPage:
     """
-    TikTok-лента: одна выдача всем, keyset (weight DESC, id DESC).
+    TikTok-лента nearby|city.
 
-    Правила:
+    Общее:
     - только события с address_id + непустым Address.address_text;
-    - importance 1|2 (3 не показываем ни в одной ленте);
-    - nearby → geo_by street|home; city → geo_by city;
-    - порядок по weight (затем id).
+    - importance 1|2 (3 не показываем);
+    - keyset cursor по weight DESC, id DESC.
+
+    Nearby (персонально по улице чата):
+    - нужны memberships пользователя; иначе пустая страница;
+    - geo_by street|home;
+    - отсев дальше ``events.nearby_radius_m`` (haversine от lat/lon адреса чата);
+    - вес пересчитывается с distance_m + same_street / active_window бусты.
+
+    City: geo_by=city, общая выдача по persisted weight.
     """
     scope_value = EventScope(scope)
     if limit < 1:
         raise ValueError("limit должен быть >= 1")
 
-    geo_values = ("street", "home") if scope_value is EventScope.NEARBY else ("city",)
-    stmt = (
-        _addressed_event_stmt()
-        .where(
-            EventRow.importance.in_((1, 2)),
-            EventRow.geo_by.in_(geo_values),
-        )
-        .order_by(EventRow.weight.desc(), EventRow.id.desc())
-    )
-
-    parsed: FeedCursor | None = decode_feed_cursor(cursor) if cursor else None
-    if parsed is not None:
-        # Keyset: строго после (weight, id) в порядке DESC.
-        stmt = stmt.where(
-            or_(
-                EventRow.weight < parsed.weight,
-                and_(EventRow.weight == parsed.weight, EventRow.id < parsed.event_id),
-            )
-        )
-
-    rows = list(session.scalars(stmt.limit(limit + 1)).unique().all())
     now = datetime.now(UTC)
-    page_rows = rows[:limit]
-    items: list[Event] = []
-    for row in page_rows:
-        event = _to_domain(row, distance_m=None, now=now)
-        # Курсор и ORDER BY по persisted weight — иначе page2 дублирует page1.
-        event.weight = float(row.weight)
-        items.append(event)
-    next_cursor: str | None = None
-    if len(rows) > limit:
-        last = items[-1]
-        next_cursor = encode_feed_cursor(FeedCursor(weight=last.weight, event_id=last.id))
+    if scope_value is EventScope.CITY:
+        return _list_city_feed(session, limit=limit, cursor=cursor, now=now)
 
-    return FeedPage(items=items, next_cursor=next_cursor, scope=scope_value)
+    if max_user_id is None:
+        return FeedPage(items=[], next_cursor=None, scope=EventScope.NEARBY, origin=None)
+
+    memberships = list_memberships_for_user(session, max_user_id)
+    if not memberships:
+        # Без привязанного чата «рядом» нечего ранжировать — городская лента отдельно.
+        return FeedPage(items=[], next_cursor=None, scope=EventScope.NEARBY, origin=None)
+
+    return _list_nearby_feed(
+        session,
+        memberships=memberships,
+        limit=limit,
+        cursor=cursor,
+        now=now,
+    )
 
 
 def list_map_points(

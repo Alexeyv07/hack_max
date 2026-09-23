@@ -24,6 +24,32 @@
 
 	const publishedLabel = $derived(formatPublished(event.published_at ?? event.created_at));
 	const sourceLabel = $derived(formatSource(event.source, event.source_msg_id));
+	const distanceLabel = $derived(formatDistance(event.distance_m, event.proximity));
+	const nearHints = $derived(
+		[
+			event.same_street ? 'ваша улица' : null,
+			event.is_active_now === true ? 'сейчас' : null,
+			distanceLabel
+		].filter(Boolean) as string[]
+	);
+
+	function formatDistance(meters: number | null, proximity: string | null | undefined): string | null {
+		if (meters == null || Number.isNaN(meters)) return null;
+		if (meters < 1000) return `${Math.round(meters)} м`;
+		const km = meters / 1000;
+		const rounded = km < 10 ? km.toFixed(1) : String(Math.round(km));
+		const band =
+			proximity === 'home'
+				? 'у дома'
+				: proximity === 'block'
+					? 'квартал'
+					: proximity === 'street'
+						? 'улица'
+						: proximity === 'district'
+							? 'район'
+							: null;
+		return band ? `${rounded} км · ${band}` : `${rounded} км`;
+	}
 
 	function formatPublished(iso: string | null): string {
 		if (!iso) return 'Дата неизвестна';
@@ -152,6 +178,10 @@
 					<span class="dot" aria-hidden="true">·</span>
 					<span class="location" title={event.location}>{event.location}</span>
 				{/if}
+				{#each nearHints as hint}
+					<span class="dot" aria-hidden="true">·</span>
+					<span class="near-hint">{hint}</span>
+				{/each}
 			</span>
 		</footer>
 	</div>
@@ -312,6 +342,10 @@
 	.dot {
 		margin: 0 0.35em;
 		opacity: 0.55;
+	}
+
+	.near-hint {
+		color: #9fd0c0;
 	}
 
 	.lightbox {

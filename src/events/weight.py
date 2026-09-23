@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from datetime import UTC, datetime
 
 # Базовая надёжность канала источника (0..1), если нет per-outlet в конфиге.
@@ -33,6 +34,16 @@ _IMPORTANCE_RELEVANCE = {1: 1.0, 2: 0.72, 3: 0.42}
 _GEO_BY_RELEVANCE = {"home": 1.0, "street": 0.78, "city": 0.48}
 _HALF_LIFE_HOURS = 24.0
 
+# Порядок близости для nearby (метры). Дальше — отсев по nearby_radius_m.
+PROXIMITY_HOME_M = 250.0
+PROXIMITY_BLOCK_M = 800.0
+PROXIMITY_STREET_M = 1_500.0
+
+_STREET_PREFIX_RE = re.compile(
+    r"^(ул\.?|улица|пр-?т\.?|проспект|пер\.?|переулок|б-?р\.?|бульвар|ш\.?|шоссе)\s+",
+    re.IGNORECASE,
+)
+
 
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Расстояние между двумя WGS84-точками в метрах."""
@@ -42,6 +53,92 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     d_lambda = math.radians(lon2 - lon1)
     a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
     return 2 * radius_m * math.asin(min(1.0, math.sqrt(a)))
+
+
+def proximity_band(distance_m: float) -> str:
+    """
+    Дискретный порядок близости для UI и отладки ранжирования.
+
+    home → block → street → district (в пределах nearby_radius_m).
+    """
+    if distance_m <= PROXIMITY_HOME_M:
+        return "home"
+    if distance_m <= PROXIMITY_BLOCK_M:
+        return "block"
+    if distance_m <= PROXIMITY_STREET_M:
+        return "street"
+    return "district"
+
+
+def bbox_delta_degrees(*, lat: float, radius_m: float) -> tuple[float, float]:
+    """Полуоси bbox вокруг точки: (Δlat°, Δlon°) для грубого SQL-фильтра."""
+    delta_lat = radius_m / 111_320.0
+    cos_lat = max(0.2, abs(math.cos(math.radians(lat))))
+    delta_lon = radius_m / (111_320.0 * cos_lat)
+    return delta_lat, delta_lon
+
+
+def normalize_street_name(value: str | None) -> str | None:
+    """Сравнение улиц чата и события без учёта «ул./проспект»."""
+    if value is None:
+        return None
+    text = " ".join(value.strip().lower().split())
+    if not text:
+        return None
+    text = _STREET_PREFIX_RE.sub("", text).strip(" ,.")
+    return text or None
+
+
+def streets_match(a: str | None, b: str | None) -> bool:
+    left = normalize_street_name(a)
+    right = normalize_street_name(b)
+    return left is not None and left == right
+
+
+def event_is_active_now(
+    *,
+    active_from: datetime | None,
+    active_to: datetime | None,
+    now: datetime | None = None,
+) -> bool | None:
+    """
+    Окно действия события.
+
+    None — окно неизвестно; True — сейчас действует; False — ещё не началось / уже кончилось.
+    """
+    if active_from is None and active_to is None:
+        return None
+    current = now or datetime.now(UTC)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=UTC)
+
+    start = active_from
+    end = active_to
+    if start is not None and start.tzinfo is None:
+        start = start.replace(tzinfo=UTC)
+    if end is not None and end.tzinfo is None:
+        end = end.replace(tzinfo=UTC)
+
+    if start is not None and current < start:
+        return False
+    return end is None or current <= end
+
+
+def apply_nearby_boosts(
+    weight: float,
+    *,
+    same_street: bool = False,
+    is_active_now: bool | None = None,
+) -> float:
+    """Локальные бусты только для персональной nearby-ленты (итог в [0, 1])."""
+    score = float(weight)
+    if same_street:
+        score += 0.07
+    if is_active_now is True:
+        score += 0.05
+    elif is_active_now is False:
+        score -= 0.08
+    return _clamp01(score)
 
 
 def outlet_from_source_msg_id(source_msg_id: str | None) -> str | None:
@@ -157,11 +254,7 @@ def allowed_in_feed(*, importance: int) -> bool:
 
 
 def matches_feed_geo(*, scope: str, geo_by: str | None) -> bool:
-    """
-    Nearby — только street|home; city — только city.
-
-    Персонализация по чатам пока не используется.
-    """
+    """Nearby — street|home; city — city. Дистанция/радиус — в list_feed nearby."""
     if geo_by is None:
         return False
     value = geo_by.strip().lower()

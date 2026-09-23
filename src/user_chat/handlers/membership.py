@@ -68,7 +68,13 @@ def list_chat_members(session: Session, chat_id: int) -> list[ChatMember]:
 def list_memberships_for_user(session: Session, max_user_id: int) -> list[ChatMembership]:
     """Реальные чаты пользователя; координаты читаются из связанного Address."""
     rows = session.execute(
-        select(ChatRow, AddressRow.latitude, AddressRow.longitude)
+        select(
+            ChatRow,
+            AddressRow.latitude,
+            AddressRow.longitude,
+            AddressRow.street,
+            AddressRow.house,
+        )
         .join(users_chat, users_chat.c.chat_id == ChatRow.chat_id)
         .join(UserRow, UserRow.id == users_chat.c.user_id)
         .join(AddressRow, AddressRow.id == ChatRow.address_id)
@@ -84,8 +90,10 @@ def list_memberships_for_user(session: Session, max_user_id: int) -> list[ChatMe
             lon=float(lon),
             nearby_radius_m=settings.events.nearby_radius_m,
             city_radius_m=settings.events.city_radius_m,
+            street=street,
+            house=house,
         )
-        for chat, lat, lon in rows
+        for chat, lat, lon, street, house in rows
     ]
 
 

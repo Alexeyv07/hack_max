@@ -86,3 +86,7 @@ class Event:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     distance_m: float | None = None
+    # Только nearby-персонализация (иначе None / False).
+    proximity: str | None = None
+    same_street: bool = False
+    is_active_now: bool | None = None
