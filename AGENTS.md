@@ -54,6 +54,10 @@ fetch → ParserCandidate ─normalize─▶ EventDraft ──resolve──▶ N
 - Snapshot событий (все sources): `parser_common.seed`
   (`python -m parser_common.seed dump|load` →
   `src/parser_common/data/bootstrap_events.jsonl.gz`).
+  В Docker: образ Postgres (`docker/postgres`) на initdb накатывает
+  `db/migrations/*.up.sql`, затем `COPY` из `docker/postgres/seed/*.csv.gz`.
+  Локально без Docker: `python scripts/migrate.py up`.
+  Пересборка CSV: `python scripts/build_pg_seed_dumps.py`.
 - **Дедуп (KAN-19):** `ml_dedup` внутри `persist_candidate` —
   NEW / DUPLICATE / UPDATE; окно активности `ml_dedup.active_days` (21).
 - Контракт для авторов парсеров: `src/parser_common/README.md`.
@@ -196,7 +200,7 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
 ```bash
 pip install -e ".[dev]"
 set PYTHONPATH=src
-alembic upgrade head
+python scripts/migrate.py up
 python -m main
 
 # docker compose up -d --build
@@ -223,7 +227,8 @@ API локально: `http://localhost:8000/docs`, health: `/health`.
 
 - `tests/` + pytest; API через `TestClient` и in-memory SQLite.
 - Не требуют живой Postgres / Max token.
-- При добавлении ORM — импорт в `alembic/env.py` и `tests/conftest.py` metadata.
+- При добавлении ORM — импорт в `tests/conftest.py` metadata;
+  схема Postgres — пара файлов в `db/migrations/` (см. `db/README.md`).
 
 ## Стиль
 

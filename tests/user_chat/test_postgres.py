@@ -1,16 +1,11 @@
-"""Проверка handlers на настоящей мигрированной PostgreSQL; отдельная схема, rollback."""
+"""Проверка handlers на PostgreSQL со SQL-миграциями; отдельная схема, rollback."""
 
 from __future__ import annotations
 
 import os
 import uuid
-from pathlib import Path
 
 import pytest
-from alembic.config import Config
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
-from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -18,6 +13,7 @@ from sqlalchemy.orm import Session
 from address.db import AddressRow
 from auth.handlers.authorize import authorize_user
 from auth.models.user import MaxUserPayload
+from project.sql_migrate import upgrade_all
 from user_chat.db import ChatRow
 from user_chat.handlers import (
     add_user_to_chat,
@@ -33,9 +29,6 @@ from user_chat.models import ChatCreate
 )
 def test_postgres_membership_and_delete_constraints() -> None:
     engine = create_engine(os.environ["ADDRESS_TEST_DATABASE_URL"])
-    config = Config()
-    config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
-    scripts = ScriptDirectory.from_config(config)
     try:
         with engine.connect() as connection:
             transaction = connection.begin()
@@ -43,9 +36,7 @@ def test_postgres_membership_and_delete_constraints() -> None:
                 schema = "chat_test_" + uuid.uuid4().hex
                 connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
                 connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
-                with Operations.context(MigrationContext.configure(connection)):
-                    for revision in reversed(list(scripts.walk_revisions())):
-                        revision.module.upgrade()
+                upgrade_all(connection)
                 with Session(bind=connection, join_transaction_mode="create_savepoint") as session:
                     address = AddressRow(address_text="Тест PostgreSQL", latitude=55, longitude=37)
                     session.add(address)

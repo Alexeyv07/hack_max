@@ -1,6 +1,9 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+    image: hack_max_postgres:local
     container_name: hack_max_postgres
     environment:
       POSTGRES_DB: hack_max
@@ -15,6 +18,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 120s
 
   bot:
     build:
@@ -37,8 +41,6 @@ services:
     volumes:
       - ./src:/app/src
       - ./conf:/app/conf
-      - ./alembic:/app/alembic
-      - ./alembic.ini:/app/alembic.ini
       - ./ml/classify/rules.yaml:/app/ml/classify/rules.yaml:ro
       - ./ml/classify/artifacts:/app/ml/classify/artifacts:ro
       - ./ml/time/artifacts:/app/ml/time/artifacts:ro

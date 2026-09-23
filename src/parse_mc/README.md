@@ -34,7 +34,7 @@
 
 ```bash
 set PYTHONPATH=src
-alembic upgrade head
+python scripts/migrate.py up
 python -m main
 ```
 

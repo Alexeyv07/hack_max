@@ -40,42 +40,6 @@ def _patch_get_updates_limit(bot: Bot, *, limit: int) -> None:
     logger.info("Max get_updates limit=%s", limit)
 
 
-def _warm_ml() -> None:
-    """Прогреть ONNX + spaCy в фоне (первый инференс иначе блокирует всё на секунды)."""
-    sample = "прогрев: отключили воду во дворе с 10:00 до 18:00"
-    try:
-        from parser_common.classify import classify_importance
-
-        classify_importance(sample)
-        logger.info("warm ML: classify ok")
-    except Exception:
-        logger.debug("warm classify skipped", exc_info=True)
-    try:
-        from parser_common.time_extract import extract_active_window
-
-        extract_active_window(sample, use_model=True)
-        logger.info("warm ML: time ok")
-    except Exception:
-        logger.debug("warm time skipped", exc_info=True)
-    try:
-        from ml_dedup.embed import embed_text
-
-        embed_text(sample, allow_hash_fallback=True)
-        logger.info("warm ML: dedup embed ok")
-    except Exception:
-        logger.debug("warm embed skipped", exc_info=True)
-    try:
-        from parser_common.place_ner import _load_spacy
-
-        model = get_settings().ml_enrich.spacy_model
-        nlp = _load_spacy(model)
-        if nlp is not None:
-            nlp(sample)
-        logger.info("warm ML: spaCy ok (loaded=%s)", nlp is not None)
-    except Exception:
-        logger.debug("warm spaCy skipped", exc_info=True)
-
-
 async def run_max_bot() -> None:
     """Polling Max-бота. Токен обязателен только если бот реально запускают."""
     settings = get_settings()
@@ -97,8 +61,6 @@ async def run_max_bot() -> None:
     set_max_bot(bot)
     # ~125k адресов: только в thread — иначе весь event loop (и HTTP) мёртв на 10–30с.
     await asyncio.to_thread(get_address_catalog)
-    # Прогрев ML параллельно — не блокируем старт polling.
-    asyncio.create_task(asyncio.to_thread(_warm_ml), name="warm-ml")
 
     chat_on = settings.runtime.enable_chat_parser and settings.chat_parser.enabled
     if chat_on:

@@ -51,7 +51,7 @@ PK=address_text не выбирается случайно.
 Из корня проекта, с настроенной PostgreSQL:
 
 ```bash
-alembic upgrade head
+PYTHONPATH=src python scripts/migrate.py up
 PYTHONPATH=src python -m address.seed src/address/data/moscow.jsonl.gz --validate-only
 PYTHONPATH=src python -m address.seed src/address/data/moscow.jsonl.gz
 ```

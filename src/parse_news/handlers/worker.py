@@ -382,7 +382,7 @@ def _flush_batch(
 async def run_news_parser() -> None:
     from pathlib import Path
 
-    from parser_common.seed import DEFAULT_SNAPSHOT, dump_events_snapshot, ensure_events_seeded
+    from parser_common.seed import DEFAULT_SNAPSHOT, dump_events_snapshot
 
     settings = get_settings()
     cfg = settings.news_parser
@@ -396,12 +396,6 @@ async def run_news_parser() -> None:
         snap_path = Path(__file__).resolve().parents[3] / snap_path
     if not snap_path.is_file():
         snap_path = DEFAULT_SNAPSHOT
-
-    try:
-        if await _in_thread(ensure_events_seeded, snap_path):
-            logger.info("События загружены из snapshot %s", snap_path)
-    except Exception:
-        logger.exception("Не удалось загрузить snapshot событий — продолжаем парсинг")
 
     sources = get_sources(cfg)
     logger.info(

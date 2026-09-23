@@ -58,7 +58,7 @@ python ml/dedup/export_onnx.py
 ## 4) Миграция + прогон
 
 ```powershell
-alembic upgrade head
+PYTHONPATH=src python scripts/migrate.py up
 python -m pytest tests/ml_dedup tests/parser_common -q
 python -m main
 ```

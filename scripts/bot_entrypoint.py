@@ -1,15 +1,14 @@
-"""Entrypoint контейнера бота: ML-артефакты, миграции, seed, затем main."""
+"""Entrypoint контейнера бота: проверка ML-артефактов → main.
+
+Схема и seed — образ Postgres (docker/postgres), не бот.
+"""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-from alembic.config import main as alembic_main
-
-from address.seed import ensure_addresses_seeded
 from main import main as bot_main
-from parser_common.seed import ensure_events_seeded
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -64,21 +63,6 @@ def _check_ml_artifacts() -> None:
 
 def run() -> None:
     _check_ml_artifacts()
-    print("Применяем миграции Alembic...", flush=True)
-    alembic_main(argv=["upgrade", "head"])
-
-    print("Проверяем справочник адресов...", flush=True)
-    if ensure_addresses_seeded():
-        print("Справочник адресов загружен", flush=True)
-    else:
-        print("Справочник адресов уже загружен", flush=True)
-
-    print("Проверяем snapshot событий...", flush=True)
-    if ensure_events_seeded():
-        print("События из snapshot загружены", flush=True)
-    else:
-        print("Snapshot событий пропущен (нет файла или events уже не пуста)", flush=True)
-
     print("Запускаем бота...", flush=True)
     bot_main()
 
