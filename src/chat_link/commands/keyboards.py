@@ -158,6 +158,13 @@ def admin_setup_keyboard():
     return builder.as_markup()
 
 
+def add_more_addresses_keyboard():
+    """Продолжить привязку того же чата, не добавляя бота повторно."""
+    builder = InlineKeyboardBuilder()
+    builder.row(CallbackButton(text="Добавить ещё адрес", payload="chat_link:start"))
+    return builder.as_markup()
+
+
 def group_referral_keyboard(referral: str | None):
     if not referral:
         return None

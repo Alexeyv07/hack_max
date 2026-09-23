@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import chat_link.commands.flow as flow
+from chat_link.commands.keyboards import add_more_addresses_keyboard
+from chat_link.models import ConnectOutcome
 
 
 class FakeDispatcher:
@@ -52,6 +55,75 @@ class FakeContext:
     async def set_data(self, data):
         self.data = dict(data)
         return dict(self.data)
+
+
+def test_admin_setup_explains_how_to_add_address_to_existing_chat(monkeypatch) -> None:
+    monkeypatch.setattr(
+        flow,
+        "get_address_catalog",
+        lambda: SimpleNamespace(get=lambda address_id: SimpleNamespace(address_text="Дом 2")),
+    )
+    event = SimpleNamespace(edit=AsyncMock())
+
+    asyncio.run(flow._show_admin_setup(event, FakeContext({"address_id": 2}), bot=None))
+
+    text = event.edit.await_args.kwargs["text"]
+    assert "повторно добавлять его не нужно" in text
+    assert "/address" in text
+    assert "Добавить адрес чата (админ)" in text
+
+
+def test_add_more_addresses_button_reuses_group_binding_flow() -> None:
+    button = add_more_addresses_keyboard().payload.buttons[0][0]
+    assert button.text == "Добавить ещё адрес"
+    assert button.payload == "chat_link:start"
+
+
+def test_admin_can_add_next_address_without_readding_bot(monkeypatch) -> None:
+    @contextmanager
+    def fake_session_scope():
+        yield object()
+
+    connect = AsyncMock(return_value=ConnectOutcome(True, -100500, True, "Адрес добавлен к чату."))
+    announce = AsyncMock()
+    monkeypatch.setattr(flow, "session_scope", fake_session_scope)
+    monkeypatch.setattr(
+        flow,
+        "get_address_catalog",
+        lambda: SimpleNamespace(get=lambda address_id: SimpleNamespace(address_text="Дом 2")),
+    )
+    monkeypatch.setattr(flow, "connect_added_group_to_address", connect)
+    monkeypatch.setattr(flow, "announce_connected_group", announce)
+
+    bot = SimpleNamespace(
+        me=SimpleNamespace(username="test_bot", user_id=999),
+        edit_message=AsyncMock(),
+    )
+    context = FakeContext({"target_chat_id": -100500, "flow_mid": "mid"})
+    event = SimpleNamespace(
+        callback=SimpleNamespace(payload="", user=SimpleNamespace(user_id=101)),
+        message=SimpleNamespace(body=SimpleNamespace(mid="mid")),
+        ack=AsyncMock(),
+        edit=AsyncMock(),
+    )
+    asyncio.run(flow._finish_address(event, context, bot, address_id=2))
+
+    connect.assert_awaited_once()
+    assert connect.await_args.kwargs["chat_id"] == -100500
+    assert context.data["target_chat_id"] == -100500
+    add_button = event.edit.await_args.kwargs["attachments"][0].payload.buttons[0][0]
+    assert add_button.payload == "chat_link:start"
+
+    dp = FakeDispatcher()
+    flow.register_chat_link_commands(dp, bot)
+    event.callback.payload = add_button.payload
+    asyncio.run(dp.handlers["message_callback"](event, context))
+
+    assert context.data["target_chat_id"] == -100500
+    assert "Выберите дом для этого чата" in bot.edit_message.await_args.kwargs["text"]
+    method_buttons = bot.edit_message.await_args.kwargs["attachments"][0].payload.buttons
+    assert "_bind_-100500" in method_buttons[2][0].payload
+    announce.assert_awaited_once()
 
 
 class PostalCatalog:
@@ -192,7 +264,7 @@ def test_admin_instructions_are_shown_only_after_admin_button(monkeypatch) -> No
     event.ack.assert_not_awaited()
     event.edit.assert_awaited_once()
     kwargs = event.edit.await_args.kwargs
-    assert "Если вы администратор домового чата" in kwargs["text"]
+    assert "Если бот уже есть в вашем чате" in kwargs["text"]
     assert "Читать все сообщения" in kwargs["text"]
     buttons = kwargs["attachments"][0].payload.buttons
     assert buttons[0][0].text == "← Я не администратор"
@@ -218,7 +290,7 @@ def test_return_from_admin_help_shows_resident_text(monkeypatch) -> None:
     event.edit.assert_awaited_once()
     kwargs = event.edit.await_args.kwargs
     assert "Если вы обычный житель" in kwargs["text"]
-    assert "Если вы администратор домового чата" not in kwargs["text"]
+    assert "Если бот уже есть в вашем чате" not in kwargs["text"]
     buttons = kwargs["attachments"][0].payload.buttons
     assert buttons[0][0].text == "Скопировать ссылку для админа"
     assert buttons[1][0].text == "Я администратор чата"

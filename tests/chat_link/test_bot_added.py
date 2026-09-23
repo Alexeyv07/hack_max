@@ -199,7 +199,10 @@ def test_address_command_reads_saved_group_address(monkeypatch) -> None:
         yield object()
 
     dp = AddressDispatcher()
-    bot = SimpleNamespace(send_message=AsyncMock())
+    bot = SimpleNamespace(
+        me=SimpleNamespace(username="smart_city_bot"),
+        send_message=AsyncMock(),
+    )
     monkeypatch.setattr(flow, "session_scope", fake_session_scope)
     monkeypatch.setattr(flow, "connected_group_address", lambda session, chat_id: "Москва, д. 8")
     flow.register_chat_link_commands(dp, bot)
@@ -209,3 +212,10 @@ def test_address_command_reads_saved_group_address(monkeypatch) -> None:
     bot.send_message.assert_awaited_once()
     assert bot.send_message.await_args.kwargs["chat_id"] == -100500
     assert "Москва, д. 8" in bot.send_message.await_args.kwargs["text"]
+    assert "повторно добавлять не нужно" in bot.send_message.await_args.kwargs["text"]
+    buttons = bot.send_message.await_args.kwargs["attachments"][0].payload.buttons
+    assert [row[0].text for row in buttons] == [
+        "Указать свой адрес",
+        "Добавить адрес чата (админ)",
+    ]
+    assert "chat_bind_-100500" in buttons[1][0].url

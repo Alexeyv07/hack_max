@@ -12,6 +12,7 @@ from address.street_catalog import normalize_ui_text
 from auth.commands.start import build_welcome_keyboard, build_welcome_text
 from auth.handlers import get_user_by_max_id
 from chat_link.commands.keyboards import (
+    add_more_addresses_keyboard,
     admin_setup_keyboard,
     list_keyboard,
     method_keyboard,
@@ -28,6 +29,7 @@ from chat_link.handlers import (
     connect_added_group,
     connect_added_group_to_address,
     connected_group_address,
+    connected_group_keyboard,
     create_request,
     get_address_catalog,
     mark_waiting_group,
@@ -374,9 +376,10 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
             text=(
                 "✅ Чат успешно привязан к адресу:\n"
                 f"{address.address_text}\n\n"
-                "Можно добавить ещё один адрес через кнопку администратора в групповом чате."
+                "Нажмите «Добавить ещё адрес», если в чате есть жители других домов. "
+                "Когда закончите, вернитесь в главное меню через /start."
             ),
-            attachments=[],
+            attachments=[add_more_addresses_keyboard()],
             notify=False,
         )
         return
@@ -475,9 +478,11 @@ async def _show_admin_setup(event: Any, context: Any, bot: Any) -> None:
     await event.edit(
         text=(
             f"Адрес: {address.address_text}\n\n"
-            "Если вы администратор домового чата, добавьте этого бота в нужный групповой чат, "
-            "затем назначьте его администратором с правом «Читать все сообщения». "
-            "После этого чат подключится автоматически — дополнительных команд не нужно."
+            "Если бот уже есть в вашем чате, повторно добавлять его не нужно: "
+            "отправьте в группу /address и нажмите «Добавить адрес чата (админ)». "
+            "Затем выберите этот дом в личном диалоге с ботом.\n\n"
+            "Если бота ещё нет в чате, добавьте его и назначьте администратором "
+            "с правом «Читать все сообщения». После этого можно выбрать первый адрес."
         ),
         attachments=[admin_setup_keyboard()],
         notify=False,
@@ -720,12 +725,15 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             address_text = connected_group_address(session, int(chat_id))
         if address_text is None:
             return
+        keyboard = connected_group_keyboard(bot, int(chat_id))
         await bot.send_message(
             chat_id=int(chat_id),
             text=(
                 f"🏠 Адреса этого чата:\n{address_text}\n\n"
-                "Если адрес указан неверно, сообщите администратору чата."
+                "Чтобы подключить ещё один дом, администратор может нажать "
+                "«Добавить адрес чата (админ)». Бота повторно добавлять не нужно."
             ),
+            attachments=[keyboard] if keyboard is not None else None,
         )
 
     @dp.message_created(F.message.body.text, ChatLinkStates.postal)

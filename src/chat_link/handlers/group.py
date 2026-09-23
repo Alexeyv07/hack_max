@@ -370,3 +370,13 @@ def _connected_group_keyboard(referral: str | None, bind_link: str | None) -> An
     if bind_link:
         builder.row(LinkButton(text="Добавить адрес чата (админ)", url=bind_link))
     return builder.as_markup() if referral or bind_link else None
+
+
+def connected_group_keyboard(bot: Any, chat_id: int) -> Any | None:
+    """Повторно показать действия группы, даже если старое сообщение потерялось в чате."""
+    username = getattr(getattr(bot, "me", None), "username", None)
+    if not username:
+        return None
+    referral = create_start_link(username, f"chat_{chat_id}")
+    bind_link = create_start_link(username, f"chat_bind_{chat_id}")
+    return _connected_group_keyboard(referral, bind_link)
