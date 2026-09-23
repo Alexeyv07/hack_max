@@ -101,11 +101,13 @@ async def run_max_bot() -> None:
     # В MAX API выполняется первый подходящий handler, поэтому notify должен быть раньше.
     register_notify_commands(dp, bot)
     register_chat_link_commands(dp, bot)
-    if chat_on:
+    if chat_on or settings.notify.enabled:
+        # Один message_created listener: digest собирает обычные тексты, KAN-10 — events.
         register_parse_chat_commands(dp, bot)
         logger.info(
-            "parse_chat: low-latency bg persist (updates_limit=%s, spaCy+time+classify+dedup)",
-            settings.chat_parser.updates_limit,
+            "chat listener: parse_chat=%s digest_capture=%s",
+            chat_on,
+            settings.notify.enabled,
         )
 
     logger.info("Polling Max-бота запущен")

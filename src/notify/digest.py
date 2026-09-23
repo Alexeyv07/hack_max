@@ -73,6 +73,12 @@ def digest_cursor(session: Session, chat_id: int) -> datetime | None:
     return _aware_utc(state.last_message_at)
 
 
+def digest_message_id(session: Session, chat_id: int) -> int | None:
+    """Монотонный курсор, не зависящий от округления времени MAX до секунд."""
+    state = session.get(NotifyDigestRow, chat_id)
+    return state.last_message_id if state is not None else None
+
+
 def normalize_messages(messages: Sequence[ChatMessage]) -> list[ChatMessage]:
     """Убрать пустые сообщения, нормализовать пробелы и отсортировать по времени."""
     normalized: list[ChatMessage] = []
@@ -84,6 +90,7 @@ def normalize_messages(messages: Sequence[ChatMessage]) -> list[ChatMessage]:
             ChatMessage(
                 text=text,
                 created_at=_aware_utc(message.created_at),
+                row_id=message.row_id,
             )
         )
     normalized.sort(key=lambda message: message.created_at)
@@ -134,6 +141,7 @@ def mark_digest_done(
     day: date,
     sent_at: datetime | None,
     last_message_at: datetime | None = None,
+    last_message_id: int | None = None,
 ) -> None:
     """Зафиксировать запуск дня; cursor двигается только после успешной отправки."""
     state = session.get(NotifyDigestRow, chat_id)
@@ -146,6 +154,8 @@ def mark_digest_done(
         state.last_sent_at = _aware_utc(sent_at)
     if last_message_at is not None:
         state.last_message_at = _aware_utc(last_message_at)
+    if last_message_id is not None:
+        state.last_message_id = last_message_id
     session.flush()
 
 
