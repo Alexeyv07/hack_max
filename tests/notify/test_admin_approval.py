@@ -5,8 +5,14 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+from fastapi import HTTPException
+from sqlalchemy import select
+
 from address.db import AddressRow
 from auth.db import UserRow
+from chat_link.api import routes as chat_link_routes
+from chat_link.api.schemas import AddressSelectRequest
 from chat_link.db import ChatLinkRow
 from chat_link.handlers import create_request, request_admin_approval
 from chat_link.models import ChatLinkStatus
@@ -156,3 +162,82 @@ def test_approval_payload_is_strict() -> None:
     assert parse_approval_payload("notify:approval:approve:0") is None
     assert parse_approval_payload("notify:approval:maybe:15") is None
     assert parse_approval_payload("notify:ack:15") is None
+
+
+def test_address_select_creates_approval_instead_of_invite(db_session, monkeypatch) -> None:
+    _admin, requester, chat, _request = _seed_flow(db_session)
+    monkeypatch.setattr(
+        chat_link_routes,
+        "get_address_catalog",
+        lambda: SimpleNamespace(get=lambda address_id: db_session.get(AddressRow, address_id)),
+    )
+    monkeypatch.setattr(chat_link_routes, "get_max_bot", lambda: None)
+
+    result = asyncio.run(
+        chat_link_routes.select_address(
+            AddressSelectRequest(address_id=chat.address_id),
+            db_session,
+            requester.max_user_id,
+        )
+    )
+    assert result.mode == "approval_pending"
+    assert result.chats == []
+    assert result.admin_link is None
+    row = db_session.scalar(select(ChatLinkRow).where(ChatLinkRow.token == result.token))
+    assert row.status == ChatLinkStatus.WAITING_APPROVAL.value
+    assert row.admin_user_id is not None
+    assert row.chat_id == chat.chat_id
+
+
+def test_address_select_does_not_fallback_to_invite_on_approval_error(
+    db_session, monkeypatch
+) -> None:
+    _admin, requester, chat, _request = _seed_flow(db_session)
+    monkeypatch.setattr(
+        chat_link_routes,
+        "get_address_catalog",
+        lambda: SimpleNamespace(get=lambda address_id: db_session.get(AddressRow, address_id)),
+    )
+    monkeypatch.setattr(chat_link_routes, "get_max_bot", lambda: None)
+
+    def fail_approval(*args, **kwargs):
+        raise ValueError("Администратор недоступен")
+
+    monkeypatch.setattr(chat_link_routes, "request_admin_approval", fail_approval)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            chat_link_routes.select_address(
+                AddressSelectRequest(address_id=chat.address_id),
+                db_session,
+                requester.max_user_id,
+            )
+        )
+    assert exc.value.status_code == 409
+    assert "Администратор недоступен" in exc.value.detail
+
+
+def test_address_select_does_not_offer_direct_join_for_multiple_chats(
+    db_session, monkeypatch
+) -> None:
+    _admin, requester, chat, _request = _seed_flow(db_session)
+    db_session.add(
+        ChatRow(chat_id=-7002, address_id=chat.address_id, title="Второй чат", chat_type="chat")
+    )
+    db_session.flush()
+    monkeypatch.setattr(
+        chat_link_routes,
+        "get_address_catalog",
+        lambda: SimpleNamespace(get=lambda address_id: db_session.get(AddressRow, address_id)),
+    )
+    monkeypatch.setattr(chat_link_routes, "get_max_bot", lambda: None)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            chat_link_routes.select_address(
+                AddressSelectRequest(address_id=chat.address_id),
+                db_session,
+                requester.max_user_id,
+            )
+        )
+    assert exc.value.status_code == 409
+    assert "через бота" in exc.value.detail

@@ -343,9 +343,10 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
                 await event.edit(
                     text=(
                         f"Для этого дома уже подключён домовой чат:\n{address.address_text}\n\n"
-                        f"Не удалось отправить заявку администратору: {exc}."
+                        f"Не удалось отправить заявку администратору: {exc}.\n"
+                        "Прямое вступление по ссылке недоступно. Попробуйте позже."
                     ),
-                    attachments=[existing_chats_keyboard(chats)],
+                    attachments=[],
                     notify=False,
                 )
                 return
