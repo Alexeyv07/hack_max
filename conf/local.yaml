@@ -17,8 +17,8 @@ database:
   user: hack_max
   password: hack_max
   echo: false
-  pool_size: 5
-  max_overflow: 10
+  pool_size: 10
+  max_overflow: 20
 
 max:
   api_base_url: https://botapi.max.ru
@@ -89,21 +89,20 @@ chat_parser:
     - ладно
 
 news_parser:
-  # bootstrap|production: оба делают backfill до lookback_days; bootstrap ещё пишет snapshot.
-  # soft-cap на outlet: bootstrap_articles_per_source (0 = без потолка, весь lookback).
-  mode: bootstrap
-  lookback_days: 7
-  poll_interval_seconds: 120
+  # production: лёгкий backfill + incremental. bootstrap с soft-cap 0 душит API/бота.
+  mode: production
+  lookback_days: 3
+  poll_interval_seconds: 300
   request_timeout_seconds: 15
-  collect_timeout_seconds: 180
-  max_articles_per_source_per_run: 80
-  max_pages_per_run: 7
-  bootstrap_articles_per_source: 0
+  collect_timeout_seconds: 90
+  max_articles_per_source_per_run: 15
+  max_pages_per_run: 3
+  bootstrap_articles_per_source: 50
   bootstrap_snapshot_path: src/parser_common/data/bootstrap_events.jsonl.gz
-  insert_batch_size: 25
+  insert_batch_size: 10
   early_stop_known_streak: 10
-  source_pause_seconds: 0.5
-  backfill_pause_seconds: 2.0
+  source_pause_seconds: 1.0
+  backfill_pause_seconds: 3.0
   user_agent: "HackMaxNewsBot/1.0"
   sources:
     tass:
@@ -135,18 +134,18 @@ news_parser:
       reliability: 0.85
 
 mc_parser:
-  mode: bootstrap
-  lookback_days: 14
-  poll_interval_seconds: 180
+  mode: production
+  lookback_days: 3
+  poll_interval_seconds: 300
   request_timeout_seconds: 20
-  collect_timeout_seconds: 180
-  max_articles_per_source_per_run: 40
-  max_pages_per_run: 5
-  bootstrap_articles_per_source: 0
-  insert_batch_size: 20
+  collect_timeout_seconds: 90
+  max_articles_per_source_per_run: 10
+  max_pages_per_run: 2
+  bootstrap_articles_per_source: 30
+  insert_batch_size: 10
   early_stop_known_streak: 8
-  source_pause_seconds: 0.5
-  backfill_pause_seconds: 2.0
+  source_pause_seconds: 1.0
+  backfill_pause_seconds: 3.0
   user_agent: "HackMaxMcBot/1.0"
   sources:
     pik_comfort:

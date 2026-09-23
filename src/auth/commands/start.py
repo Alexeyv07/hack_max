@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from html import escape
 from typing import Any
 
@@ -72,6 +73,16 @@ def _show_events(max_user_id: int) -> bool:
         return has_connected_chat(session, max_user_id)
 
 
+def _lookup_chat(chat_id: int):
+    with session_scope() as session:
+        return get_chat(session, chat_id)
+
+
+def _claim_admin(*, token: str, max_user_id: int) -> None:
+    with session_scope() as session:
+        claim_admin_request(session, token=token, max_user_id=max_user_id)
+
+
 def _sent_mid(result: Any) -> str | None:
     message = getattr(result, "message", None)
     body = getattr(message, "body", None)
@@ -97,10 +108,11 @@ async def _render_welcome(
         notice=notice,
         binding_group=target_chat_id is not None,
     )
+    show_events = await asyncio.to_thread(_show_events, user.max_user_id)
     attachments = [
         build_welcome_keyboard(
             bot,
-            show_events=_show_events(user.max_user_id),
+            show_events=show_events,
             binding_group=target_chat_id is not None,
         )
     ]
@@ -147,7 +159,7 @@ async def _render_welcome(
 def register_auth_commands(dp: Any, bot: Any) -> None:
     @dp.bot_started()
     async def on_bot_started(event: Any, context: Any) -> None:
-        user = authorize_from_event(event)
+        user = await asyncio.to_thread(authorize_from_event, event)
         if user is None:
             return
         payload = getattr(event, "payload", None) or ""
@@ -162,20 +174,18 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             except ValueError:
                 notice = "Ссылка на подключение чата некорректна."
             else:
-                with session_scope() as session:
-                    existing = get_chat(session, parsed_chat_id)
+                existing = await asyncio.to_thread(_lookup_chat, parsed_chat_id)
                 if existing is not None and existing.chat_type == "chat":
                     notice = "Этот домовой чат уже привязан к адресу."
                 else:
                     target_chat_id = parsed_chat_id
         if admin_token:
             try:
-                with session_scope() as session:
-                    claim_admin_request(
-                        session,
-                        token=admin_token,
-                        max_user_id=user.max_user_id,
-                    )
+                await asyncio.to_thread(
+                    _claim_admin,
+                    token=admin_token,
+                    max_user_id=user.max_user_id,
+                )
             except ValueError as exc:
                 notice = str(exc)
         if (
@@ -208,7 +218,7 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
 
     @dp.message_created(CommandStart())
     async def on_start(event: Any, context: Any) -> None:
-        user = authorize_from_event(event)
+        user = await asyncio.to_thread(authorize_from_event, event)
         if user is None:
             return
         await _render_welcome(bot, event, context, user)

@@ -100,6 +100,11 @@ def _load_onnx(onnx_str: str, meta_str: str, tok_str: str) -> tuple[Any, Any, in
 
 @lru_cache(maxsize=1)
 def _load_transformers(model_name: str) -> tuple[Any, Any] | None:
+    import os
+
+    # В Docker HF offline — не пытаемся тянуть rubert с хаба (долго + бесполезно).
+    if os.environ.get("HF_HUB_OFFLINE") == "1" or os.environ.get("TRANSFORMERS_OFFLINE") == "1":
+        return None
     try:
         from transformers import AutoModel, AutoTokenizer
     except ImportError:

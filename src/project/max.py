@@ -40,8 +40,8 @@ def _patch_get_updates_limit(bot: Bot, *, limit: int) -> None:
     logger.info("Max get_updates limit=%s", limit)
 
 
-def _warm_chat_ml() -> None:
-    """Прогреть classify + time + dedup ONNX до первого сообщения."""
+def _warm_ml() -> None:
+    """Прогреть ONNX + spaCy в фоне (первый инференс иначе блокирует всё на секунды)."""
     sample = "прогрев: отключили воду во дворе с 10:00 до 18:00"
     try:
         from parser_common.classify import classify_importance
@@ -64,6 +64,16 @@ def _warm_chat_ml() -> None:
         logger.info("warm ML: dedup embed ok")
     except Exception:
         logger.debug("warm embed skipped", exc_info=True)
+    try:
+        from parser_common.place_ner import _load_spacy
+
+        model = get_settings().ml_enrich.spacy_model
+        nlp = _load_spacy(model)
+        if nlp is not None:
+            nlp(sample)
+        logger.info("warm ML: spaCy ok (loaded=%s)", nlp is not None)
+    except Exception:
+        logger.debug("warm spaCy skipped", exc_info=True)
 
 
 async def run_max_bot() -> None:
@@ -85,13 +95,14 @@ async def run_max_bot() -> None:
         logger.exception("Не удалось получить GET /me — open_app возьмёт fallback из конфига")
 
     set_max_bot(bot)
-    get_address_catalog()
+    # ~125k адресов: только в thread — иначе весь event loop (и HTTP) мёртв на 10–30с.
+    await asyncio.to_thread(get_address_catalog)
+    # Прогрев ML параллельно — не блокируем старт polling.
+    asyncio.create_task(asyncio.to_thread(_warm_ml), name="warm-ml")
 
     chat_on = settings.runtime.enable_chat_parser and settings.chat_parser.enabled
     if chat_on:
         _patch_get_updates_limit(bot, limit=settings.chat_parser.updates_limit)
-        # Прогрев в фоне — не блокируем старт polling.
-        asyncio.create_task(asyncio.to_thread(_warm_chat_ml), name="warm-chat-ml")
 
     # True: handlers не сериализуют polling. parse_chat сам fire-and-forget.
     dp = Dispatcher(use_create_task=True)

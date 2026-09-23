@@ -24,13 +24,14 @@ from parse_mc.registry import get_sources
 from parse_mc.sources.base import CollectMode, CollectResult, McSource
 from project.config import McParserConfig, get_settings
 from project.database import session_scope
+from project.executors import PARSER_ML_SEM, run_in_parser_pool
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
 
 async def _in_thread[**P, T](fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> T:
-    return await asyncio.to_thread(fn, *args, **kwargs)
+    return await run_in_parser_pool(fn, *args, **kwargs)
 
 
 def _aware(dt: datetime | None) -> datetime | None:
@@ -201,14 +202,15 @@ async def _process_source(
         await _in_thread(_record_source_error, source_key, str(exc))
         return False
 
-    created, skipped, oldest_at, newest_at = await _in_thread(
-        _persist_notices_batched,
-        result.notices,
-        cfg=cfg,
-        mode=mode,
-        source_key=source_key,
-        street_index=street_index,
-    )
+    async with PARSER_ML_SEM:
+        created, skipped, oldest_at, newest_at = await _in_thread(
+            _persist_notices_batched,
+            result.notices,
+            cfg=cfg,
+            mode=mode,
+            source_key=source_key,
+            street_index=street_index,
+        )
 
     backfill_done = _backfill_done_after_collect(
         previous_complete=previous_complete,

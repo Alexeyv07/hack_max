@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from itertools import batched
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from address.db.address import AddressRow
@@ -16,16 +16,13 @@ from events.cursor import (
     FeedCursor,
     decode_feed_cursor,
     encode_feed_cursor,
-    is_after_cursor,
 )
 from events.db.event import EventRow
 from events.models.event import Event, EventCreate, EventSource, EventUpdate
 from events.weight import (
-    allowed_in_feed,
     allowed_on_map,
     compute_weight,
     map_icon_category,
-    matches_feed_geo,
 )
 from project.logging_setup import get_logger
 
@@ -282,19 +279,14 @@ def delete_event(session: Session, event_id: int) -> bool:
     return True
 
 
-def _event_rows_with_address(session: Session) -> list[EventRow]:
-    """Только события с привязанным адресом (локация определена)."""
-    rows = list(
-        session.scalars(
-            select(EventRow)
-            .options(joinedload(EventRow.address))
-            .where(EventRow.address_id.is_not(None))
-        ).all()
+def _addressed_event_stmt():
+    """События с непустым адресом (JOIN, без полной выгрузки таблицы)."""
+    return (
+        select(EventRow)
+        .options(joinedload(EventRow.address))
+        .join(AddressRow, EventRow.address_id == AddressRow.id)
+        .where(func.length(func.trim(AddressRow.address_text)) > 0)
     )
-    # Защита от битых FK / пустого текста адреса.
-    return [
-        row for row in rows if row.address is not None and bool(row.address.address_text.strip())
-    ]
 
 
 def list_feed(
@@ -317,32 +309,41 @@ def list_feed(
     if limit < 1:
         raise ValueError("limit должен быть >= 1")
 
+    geo_values = ("street", "home") if scope_value is EventScope.NEARBY else ("city",)
+    stmt = (
+        _addressed_event_stmt()
+        .where(
+            EventRow.importance.in_((1, 2)),
+            EventRow.geo_by.in_(geo_values),
+        )
+        .order_by(EventRow.weight.desc(), EventRow.id.desc())
+    )
+
     parsed: FeedCursor | None = decode_feed_cursor(cursor) if cursor else None
-    scored: list[Event] = []
+    if parsed is not None:
+        # Keyset: строго после (weight, id) в порядке DESC.
+        stmt = stmt.where(
+            or_(
+                EventRow.weight < parsed.weight,
+                and_(EventRow.weight == parsed.weight, EventRow.id < parsed.event_id),
+            )
+        )
+
+    rows = list(session.scalars(stmt.limit(limit + 1)).unique().all())
     now = datetime.now(UTC)
-
-    for row in _event_rows_with_address(session):
-        if not allowed_in_feed(importance=row.importance):
-            continue
-        if not matches_feed_geo(scope=scope_value.value, geo_by=row.geo_by):
-            continue
+    page_rows = rows[:limit]
+    items: list[Event] = []
+    for row in page_rows:
         event = _to_domain(row, distance_m=None, now=now)
-        if parsed is not None and not is_after_cursor(
-            weight=event.weight,
-            event_id=event.id,
-            cursor=parsed,
-        ):
-            continue
-        scored.append(event)
-
-    scored.sort(key=lambda item: (item.weight, item.id), reverse=True)
-    page = scored[:limit]
+        # Курсор и ORDER BY по persisted weight — иначе page2 дублирует page1.
+        event.weight = float(row.weight)
+        items.append(event)
     next_cursor: str | None = None
-    if len(scored) > limit:
-        last = page[-1]
+    if len(rows) > limit:
+        last = items[-1]
         next_cursor = encode_feed_cursor(FeedCursor(weight=last.weight, event_id=last.id))
 
-    return FeedPage(items=page, next_cursor=next_cursor, scope=scope_value)
+    return FeedPage(items=items, next_cursor=next_cursor, scope=scope_value)
 
 
 def list_map_points(
@@ -358,8 +359,14 @@ def list_map_points(
     if limit < 1:
         raise ValueError("limit должен быть >= 1")
 
+    stmt = (
+        _addressed_event_stmt()
+        .where(EventRow.importance.in_((1, 2)))
+        .order_by(EventRow.importance.asc(), EventRow.id.asc())
+        .limit(limit)
+    )
     points: list[MapPoint] = []
-    for row in _event_rows_with_address(session):
+    for row in session.scalars(stmt).unique().all():
         if not allowed_on_map(importance=row.importance, disaster_flag=row.disaster_flag):
             continue
         assert row.address is not None
@@ -379,5 +386,4 @@ def list_map_points(
             )
         )
 
-    points.sort(key=lambda p: (p.importance, p.id))
-    return points[:limit]
+    return points

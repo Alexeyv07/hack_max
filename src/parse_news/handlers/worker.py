@@ -24,14 +24,15 @@ from parse_news.registry import get_sources
 from parse_news.sources.base import CollectMode, CollectResult, NewsSource
 from project.config import NewsParserConfig, get_settings
 from project.database import session_scope
+from project.executors import PARSER_ML_SEM, run_in_parser_pool
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
 
 async def _in_thread[**P, T](fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> T:
-    """Синхронный CPU/DB/ONNX — вне event loop, чтобы API и бот не голодали."""
-    return await asyncio.to_thread(fn, *args, **kwargs)
+    """Синхронный CPU/DB/ONNX — в parser pool, чтобы default to_thread остался для API."""
+    return await run_in_parser_pool(fn, *args, **kwargs)
 
 
 def _aware(dt: datetime | None) -> datetime | None:
@@ -230,14 +231,16 @@ async def _process_source(
         return False
 
     # ONNX classify + geo + INSERT — главная причина «заморозки» HTTP.
-    created, skipped, oldest_at, newest_at = await _in_thread(
-        _persist_articles_batched,
-        result.articles,
-        cfg=cfg,
-        mode=mode,
-        source_key=source_key,
-        street_index=street_index,
-    )
+    # Семафор: news и mc не гоняют ML параллельно.
+    async with PARSER_ML_SEM:
+        created, skipped, oldest_at, newest_at = await _in_thread(
+            _persist_articles_batched,
+            result.articles,
+            cfg=cfg,
+            mode=mode,
+            source_key=source_key,
+            street_index=street_index,
+        )
 
     backfill_done = _backfill_done_after_collect(
         previous_complete=previous_complete,
