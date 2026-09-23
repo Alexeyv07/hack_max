@@ -10,7 +10,6 @@ from chat_link.api.schemas import (
     AddressSearchResponse,
     AddressSelectRequest,
     AddressSelectResponse,
-    ChatOption,
 )
 from chat_link.handlers import (
     announce_connected_group,
@@ -18,8 +17,9 @@ from chat_link.handlers import (
     create_request,
     get_address_catalog,
     mark_waiting_group,
+    request_admin_approval,
 )
-from events.api.deps import DbSession, get_max_user_id
+from project.api_deps import DbSession, get_max_user_id
 from project.max_runtime import get_max_bot
 
 router = APIRouter(prefix="/chat-link", tags=["chat-link"])
@@ -101,8 +101,30 @@ async def select_address(
     except ValueError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
-    if not chats:
-        mark_waiting_group(session, token=request.token)
+    if chats:
+        if len(chats) != 1:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Для адреса найдено несколько чатов. Выберите нужный чат через бота.",
+            )
+        try:
+            request_admin_approval(
+                session,
+                token=request.token,
+                chat_id=chats[0].chat_id,
+            )
+        except ValueError as exc:
+            # Не выдаём invite_link, если заявка не переведена в ожидание решения.
+            # HTTPException откатит создание waiting_join через get_db_session.
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        return AddressSelectResponse(
+            address=_option(address),
+            mode="approval_pending",
+            token=request.token,
+            chats=[],
+        )
+
+    mark_waiting_group(session, token=request.token)
     username = getattr(getattr(bot, "me", None), "username", None) if bot else None
     admin_link = (
         create_start_link(username, f"chat_admin_{request.token}")
@@ -111,15 +133,8 @@ async def select_address(
     )
     return AddressSelectResponse(
         address=_option(address),
-        mode="existing_chat" if chats else "connect_group",
+        mode="connect_group",
         token=request.token,
         admin_link=admin_link,
-        chats=[
-            ChatOption(
-                chat_id=chat.chat_id,
-                title=chat.title,
-                invite_link=chat.invite_link,
-            )
-            for chat in chats
-        ],
+        chats=[],
     )

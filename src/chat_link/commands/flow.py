@@ -4,9 +4,12 @@ import asyncio
 from typing import Any
 
 from maxapi import F
+from maxapi.enums.format import Format
 from maxapi.utils.deep_linking import create_start_link
 
 from address.street_catalog import normalize_ui_text
+from auth.commands.start import build_welcome_keyboard, build_welcome_text
+from auth.handlers import get_user_by_max_id
 from chat_link.commands.keyboards import (
     admin_setup_keyboard,
     existing_chats_keyboard,
@@ -27,10 +30,11 @@ from chat_link.handlers import (
     get_address_catalog,
     mark_waiting_group,
     pending_for_actor,
+    request_admin_approval,
 )
 from project.database import session_scope
 from project.logging_setup import get_logger
-from user_chat.handlers import bind_known_chat_member, detach_chat, get_chat
+from user_chat.handlers import bind_known_chat_member, detach_chat, get_chat, has_connected_chat
 
 logger = get_logger(__name__)
 
@@ -98,6 +102,46 @@ def _house_labels(rows: list[Any]) -> list[str]:
     return labels
 
 
+async def _show_welcome(event: Any, context: Any, bot: Any) -> None:
+    """Вернуть callback-flow на основной welcome-screen бота."""
+    max_user_id = _callback_user_id(event)
+    with session_scope() as session:
+        user = get_user_by_max_id(session, max_user_id)
+        show_events = has_connected_chat(session, max_user_id)
+    if user is None:
+        return
+
+    data = await context.get_data()
+    target_chat_id = data.get("target_chat_id")
+    flow_mid = _screen_mid(event) or data.get("flow_mid")
+    await context.set_state(None)
+    clean_data = {}
+    if flow_mid:
+        clean_data["flow_mid"] = flow_mid
+    if target_chat_id is not None:
+        clean_data["target_chat_id"] = target_chat_id
+    await context.set_data(clean_data)
+
+    name = user.name or user.username or "друг"
+    kwargs = {
+        "text": build_welcome_text(name, binding_group=target_chat_id is not None),
+        "attachments": [
+            build_welcome_keyboard(
+                bot,
+                show_events=show_events,
+                binding_group=target_chat_id is not None,
+            )
+        ],
+        "format": Format.HTML,
+        "notify": False,
+    }
+    if flow_mid:
+        await _ack_callback(event)
+        await bot.edit_message(flow_mid, **kwargs)
+    else:
+        await event.edit(**kwargs)
+
+
 async def _show_methods(event: Any, context: Any, bot: Any) -> None:
     await context.set_state(ChatLinkStates.choosing)
     mid = _screen_mid(event)
@@ -115,11 +159,17 @@ async def _show_methods(event: Any, context: Any, bot: Any) -> None:
             "Выберите адрес, к которому нужно привязать этот домовой чат.\n\n"
             "Индекс только сужает список домов — он не считается выбранным адресом."
         )
-    await event.edit(
-        text=text,
-        attachments=[method_keyboard(bot, target_chat_id=target_chat_id)],
-        notify=False,
-    )
+    kwargs = {
+        "text": text,
+        "attachments": [method_keyboard(bot, target_chat_id=target_chat_id)],
+        "notify": False,
+    }
+    if mid:
+        # Через обычный PUT /messages клавиатура не зависит от callback-answer UI.
+        await _ack_callback(event)
+        await bot.edit_message(mid, **kwargs)
+    else:
+        await event.edit(**kwargs)
 
 
 async def _show_city(event: Any, context: Any, page: int = 0) -> None:
@@ -281,21 +331,42 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
         request, chats = create_request(session, max_user_id=user_id, address_id=address_id)
     await context.update_data(address_id=address_id, link_token=request.token)
     if chats:
-        linked = [chat for chat in chats if chat.invite_link]
-        names_without_link = [chat.title for chat in chats if not chat.invite_link]
-        text = (
-            f"Для этого дома уже подключён домовой чат:\n{address.address_text}\n\n"
-            "Вступите в него по ссылке ниже. После вступления MAX сам пришлёт событие, "
-            "и бот привяжет ваш профиль к дому."
-        )
-        if names_without_link:
-            text += (
-                "\n\nУ некоторых чатов нет публичной ссылки. Для них попросите "
-                "администратора прислать приглашение: " + ", ".join(names_without_link[:3])
+        if len(chats) == 1:
+            try:
+                with session_scope() as session:
+                    request_admin_approval(
+                        session,
+                        token=request.token,
+                        chat_id=chats[0].chat_id,
+                    )
+            except ValueError as exc:
+                await event.edit(
+                    text=(
+                        f"Для этого дома уже подключён домовой чат:\n{address.address_text}\n\n"
+                        f"Не удалось отправить заявку администратору: {exc}.\n"
+                        "Прямое вступление по ссылке недоступно. Попробуйте позже."
+                    ),
+                    attachments=[],
+                    notify=False,
+                )
+                return
+
+            await event.edit(
+                text=(
+                    f"✅ Заявка отправлена администратору чата «{chats[0].title}».\n\n"
+                    "Когда администратор примет или отклонит её, бот пришлёт результат сюда."
+                ),
+                attachments=[],
+                notify=False,
             )
+            return
+
         await event.edit(
-            text=text,
-            attachments=[existing_chats_keyboard(linked or chats)],
+            text=(
+                f"Для этого дома подключено несколько чатов:\n{address.address_text}\n\n"
+                "Выберите чат, администратору которого отправить заявку."
+            ),
+            attachments=[existing_chats_keyboard(chats)],
             notify=False,
         )
         return
@@ -454,7 +525,6 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
         payload = _callback_payload(event)
         if not payload.startswith("cl:") and payload != "chat_link:start":
             return
-        await _ack_callback(event)
         if payload == "chat_link:start":
             await _show_methods(event, context, bot)
             return
@@ -465,6 +535,34 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             await _show_resident_setup(event, context, bot)
             return
         if payload == "cl:noop":
+            await _ack_callback(event)
+            return
+        if payload.startswith("cl:approval:"):
+            data = await context.get_data()
+            token = data.get("link_token")
+            try:
+                chat_id = int(payload.removeprefix("cl:approval:"))
+            except ValueError:
+                await event.ack(notification="Некорректный чат")
+                return
+            if not token:
+                await event.ack(notification="Сессия устарела. Выберите адрес ещё раз.")
+                return
+            try:
+                with session_scope() as session:
+                    request_admin_approval(session, token=token, chat_id=chat_id)
+                    chat = get_chat(session, chat_id)
+            except ValueError as exc:
+                await event.ack(notification=str(exc))
+                return
+            await event.edit(
+                text=(
+                    f"✅ Заявка отправлена администратору чата «{chat.title if chat else 'Домовой чат'}».\n\n"
+                    "Когда администратор примет или отклонит её, бот пришлёт результат сюда."
+                ),
+                attachments=[],
+                notify=False,
+            )
             return
 
         parts = payload.split(":")
@@ -492,7 +590,9 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
 
         if parts[:2] == ["cl", "back"]:
             target = parts[2]
-            if target == "root":
+            if target == "welcome":
+                await _show_welcome(event, context, bot)
+            elif target == "root":
                 await _show_methods(event, context, bot)
             elif target == "city":
                 await _show_city(event, context)
@@ -564,6 +664,10 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                 rows = index.postal_houses(data["postal_code"], data["street"])
                 await _finish_address(event, context, bot, rows[idx].id)
             return
+
+        # Неизвестный chat_link callback всё равно подтверждаем, чтобы снять spinner.
+        # Ветви выше используют event.edit()/event.ack() как единственный callback-ответ.
+        await _ack_callback(event)
 
     @dp.message_created(F.message.body.text, ChatLinkStates.postal)
     async def on_postal(event: Any, context: Any) -> None:
