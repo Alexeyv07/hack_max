@@ -38,9 +38,9 @@ def notice_to_candidate(
     geo: GeoBind | None = None,
     source_msg_id: str | None = None,
 ) -> ParserCandidate:
-    title = notice.title
+    title = (notice.title or "").strip() or None
     body = clean_article_body(notice.body, title=title) or ""
-    raw_text = f"{title}\n{body}".strip() if body else title
+    raw_text = "\n".join(part for part in (title, body) if part).strip() or (title or body or "")
     return ParserCandidate(
         raw_text=raw_text,
         source=EventSource.MC.value,

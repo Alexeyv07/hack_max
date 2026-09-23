@@ -22,6 +22,16 @@
 				: '#5c9ead'
 	);
 
+	const displayTitle = $derived(
+		(event.title ?? '').trim() || event.body.trim().split('\n')[0]?.trim() || 'Событие'
+	);
+	const displayBody = $derived.by(() => {
+		const explicitTitle = (event.title ?? '').trim();
+		if (explicitTitle) return event.body;
+		const lines = event.body.split('\n').map((l) => l.trim()).filter(Boolean);
+		if (lines.length <= 1) return '';
+		return lines.slice(1).join('\n');
+	});
 	const publishedLabel = $derived(formatPublished(event.published_at ?? event.created_at));
 	const sourceLabel = $derived(formatSource(event.source, event.source_msg_id));
 	const distanceLabel = $derived(formatDistance(event.distance_m, event.proximity));
@@ -65,10 +75,6 @@
 	}
 
 	function formatSource(source: string, sourceMsgId: string | null): string {
-		if (sourceMsgId?.includes(':')) {
-			const outlet = sourceMsgId.split(':', 1)[0];
-			if (outlet) return outlet.toUpperCase();
-		}
 		const map: Record<string, string> = {
 			news: 'Новости',
 			mc: 'ЖКХ',
@@ -76,6 +82,15 @@
 			max_public: 'Паблик Max',
 			manual: 'Вручную'
 		};
+		if (source === 'neighbors_chat') return map.neighbors_chat;
+		if (sourceMsgId?.includes(':') && source === 'news') {
+			const outlet = sourceMsgId.split(':', 1)[0];
+			if (outlet) return outlet.toUpperCase();
+		}
+		if (sourceMsgId?.includes(':') && source === 'mc') {
+			const outlet = sourceMsgId.split(':', 1)[0];
+			if (outlet) return outlet.toUpperCase();
+		}
 		return map[source] ?? source;
 	}
 
@@ -149,21 +164,23 @@
 					</svg>
 				</span>
 			{/if}
-			{event.title}
+			{displayTitle}
 		</h2>
 
+		{#if displayBody}
 		<div class="description-wrap">
 			<p
 				class="description"
 				class:expanded={bodyExpanded}
 				bind:this={descriptionEl}
 			>
-				{event.body}
+				{displayBody}
 			</p>
 			{#if needsMore && !bodyExpanded}
 				<button type="button" class="more" onclick={expandBody}>ещё</button>
 			{/if}
 		</div>
+		{/if}
 
 		<footer class="meta">
 			<span class="meta-line">

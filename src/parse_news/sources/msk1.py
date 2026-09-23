@@ -123,26 +123,17 @@ class Msk1Source(BaseNewsSource):
                     continue
                 seen_ids.add(external_id)
 
-                # Быстрый путь: title+дата из листинга — без тяжёлого enrich.
-                if link_title and published:
-                    article = RawNewsArticle(
-                        outlet=self.key,
-                        external_id=external_id,
-                        url=url,
-                        title=link_title.strip(),
-                        published_at=published,
-                    )
-                else:
-                    article = await enrich_url(
-                        client,
-                        url,
-                        outlet=self.key,
-                        external_id=external_id,
-                        fallback_title=link_title,
-                        fallback_published=published,
-                    )
-                    if article is None:
-                        continue
+                # Всегда enrich: иначе нет body/image (только title из листинга).
+                article = await enrich_url(
+                    client,
+                    url,
+                    outlet=self.key,
+                    external_id=external_id,
+                    fallback_title=link_title,
+                    fallback_published=published,
+                )
+                if article is None:
+                    continue
 
                 pub = ensure_aware(article.published_at)
                 if pub and pub < since:

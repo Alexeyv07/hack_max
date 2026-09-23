@@ -6,7 +6,7 @@ export type ProximityBand = 'home' | 'block' | 'street' | 'district';
 
 export type FeedItem = {
 	id: number;
-	title: string;
+	title: string | null;
 	body: string;
 	importance: number;
 	source: string;

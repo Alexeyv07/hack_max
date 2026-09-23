@@ -10,7 +10,7 @@ from datetime import datetime
 class EventDraft:
     """Нормализованный черновик события (ещё не Event в БД)."""
 
-    title: str
+    title: str | None
     body: str
     importance: int
     source: str

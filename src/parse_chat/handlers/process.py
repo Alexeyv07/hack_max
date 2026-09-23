@@ -67,6 +67,19 @@ def _chat_type(message: Any) -> str | None:
     return str(getattr(chat_type, "value", chat_type)).lower()
 
 
+def _message_source_url(message: Any, mid: str) -> str | None:
+    """Прямая ссылка на сообщение в MAX (url из API или сборка из mid)."""
+    url = getattr(message, "url", None) or getattr(message, "url_api", None)
+    if isinstance(url, str) and url.strip().startswith(("http://", "https://")):
+        return url.strip()
+    try:
+        from maxapi.utils.message_link import build_message_link
+
+        return build_message_link(mid)
+    except Exception:
+        return None
+
+
 def extract_raw_chat_message(event: Any) -> RawChatMessage | None:
     """Вытащить RawChatMessage из MessageCreated; None если нечего парсить."""
     message = getattr(event, "message", None)
@@ -103,6 +116,7 @@ def extract_raw_chat_message(event: Any) -> RawChatMessage | None:
         published_at=_published_at(message),
         has_attachments=has_att or sticker_like,
         image_url=image_url,
+        source_url=_message_source_url(message, mid),
     )
 
 

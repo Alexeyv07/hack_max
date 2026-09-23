@@ -18,3 +18,5 @@ class RawChatMessage:
     published_at: datetime | None
     has_attachments: bool = False
     image_url: str | None = None
+    # Прямая ссылка на сообщение в MAX (message.url / build_message_link).
+    source_url: str | None = None

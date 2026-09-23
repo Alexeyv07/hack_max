@@ -45,8 +45,10 @@ def normalize(
         title=candidate.title,
         body=candidate.body,
     )
-    full_text = f"{title}\n{body}\n{candidate.raw_text}"
-    classified = classify_importance(full_text)
+    full_text = "\n".join(
+        part for part in (title, body, candidate.raw_text) if part and str(part).strip()
+    )
+    classified = classify_importance(full_text or candidate.raw_text or "")
 
     time_win = extract_active_window(
         full_text,
@@ -73,7 +75,7 @@ def normalize(
         place = None
         if place_enabled:
             place = resolve_place_to_address(
-                candidate.geo_text or title or candidate.raw_text,
+                candidate.geo_text or title or body or candidate.raw_text,
                 street_catalog=street_catalog,
                 geo_matcher=geo_matcher,
                 spacy_model=model_name,

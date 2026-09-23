@@ -130,14 +130,15 @@ def apply_nearby_boosts(
     same_street: bool = False,
     is_active_now: bool | None = None,
 ) -> float:
-    """Локальные бусты только для персональной nearby-ленты (итог в [0, 1])."""
+    """Локальные бусты ленты: same_street + окно ml_time (итог в [0, 1])."""
     score = float(weight)
     if same_street:
         score += 0.07
+    # ml_time: действующие сейчас — вверх; ещё не начались / уже кончились — вниз.
     if is_active_now is True:
-        score += 0.05
+        score += 0.12
     elif is_active_now is False:
-        score -= 0.08
+        score -= 0.20
     return _clamp01(score)
 
 
@@ -167,15 +168,19 @@ def relevance_score(
     importance: int,
     distance_m: float | None = None,
     geo_by: str | None = None,
+    distance_scale_m: float = 6_000.0,
 ) -> float:
     """
     Актуальность для жителя ЖКХ / соседского чата (0..1).
 
     Важно рядом и с точным адресом — выше; бытовуха далеко — ниже.
+    ``distance_scale_m`` — дистанция, на которой вклад близости падает до 0
+    (для nearby = soft radius).
     """
     imp = _IMPORTANCE_RELEVANCE.get(importance, 0.3)
     # Без дистанции (запись в БД) — нейтральный mid; в ленте пересчитаем.
-    dist = 0.55 if distance_m is None else max(0.0, 1.0 - min(distance_m, 5000.0) / 5000.0)
+    scale = max(1.0, float(distance_scale_m))
+    dist = 0.55 if distance_m is None else max(0.0, 1.0 - min(distance_m, scale) / scale)
     geo = _GEO_BY_RELEVANCE.get(geo_by or "", 0.30)
     return _clamp01(0.50 * imp + 0.35 * dist + 0.15 * geo)
 
@@ -211,6 +216,7 @@ def compute_weight(
     source_reliability: float | None = None,
     outlet_reliability: dict[str, float] | None = None,
     now: datetime | None = None,
+    distance_scale_m: float = 6_000.0,
 ) -> float:
     """
     Вес для TikTok-ленты (выше — выше в выдаче)::
@@ -226,6 +232,7 @@ def compute_weight(
         importance=importance,
         distance_m=distance_m,
         geo_by=geo_by,
+        distance_scale_m=distance_scale_m,
     )
     timeliness = timeliness_score(
         published_at=published_at,

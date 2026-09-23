@@ -58,6 +58,7 @@ def message_to_candidate(message: RawChatMessage) -> ParserCandidate:
         raw_text=text,
         source=EventSource.NEIGHBORS_CHAT.value,
         source_msg_id=make_source_msg_id(message.chat_id, message.message_id),
+        source_url=message.source_url,
         image_url=message.image_url,
         geo_text=text,
         published_at=message.published_at,

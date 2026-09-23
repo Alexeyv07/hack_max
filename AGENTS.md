@@ -137,12 +137,12 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
 - Лента/карта **общие для всех** (без фильтра по чатам пользователя).
 - В ленту попадают **только** события с `address_id` и непустым `Address.address_text`.
 - **Правила ленты:** `importance` 1|2 (`3` не в nearby и не в city);
-  - **nearby** — персонально: lat/lon улицы чата пользователя
-    (`list_memberships_for_user`), haversine ≤ `events.nearby_radius_m` (3 км),
-    вес пересчитывается с `distance_m` (+ same_street / active window);
-    порядок близости: `home`≤250м → `block`≤800м → `street`≤1.5км → `district`;
+  - **nearby** — персонально по lat/lon улицы чата; haversine ≤ `nearby_radius_m`
+    (6 км); вес с `distance_m` + same_street + **ml_time** (`active_from`/`active_to`:
+    действующие выше, просроченные скрыты); `geo_by` street|home;
     без чата — пустая nearby;
-  - **city** — `geo_by=city`, общая выдача по persisted `events.weight` DESC.
+  - **city** — все события с `Address.city = Москва` (любой `geo_by`), тоже с
+    ml_time-фильтром/бустом; общая выдача.
 - Ответ feed item: `title`, `body`, `importance`, `disaster_flag`, `image_url`,
   `source` / `source_url`, `location` (текст адреса), `published_at` / `created_at`,
   `lat`/`lon`, `geo_by`, `weight`.

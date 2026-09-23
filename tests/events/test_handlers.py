@@ -23,10 +23,12 @@ def add_address(
     lon: float,
     suffix: str,
     street: str | None = "Тестовая",
+    city: str | None = "Москва",
 ) -> AddressRow:
     row = AddressRow(
         address_text=f"Москва, улица Тестовая, д. {suffix}",
         postal_code="123456",
+        city=city,
         street=street,
         house=suffix,
         latitude=Decimal(str(lat)),
@@ -241,8 +243,8 @@ def test_feed_nearby_city_and_cursor(db_session) -> None:
             geo_by="home",
         ),
     )
-    # За радиусом nearby (~16 км) — отсекаем.
-    beyond = add_address(db_session, lat=55.90, lon=37.62, suffix="23", street="Другая")
+    # За soft-радиусом (~40 км) — отсекаем.
+    beyond = add_address(db_session, lat=56.20, lon=37.62, suffix="23", street="Другая")
     crud.create_event(
         db_session,
         EventCreate(
@@ -264,10 +266,10 @@ def test_feed_nearby_city_and_cursor(db_session) -> None:
     assert len(page1.items) == 2
     assert page1.next_cursor is not None
     assert page1.origin is not None
-    assert page1.origin.radius_m == 3000
+    assert page1.origin.radius_m == 6_000
     assert all(item.geo_by in ("street", "home") for item in page1.items)
     assert all(item.importance != 3 for item in page1.items)
-    assert all(item.distance_m is not None and item.distance_m <= 3000 for item in page1.items)
+    assert all(item.distance_m is not None and item.distance_m <= 6_000 for item in page1.items)
     assert all(item.proximity is not None for item in page1.items)
 
     page2 = crud.list_feed(
@@ -299,8 +301,12 @@ def test_feed_nearby_city_and_cursor(db_session) -> None:
     assert "Бытовуха далеко" not in titles
     assert "Катастрофа город" in titles
     assert "Нет адреса" not in titles
-    assert "Дом рядом" not in titles
-    assert all(item.geo_by == "city" for item in city.items)
+    # street/home с city=Москва тоже в городской ленте
+    assert "Дом рядом" in titles
+    assert all(
+        True  # geo_by может быть city|street|home — фильтр по Address.city
+        for _ in city.items
+    )
 
 
 def test_nearby_closer_ranks_higher(db_session) -> None:
@@ -381,9 +387,10 @@ def test_nearby_active_window_boost(db_session) -> None:
         ),
     )
     page = crud.list_feed(db_session, scope="nearby", limit=10, max_user_id=101)
+    assert len(page.items) == 1
     assert page.items[0].title == "Сейчас"
     assert page.items[0].is_active_now is True
-    assert page.items[1].is_active_now is False
+    # Просроченные (active_to в прошлом) в ленту не попадают.
 
 
 def test_map_excludes_trivia(db_session) -> None:

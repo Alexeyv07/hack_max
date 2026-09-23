@@ -275,7 +275,7 @@ def resolve_draft(
     if decision.action == DedupAction.DUPLICATE and decision.match is not None:
         logger.info(
             "dedup DUPLICATE draft=%r → event_id=%s score=%.3f",
-            draft.title[:60],
+            (draft.title or draft.body or "")[:60],
             decision.match.id,
             decision.score,
         )
@@ -286,7 +286,7 @@ def resolve_draft(
         updated = update_event(session, decision.match.id, payload)
         logger.info(
             "dedup UPDATE draft=%r → event_id=%s score=%.3f reason=%s",
-            draft.title[:60],
+            (draft.title or draft.body or "")[:60],
             decision.match.id,
             decision.score,
             decision.reason,
@@ -294,5 +294,6 @@ def resolve_draft(
         return decision, updated
 
     created = create_event(session, to_event_create(draft))
-    logger.debug("dedup NEW event_id=%s title=%r", created.id, created.title[:60])
+    label = (created.title or created.body or "")[:60]
+    logger.debug("dedup NEW event_id=%s title=%r", created.id, label)
     return DedupDecision(DedupAction.NEW, score=decision.score, reason=decision.reason), created

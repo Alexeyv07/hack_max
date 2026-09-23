@@ -37,7 +37,7 @@ api:
     - http://127.0.0.1:4173
 
 events:
-  nearby_radius_m: 3000
+  nearby_radius_m: 6000
   city_radius_m: 30000
 
 # KAN-19: дедуп / актуализация (окно «ещё активна» = 21 день)

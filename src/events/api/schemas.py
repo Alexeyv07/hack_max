@@ -10,7 +10,10 @@ from pydantic import BaseModel, Field
 
 class FeedItemResponse(BaseModel):
     id: int
-    title: str
+    title: str | None = Field(
+        default=None,
+        description="Заголовок; null — показывай body как основной текст",
+    )
     body: str
     importance: int
     source: str
@@ -83,7 +86,7 @@ class FeedResponse(BaseModel):
 
 class MapPointResponse(BaseModel):
     id: int
-    title: str = Field(description="Имя/заголовок для подписи на карте")
+    title: str | None = Field(description="Имя/заголовок для подписи на карте")
     lat: float
     lon: float
     importance: int

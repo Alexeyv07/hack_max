@@ -31,6 +31,7 @@ from events.weight import (
     proximity_band,
     streets_match,
 )
+from project.config import get_settings
 from project.logging_setup import get_logger
 from user_chat.handlers.membership import list_memberships_for_user
 from user_chat.models.membership import ChatMembership
@@ -213,13 +214,15 @@ def _list_nearby_feed(
     cursor: str | None,
     now: datetime,
 ) -> FeedPage:
-    radius_m = float(memberships[0].nearby_radius_m)
+    settings = get_settings()
+    radius_m = float(settings.events.nearby_radius_m)
     origin = _feed_origin(memberships, radius_m)
     stmt = (
         _addressed_event_stmt()
         .where(
             EventRow.importance.in_((1, 2)),
             EventRow.geo_by.in_(("street", "home")),
+            _not_expired_clause(now),
             _bbox_predicate(memberships, radius_m),
         )
         .limit(_NEARBY_CANDIDATE_CAP)
@@ -253,6 +256,7 @@ def _list_nearby_feed(
             source_msg_id=row.source_msg_id,
             outlet_reliability=_outlet_reliability_map(),
             now=now,
+            distance_scale_m=radius_m,
         )
         rank = apply_nearby_boosts(
             base,
@@ -301,38 +305,72 @@ def _list_city_feed(
     cursor: str | None,
     now: datetime,
 ) -> FeedPage:
+    """Городская лента: все события с Address.city = Москва (любой geo_by)."""
     stmt = (
         _addressed_event_stmt()
         .where(
             EventRow.importance.in_((1, 2)),
-            EventRow.geo_by == "city",
+            _moscow_city_clause(),
+            _not_expired_clause(now),
         )
-        .order_by(EventRow.weight.desc(), EventRow.id.desc())
+        .limit(_NEARBY_CANDIDATE_CAP)
     )
-    parsed: FeedCursor | None = decode_feed_cursor(cursor) if cursor else None
-    if parsed is not None:
-        stmt = stmt.where(
-            or_(
-                EventRow.weight < parsed.weight,
-                and_(EventRow.weight == parsed.weight, EventRow.id < parsed.event_id),
+    rows = list(session.scalars(stmt).unique().all())
+    scored: list[Event] = []
+    for row in rows:
+        active = event_is_active_now(
+            active_from=row.active_from,
+            active_to=row.active_to,
+            now=now,
+        )
+        base = compute_weight(
+            importance=row.importance,
+            source=row.source,
+            distance_m=None,
+            geo_by=row.geo_by,
+            published_at=row.published_at,
+            created_at=row.created_at,
+            source_msg_id=row.source_msg_id,
+            outlet_reliability=_outlet_reliability_map(),
+            now=now,
+        )
+        rank = apply_nearby_boosts(base, same_street=False, is_active_now=active)
+        scored.append(
+            _to_domain(
+                row,
+                distance_m=None,
+                now=now,
+                weight_override=rank,
+                is_active_now=active,
             )
         )
 
-    rows = list(session.scalars(stmt.limit(limit + 1)).unique().all())
-    page_rows = rows[:limit]
-    items: list[Event] = []
-    for row in page_rows:
-        event = _to_domain(row, distance_m=None, now=now)
-        # Курсор и ORDER BY по persisted weight — иначе page2 дублирует page1.
-        event.weight = float(row.weight)
-        items.append(event)
+    scored.sort(key=lambda item: (item.weight, item.id), reverse=True)
+    parsed: FeedCursor | None = decode_feed_cursor(cursor) if cursor else None
+    if parsed is not None:
+        scored = [
+            item
+            for item in scored
+            if is_after_cursor(weight=item.weight, event_id=item.id, cursor=parsed)
+        ]
 
+    page_items = scored[:limit]
     next_cursor: str | None = None
-    if len(rows) > limit:
-        last = items[-1]
+    if len(scored) > limit:
+        last = page_items[-1]
         next_cursor = encode_feed_cursor(FeedCursor(weight=last.weight, event_id=last.id))
 
-    return FeedPage(items=items, next_cursor=next_cursor, scope=EventScope.CITY)
+    return FeedPage(items=page_items, next_cursor=next_cursor, scope=EventScope.CITY)
+
+
+def _not_expired_clause(now: datetime):
+    """Скрыть события с известным active_to в прошлом (ml_time)."""
+    return or_(EventRow.active_to.is_(None), EventRow.active_to >= now)
+
+
+def _moscow_city_clause():
+    # Точное совпадение: SQLite lower() не трогает кириллицу.
+    return AddressRow.city == "Москва"
 
 
 def list_existing_source_msg_ids(
@@ -357,6 +395,17 @@ def list_existing_source_msg_ids(
     return found
 
 
+def _normalize_optional_title(title: str | None) -> str | None:
+    if title is None:
+        return None
+    cleaned = title.strip()
+    return cleaned or None
+
+
+def _normalize_body(body: str | None) -> str:
+    return body.strip() if body else ""
+
+
 def create_event(session: Session, data: EventCreate) -> Event:
     """
     Создать финальное событие (только in-process: воркеры парсеров / бот / скрипты).
@@ -368,9 +417,15 @@ def create_event(session: Session, data: EventCreate) -> Event:
 
     Геопозиция хранится ссылкой на Address, а не копией latitude/longitude.
     Дедуп/merge (KAN-19) — в ``persist_candidate`` / ``ml_dedup.resolve`` до вызова.
+    Title необязателен: достаточно непустого body.
     """
     _validate_importance(data.importance)
     source = _normalize_source(data.source)
+    title = _normalize_optional_title(data.title)
+    body = _normalize_body(data.body)
+    if not title and not body:
+        raise ValueError("Нужен title или body")
+
     base_weight = compute_weight(
         importance=data.importance,
         source=source,
@@ -382,8 +437,8 @@ def create_event(session: Session, data: EventCreate) -> Event:
     )
 
     row = EventRow(
-        title=data.title.strip(),
-        body=data.body.strip(),
+        title=title,
+        body=body,
         importance=data.importance,
         source=source,
         address=_get_address(session, data.address_id),
@@ -420,9 +475,11 @@ def update_event(session: Session, event_id: int, data: EventUpdate) -> Event | 
         return None
 
     if data.title is not None:
-        row.title = data.title.strip()
+        row.title = _normalize_optional_title(data.title)
     if data.body is not None:
-        row.body = data.body.strip()
+        row.body = _normalize_body(data.body)
+    if not (row.title or row.body):
+        raise ValueError("Нужен title или body")
     if data.importance is not None:
         _validate_importance(data.importance)
         row.importance = data.importance
@@ -512,10 +569,10 @@ def list_feed(
     Nearby (персонально по улице чата):
     - нужны memberships пользователя; иначе пустая страница;
     - geo_by street|home;
-    - отсев дальше ``events.nearby_radius_m`` (haversine от lat/lon адреса чата);
-    - вес пересчитывается с distance_m + same_street / active_window бусты.
+    - отсев дальше ``events.nearby_radius_m`` (~6 км);
+    - вес с distance_m + same_street / ml_time (просроченные active_to скрыты).
 
-    City: geo_by=city, общая выдача по persisted weight.
+    City: все события с Address.city=Москва; ml_time как у nearby.
     """
     scope_value = EventScope(scope)
     if limit < 1:

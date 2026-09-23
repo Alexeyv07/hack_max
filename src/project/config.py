@@ -160,8 +160,9 @@ class ApiConfig:
 
 @dataclass(frozen=True, slots=True)
 class EventsConfig:
-    nearby_radius_m: float = 3000.0
-    city_radius_m: float = 30000.0
+    # Отсев «рядом» (haversine от улицы чата), ~5–6 км.
+    nearby_radius_m: float = 6_000.0
+    city_radius_m: float = 30_000.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -439,8 +440,8 @@ def load_settings() -> Settings:
             cors_origins=_parse_cors_origins(api_raw.get("cors_origins")),
         ),
         events=EventsConfig(
-            nearby_radius_m=float(events_raw.get("nearby_radius_m", 3000)),
-            city_radius_m=float(events_raw.get("city_radius_m", 30000)),
+            nearby_radius_m=float(events_raw.get("nearby_radius_m", 6_000)),
+            city_radius_m=float(events_raw.get("city_radius_m", 30_000)),
         ),
         ml_dedup=MlDedupConfig(
             enabled=bool(ml_dedup_raw.get("enabled", True)),

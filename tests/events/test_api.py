@@ -52,10 +52,12 @@ def _add_address(
     lat: float,
     lon: float,
     street: str | None = "Тестовая",
+    city: str | None = "Москва",
 ) -> AddressRow:
     row = AddressRow(
         address_text=text,
         postal_code="123456",
+        city=city,
         street=street,
         latitude=Decimal(str(lat)),
         longitude=Decimal(str(lon)),
@@ -145,11 +147,11 @@ def _seed_user_and_events(session_factory) -> None:
                 geo_by="city",
             ),
         )
-        # За радиусом — не в nearby.
+        # За soft-радиусом — не в nearby.
         beyond = _add_address(
             session,
             text="Москва, далеко",
-            lat=55.90,
+            lat=56.20,
             lon=37.70,
             street="Далёкая",
         )
@@ -219,7 +221,7 @@ def test_feed_and_cursor(client) -> None:
     assert body["count"] == 1
     assert body["next_cursor"] is not None
     assert body["origin"] is not None
-    assert body["origin"]["radius_m"] == 3000
+    assert body["origin"]["radius_m"] == 6_000
     item = body["items"][0]
     assert item["lat"] is not None
     assert item["lon"] is not None
@@ -269,7 +271,7 @@ def test_nearby_differs_by_user_location(client) -> None:
         address = _add_address(
             session,
             text="Москва, дом второго пользователя",
-            lat=55.90,
+            lat=56.20,
             lon=37.70,
             street="Далёкая",
         )

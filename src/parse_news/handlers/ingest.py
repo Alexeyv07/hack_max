@@ -39,9 +39,9 @@ def article_to_candidate(
     address_id: int | None = None,
     geo_by: str | None = None,
 ) -> ParserCandidate:
-    title = article.title
+    title = (article.title or "").strip() or None
     body = clean_article_body(article.body, title=title) or ""
-    raw_text = f"{title}\n{body}".strip() if body else title
+    raw_text = "\n".join(part for part in (title, body) if part).strip() or (title or body or "")
     resolved_id = geo.address_id if geo is not None else address_id
     resolved_by = geo.geo_by if geo is not None else geo_by
     return ParserCandidate(
