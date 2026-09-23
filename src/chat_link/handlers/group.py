@@ -9,6 +9,7 @@ from maxapi.utils.deep_linking import create_start_link
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 from sqlalchemy.orm import Session
 
+from address.db import AddressRow
 from chat_link.handlers.links import (
     create_request,
     finalize_group,
@@ -17,6 +18,7 @@ from chat_link.handlers.links import (
     pending_for_actor,
 )
 from chat_link.models import ConnectOutcome, JoinOutcome
+from user_chat.db import ChatRow
 from user_chat.handlers import bind_known_chat_member, get_chat, list_chats_by_address
 from user_chat.models import Chat
 
@@ -33,6 +35,24 @@ async def bot_can_read_group(bot: Any, chat_id: int) -> bool:
     member = await bot.get_me_from_chat(chat_id)
     is_admin = bool(getattr(member, "is_admin", False) or getattr(member, "is_owner", False))
     return is_admin and "read_all_messages" in _permission_names(member)
+
+
+async def bind_existing_chat_member(
+    bot: Any,
+    session: Session,
+    *,
+    chat_id: int,
+    max_user_id: int,
+) -> bool:
+    """Привязать пользователя только после проверки членства через MAX API.
+
+    Не добавляем человека в MAX-чат и не требуем решения администратора.
+    """
+    member = await bot.get_chat_member(chat_id, max_user_id)
+    if member is None:
+        return False
+    bind_known_chat_member(session, chat_id, max_user_id=max_user_id)
+    return True
 
 
 async def bind_referral_member(
@@ -107,13 +127,7 @@ async def join_existing_chat(
 
     member = await bot.get_chat_member(chat_id, max_user_id)
     if member is None:
-        if chat.invite_link:
-            return JoinOutcome(
-                False,
-                "Сначала вступите в домовой чат по ссылке.",
-                invite_link=chat.invite_link,
-            )
-        return JoinOutcome(False, "Сначала вступите в домовой чат через администратора.")
+        return JoinOutcome(False, "Вы не состоите в домовом чате, привязанном к выбранному адресу.")
 
     mark_joined(session, token=token, chat_id=chat_id)
     return JoinOutcome(True, "Членство в домовом чате подтверждено")
@@ -262,6 +276,15 @@ async def connect_added_group_to_address(
     )
 
 
+def connected_group_address(session: Session, chat_id: int) -> str | None:
+    """Адрес подтверждённой групповой привязки для команды /address."""
+    chat = session.get(ChatRow, chat_id)
+    if chat is None or chat.chat_type != "chat":
+        return None
+    address = session.get(AddressRow, chat.address_id)
+    return address.address_text if address is not None else None
+
+
 def _group_link_keyboard(url: str | None, *, text: str) -> Any | None:
     if not url:
         return None
@@ -298,12 +321,16 @@ async def announce_connected_group(
     chat_id: int,
     *,
     requester_added: bool = True,
+    address_text: str,
 ) -> None:
-    """Сообщить группе об успешной привязке и дать соседям referral-кнопку."""
+    """Объявить в группе точный адрес привязки и дать соседям referral-кнопку."""
     username = getattr(getattr(bot, "me", None), "username", None)
     referral = create_start_link(username, f"chat_{chat_id}") if username else None
     text = (
-        "Чат привязан к дому. Теперь сервис будет использовать сообщения этого домового чата "
+        f"✅ Домовой чат привязан к адресу:\n{address_text}\n\n"
+        "Проверьте, что адрес указан верно. Если заметили ошибку, "
+        "сообщите администратору чата, чтобы он разобрался с привязкой.\n\n"
+        "Теперь сервис будет использовать сообщения этого домового чата "
         "для событий рядом с жителями."
     )
     if referral:

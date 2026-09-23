@@ -5,6 +5,7 @@ from typing import Any
 
 from maxapi import F
 from maxapi.enums.format import Format
+from maxapi.filters.command import Command
 from maxapi.utils.deep_linking import create_start_link
 
 from address.street_catalog import normalize_ui_text
@@ -12,7 +13,6 @@ from auth.commands.start import build_welcome_keyboard, build_welcome_text
 from auth.handlers import get_user_by_max_id
 from chat_link.commands.keyboards import (
     admin_setup_keyboard,
-    existing_chats_keyboard,
     list_keyboard,
     method_keyboard,
     postal_input_keyboard,
@@ -23,18 +23,25 @@ from chat_link.commands.states import ChatLinkStates
 from chat_link.handlers import (
     announce_connected_group,
     announce_group_address_setup,
+    bind_existing_chat_member,
     bot_can_read_group,
     connect_added_group,
     connect_added_group_to_address,
+    connected_group_address,
     create_request,
     get_address_catalog,
     mark_waiting_group,
     pending_for_actor,
-    request_admin_approval,
 )
 from project.database import session_scope
 from project.logging_setup import get_logger
-from user_chat.handlers import bind_known_chat_member, detach_chat, get_chat, has_connected_chat
+from user_chat.handlers import (
+    bind_known_chat_member,
+    detach_chat,
+    get_chat,
+    has_connected_chat,
+    list_chats_by_address,
+)
 
 logger = get_logger(__name__)
 
@@ -314,6 +321,7 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
             bot,
             int(target_chat_id),
             requester_added=outcome.requester_added,
+            address_text=address.address_text,
         )
         await context.update_data(address_id=address_id)
         await event.edit(
@@ -328,50 +336,46 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
         return
 
     with session_scope() as session:
-        request, chats = create_request(session, max_user_id=user_id, address_id=address_id)
-    await context.update_data(address_id=address_id, link_token=request.token)
-    if chats:
-        if len(chats) == 1:
+        chats = [
+            chat for chat in list_chats_by_address(session, address_id) if chat.chat_type == "chat"
+        ]
+        if chats:
             try:
-                with session_scope() as session:
-                    request_admin_approval(
-                        session,
-                        token=request.token,
-                        chat_id=chats[0].chat_id,
-                    )
+                connected = False
+                for chat in chats:
+                    if await bind_existing_chat_member(
+                        bot, session, chat_id=chat.chat_id, max_user_id=user_id
+                    ):
+                        connected = True
             except ValueError as exc:
                 await event.edit(
-                    text=(
-                        f"Для этого дома уже подключён домовой чат:\n{address.address_text}\n\n"
-                        f"Не удалось отправить заявку администратору: {exc}.\n"
-                        "Прямое вступление по ссылке недоступно. Попробуйте позже."
-                    ),
+                    text=f"Не удалось привязать чат: {exc}",
                     attachments=[],
                     notify=False,
                 )
                 return
-
-            await event.edit(
-                text=(
-                    f"✅ Заявка отправлена администратору чата «{chats[0].title}».\n\n"
-                    "Когда администратор примет или отклонит её, бот пришлёт результат сюда."
-                ),
-                attachments=[],
-                notify=False,
-            )
-            return
-
+            except Exception:
+                logger.exception("Не удалось проверить членство в MAX")
+                await event.edit(
+                    text="Не удалось проверить членство через MAX. Попробуйте позже.",
+                    attachments=[],
+                    notify=False,
+                )
+                return
+        else:
+            request, _ = create_request(session, max_user_id=user_id, address_id=address_id)
+    if chats:
         await event.edit(
             text=(
-                f"Для этого дома подключено несколько чатов:\n{address.address_text}\n\n"
-                "Выберите чат, администратору которого отправить заявку."
+                f"✅ Домовой чат привязан к вашему профилю.\n\nАдрес: {address.address_text}"
+                if connected
+                else "Вы не состоите в домовом чате, привязанном к выбранному адресу."
             ),
-            attachments=[existing_chats_keyboard(chats)],
+            attachments=[],
             notify=False,
         )
         return
-    # В старом mock `chats` мог содержать личный DIALOG. После проверки MAX
-    # такая запись не должна оставлять заявку в WAITING_JOIN.
+    await context.update_data(address_id=address_id, link_token=request.token)
     with session_scope() as session:
         mark_waiting_group(session, token=request.token)
     await _show_resident_setup(event, context, bot)
@@ -458,10 +462,22 @@ async def _finish_added_group_when_ready(
                     await bot.send_message(chat_id=chat_id, text=outcome.message)
                     return
 
+                with session_scope() as session:
+                    connected_chat = get_chat(session, chat_id)
+                connected_address = (
+                    get_address_catalog().get(connected_chat.address_id)
+                    if connected_chat is not None
+                    else None
+                )
                 await announce_connected_group(
                     bot,
                     chat_id,
                     requester_added=outcome.requester_added,
+                    address_text=(
+                        connected_address.address_text
+                        if connected_address is not None
+                        else "адрес не найден в справочнике — сообщите администратору"
+                    ),
                 )
                 return
         except asyncio.CancelledError:
@@ -537,34 +553,6 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
         if payload == "cl:noop":
             await _ack_callback(event)
             return
-        if payload.startswith("cl:approval:"):
-            data = await context.get_data()
-            token = data.get("link_token")
-            try:
-                chat_id = int(payload.removeprefix("cl:approval:"))
-            except ValueError:
-                await event.ack(notification="Некорректный чат")
-                return
-            if not token:
-                await event.ack(notification="Сессия устарела. Выберите адрес ещё раз.")
-                return
-            try:
-                with session_scope() as session:
-                    request_admin_approval(session, token=token, chat_id=chat_id)
-                    chat = get_chat(session, chat_id)
-            except ValueError as exc:
-                await event.ack(notification=str(exc))
-                return
-            await event.edit(
-                text=(
-                    f"✅ Заявка отправлена администратору чата «{chat.title if chat else 'Домовой чат'}».\n\n"
-                    "Когда администратор примет или отклонит её, бот пришлёт результат сюда."
-                ),
-                attachments=[],
-                notify=False,
-            )
-            return
-
         parts = payload.split(":")
         if payload == "cl:method:native":
             current = await context.get_data()
@@ -668,6 +656,26 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
         # Неизвестный chat_link callback всё равно подтверждаем, чтобы снять spinner.
         # Ветви выше используют event.edit()/event.ack() как единственный callback-ответ.
         await _ack_callback(event)
+
+    @dp.message_created(Command("address"))
+    async def on_group_address(event: Any) -> None:
+        chat_id = getattr(event, "chat_id", None)
+        if chat_id is None:
+            recipient = getattr(getattr(event, "message", None), "recipient", None)
+            chat_id = getattr(recipient, "chat_id", None)
+        if chat_id is None:
+            return
+        with session_scope() as session:
+            address_text = connected_group_address(session, int(chat_id))
+        if address_text is None:
+            return
+        await bot.send_message(
+            chat_id=int(chat_id),
+            text=(
+                f"🏠 Этот домовой чат привязан к адресу:\n{address_text}\n\n"
+                "Если адрес указан неверно, сообщите администратору чата."
+            ),
+        )
 
     @dp.message_created(F.message.body.text, ChatLinkStates.postal)
     async def on_postal(event: Any, context: Any) -> None:

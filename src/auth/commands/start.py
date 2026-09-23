@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from html import escape
+from time import monotonic
 from typing import Any
 
 from maxapi.enums.format import Format
@@ -89,8 +90,6 @@ async def _render_welcome(
     notice: str | None = None,
     target_chat_id: int | None = None,
 ) -> None:
-    data = await context.get_data()
-    old_mid = data.get("flow_mid")
     text = build_welcome_text(
         _display_name(user),
         admin_token=admin_token,
@@ -107,20 +106,7 @@ async def _render_welcome(
     await context.clear()
     if target_chat_id is not None:
         await context.update_data(target_chat_id=target_chat_id)
-    if old_mid:
-        try:
-            await bot.edit_message(
-                old_mid,
-                text=text,
-                attachments=attachments,
-                format=Format.HTML,
-                notify=False,
-            )
-            await context.update_data(flow_mid=old_mid)
-            return
-        except Exception:
-            # Сообщение могло быть удалено пользователем — создаём один новый screen.
-            pass
+    # Каждый /start создаёт новый экран в конце переписки; прежние не редактируем.
     chat_id = getattr(event, "chat_id", None)
     if chat_id is None:
         message = getattr(event, "message", None)
@@ -145,12 +131,31 @@ async def _render_welcome(
 
 
 def register_auth_commands(dp: Any, bot: Any) -> None:
+    recent_starts: dict[int, tuple[str, float]] = {}
+
+    def duplicate_start(user_id: int, source: str, *, allow_skip: bool = True) -> bool:
+        """Снять дубликат одного запуска из bot_started и message_created."""
+        now = monotonic()
+        previous = recent_starts.get(user_id)
+        if (
+            allow_skip
+            and previous is not None
+            and previous[0] != source
+            and now - previous[1] < 1.5
+        ):
+            return True
+        recent_starts[user_id] = (source, now)
+        return False
+
     @dp.bot_started()
     async def on_bot_started(event: Any, context: Any) -> None:
         user = authorize_from_event(event)
         if user is None:
             return
         payload = getattr(event, "payload", None) or ""
+        # Deep-link всегда обрабатываем: он может содержать привязку чата.
+        if duplicate_start(user.max_user_id, "bot_started", allow_skip=not payload):
+            return
         admin_token = (
             payload.removeprefix("chat_admin_") if payload.startswith("chat_admin_") else None
         )
@@ -209,6 +214,6 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
     @dp.message_created(CommandStart())
     async def on_start(event: Any, context: Any) -> None:
         user = authorize_from_event(event)
-        if user is None:
+        if user is None or duplicate_start(user.max_user_id, "message_created"):
             return
         await _render_welcome(bot, event, context, user)

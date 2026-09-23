@@ -80,20 +80,6 @@ def list_keyboard(
     return builder.as_markup(), current.index, current.pages
 
 
-def existing_chats_keyboard(chats: list[Any]):
-    """Выбор уже подключённого чата для admin-approval заявки."""
-    builder = InlineKeyboardBuilder()
-    for chat in chats[:12]:
-        builder.row(
-            CallbackButton(
-                text=(chat.title or "Домовой чат")[:64],
-                payload=f"cl:approval:{chat.chat_id}",
-            )
-        )
-    builder.row(CallbackButton(text="← Выбрать другой адрес", payload="cl:method:native"))
-    return builder.as_markup()
-
-
 def method_keyboard(bot: Any, *, target_chat_id: int | None = None):
     me = getattr(bot, "me", None)
     username = getattr(me, "username", None)

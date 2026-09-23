@@ -13,14 +13,15 @@ from chat_link.api.schemas import (
 )
 from chat_link.handlers import (
     announce_connected_group,
+    bind_existing_chat_member,
     connect_added_group_to_address,
     create_request,
     get_address_catalog,
     mark_waiting_group,
-    request_admin_approval,
 )
 from project.api_deps import DbSession, get_max_user_id
 from project.max_runtime import get_max_bot
+from user_chat.handlers import list_chats_by_address
 
 router = APIRouter(prefix="/chat-link", tags=["chat-link"])
 MaxUserId = Annotated[int, Depends(get_max_user_id)]
@@ -85,6 +86,7 @@ async def select_address(
             bot,
             payload.chat_id,
             requester_added=outcome.requester_added,
+            address_text=address.address_text,
         )
         return AddressSelectResponse(
             address=_option(address),
@@ -92,8 +94,41 @@ async def select_address(
             chats=[],
         )
 
+    chats = [
+        chat
+        for chat in list_chats_by_address(session, payload.address_id)
+        if chat.chat_type == "chat"
+    ]
+    if chats:
+        if bot is None:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "MAX-бот сейчас недоступен")
+        try:
+            connected = False
+            for chat in chats:
+                if await bind_existing_chat_member(
+                    bot, session, chat_id=chat.chat_id, max_user_id=max_user_id
+                ):
+                    connected = True
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        except Exception as exc:
+            # Ошибка MAX API не равна отсутствию в чате: запрещаем доступ до проверки.
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "Не удалось проверить членство через MAX"
+            ) from exc
+        if not connected:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Вы не состоите в домовом чате, привязанном к выбранному адресу.",
+            )
+        return AddressSelectResponse(
+            address=_option(address),
+            mode="already_member",
+            chats=[],
+        )
+
     try:
-        request, chats = create_request(
+        request, _ = create_request(
             session,
             max_user_id=max_user_id,
             address_id=payload.address_id,
@@ -101,36 +136,9 @@ async def select_address(
     except ValueError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
-    if chats:
-        if len(chats) != 1:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "Для адреса найдено несколько чатов. Выберите нужный чат через бота.",
-            )
-        try:
-            request_admin_approval(
-                session,
-                token=request.token,
-                chat_id=chats[0].chat_id,
-            )
-        except ValueError as exc:
-            # Не выдаём invite_link, если заявка не переведена в ожидание решения.
-            # HTTPException откатит создание waiting_join через get_db_session.
-            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-        return AddressSelectResponse(
-            address=_option(address),
-            mode="approval_pending",
-            token=request.token,
-            chats=[],
-        )
-
     mark_waiting_group(session, token=request.token)
     username = getattr(getattr(bot, "me", None), "username", None) if bot else None
-    admin_link = (
-        create_start_link(username, f"chat_admin_{request.token}")
-        if username and not chats
-        else None
-    )
+    admin_link = create_start_link(username, f"chat_admin_{request.token}") if username else None
     return AddressSelectResponse(
         address=_option(address),
         mode="connect_group",

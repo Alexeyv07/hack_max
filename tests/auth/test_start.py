@@ -106,7 +106,7 @@ def test_bot_started_sends_welcome(monkeypatch) -> None:
     assert context.data["flow_mid"] == "welcome-mid"
 
 
-def test_start_reuses_existing_bot_screen(monkeypatch) -> None:
+def test_start_sends_new_welcome_instead_of_editing_previous(monkeypatch) -> None:
     dp = FakeDispatcher()
     bot = _bot()
     monkeypatch.setattr(start, "authorize_from_event", lambda event: _user(name=None))
@@ -120,9 +120,10 @@ def test_start_reuses_existing_bot_screen(monkeypatch) -> None:
     )
     asyncio.run(dp.handlers["message_created"](event, context))
 
-    bot.edit_message.assert_awaited_once()
-    bot.send_message.assert_not_awaited()
-    assert context.data == {"flow_mid": "old-mid"}
+    bot.edit_message.assert_not_awaited()
+    bot.send_message.assert_awaited_once()
+    assert bot.send_message.await_args.kwargs["chat_id"] == 123
+    assert context.data == {"flow_mid": "welcome-mid"}
 
 
 def test_group_bind_deep_link_keeps_target_chat_in_context(monkeypatch) -> None:
@@ -149,3 +150,35 @@ def test_group_bind_deep_link_keeps_target_chat_in_context(monkeypatch) -> None:
     assert "уже добавленный групповой чат" in kwargs["text"]
     buttons = kwargs["attachments"][0].payload.buttons
     assert buttons[0][0].text == "Выбрать адрес для чата"
+
+
+def test_plain_start_delivered_as_two_update_types_sends_one_welcome(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = _bot()
+    monkeypatch.setattr(start, "authorize_from_event", lambda event: _user())
+    monkeypatch.setattr(start, "_show_events", lambda max_user_id: False)
+    start.register_auth_commands(dp, bot)
+
+    context = FakeContext()
+    event = SimpleNamespace(chat_id=123, payload=None)
+    asyncio.run(dp.handlers["bot_started"](event, context))
+    asyncio.run(dp.handlers["message_created"](event, context))
+
+    bot.send_message.assert_awaited_once()
+    bot.edit_message.assert_not_awaited()
+
+
+def test_two_explicit_starts_both_create_new_messages(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = _bot()
+    monkeypatch.setattr(start, "authorize_from_event", lambda event: _user())
+    monkeypatch.setattr(start, "_show_events", lambda max_user_id: False)
+    start.register_auth_commands(dp, bot)
+
+    context = FakeContext({"flow_mid": "old-mid"})
+    event = SimpleNamespace(chat_id=123)
+    asyncio.run(dp.handlers["message_created"](event, context))
+    asyncio.run(dp.handlers["message_created"](event, context))
+
+    assert bot.send_message.await_count == 2
+    bot.edit_message.assert_not_awaited()
