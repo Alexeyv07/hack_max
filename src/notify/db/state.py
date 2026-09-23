@@ -59,6 +59,8 @@ class NotifyDigestRow(Base):
     last_digest_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # ID последней обработанной записи устраняет пропуски при одинаковых timestamp.
+    last_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class NotifyCursorRow(Base):

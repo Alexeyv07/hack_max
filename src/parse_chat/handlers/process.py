@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from notify.chat_source import persist_digest_message
 from parse_chat.handlers.filter import FilterConfig, filter_message
 from parse_chat.handlers.ingest import load_active_chat_row, persist_chat_message
 from parse_chat.handlers.media import extract_image_url, has_non_image_attachments
@@ -115,11 +116,25 @@ def process_chat_event(event: Any) -> bool:
     Нет фото ≠ drop. Фото без текста ждёт следующее сообщение того же автора.
     """
     settings = get_settings()
-    if not settings.runtime.enable_chat_parser or not settings.chat_parser.enabled:
+    parse_enabled = settings.runtime.enable_chat_parser and settings.chat_parser.enabled
+    digest_enabled = getattr(getattr(settings, "notify", None), "enabled", False)
+    if not parse_enabled and not digest_enabled:
         return False
 
     raw = extract_raw_chat_message(event)
     if raw is None:
+        return False
+
+    if digest_enabled:
+        # До фильтра KAN-10: в дайджест идут и бытовые сообщения, не ставшие events.
+        # Отдельный commit сохраняет текст даже при ошибке тяжёлого ML-пайплайна.
+        with session_scope() as session:
+            chat = load_active_chat_row(session, raw.chat_id)
+            if chat is None:
+                return False
+            persist_digest_message(session, raw)
+
+    if not parse_enabled:
         return False
 
     window = float(getattr(settings.chat_parser, "photo_attach_window_seconds", 600))

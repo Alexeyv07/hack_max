@@ -8,14 +8,17 @@ from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import delete
 from sqlalchemy.orm import Session, sessionmaker
 
 from notify.chat_source import ChatMessage, ChatMessageLoader, load_chat_messages
+from notify.db import NotifyChatMessageRow
 from notify.digest import (
     DigestTarget,
     build_template_digest,
     decorate_digest,
     digest_cursor,
+    digest_message_id,
     digest_scheduled_at,
     list_due_digest_targets,
     mark_digest_done,
@@ -24,9 +27,11 @@ from notify.digest import (
 from notify.priority import (
     PriorityDelivery,
     ack_payload,
+    block_user_notifications,
     build_priority_text,
     delivery_is_due,
     enqueue_new_priority_deliveries,
+    is_suspended_dialog_error,
     list_due_priority_deliveries,
     mark_delivery_sent,
 )
@@ -122,7 +127,23 @@ async def run_priority_cycle(
             )
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            if is_suspended_dialog_error(exc):
+                with factory() as session:
+                    blocked = block_user_notifications(
+                        session,
+                        user_id=delivery.user_id,
+                        blocked_at=datetime.now(UTC),
+                        reason="chat.denied:dialog.suspended",
+                    )
+                    session.commit()
+                if blocked:
+                    logger.warning(
+                        "MAX отклонил личный диалог user_id=%s (403 dialog.suspended); "
+                        "повторы остановлены до нового /start",
+                        delivery.user_id,
+                    )
+                continue
             logger.exception(
                 "Не удалось отправить личное priority-уведомление",
                 extra={
@@ -168,8 +189,13 @@ async def run_digest_cycle(
             if not _target_is_still_due(session, target=target, now=current, config=cfg):
                 continue
             after = digest_cursor(session, target.chat_id)
+            after_id = digest_message_id(session, target.chat_id)
 
-        loaded = await message_loader(target.chat_id, after)
+        if message_loader is load_chat_messages:
+            loaded = await message_loader(target.chat_id, after, after_id=after_id)
+        else:
+            # Старый интерфейс остаётся доступным для тестов/других адаптеров.
+            loaded = await message_loader(target.chat_id, after)
         messages = normalize_messages(list(loaded))
         local_day = current.astimezone(ZoneInfo(cfg.timezone)).date()
 
@@ -204,6 +230,10 @@ async def run_digest_cycle(
             continue
 
         last_message_at = max(message.created_at for message in messages)
+        last_message_id = max(
+            (message.row_id for message in messages if message.row_id is not None),
+            default=None,
+        )
         with factory() as session:
             mark_digest_done(
                 session,
@@ -211,7 +241,16 @@ async def run_digest_cycle(
                 day=local_day,
                 sent_at=current,
                 last_message_at=last_message_at,
+                last_message_id=last_message_id,
             )
+            if last_message_id is not None:
+                # После успешной отправки больше не держим обработанные тексты.
+                session.execute(
+                    delete(NotifyChatMessageRow).where(
+                        NotifyChatMessageRow.chat_id == target.chat_id,
+                        NotifyChatMessageRow.id <= last_message_id,
+                    )
+                )
             session.commit()
         sent += 1
 

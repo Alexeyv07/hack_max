@@ -97,6 +97,7 @@ def list_due_priority_deliveries(
         .where(
             NotifyDeliveryRow.acked_at.is_(None),
             UserRow.chat_id.is_not(None),
+            UserRow.notify_blocked_at.is_(None),
             EventRow.importance.in_(_PRIORITY_IMPORTANCE),
             or_(
                 NotifyDeliveryRow.last_sent_at.is_(None),
@@ -133,10 +134,41 @@ def delivery_is_due(
     row = session.get(NotifyDeliveryRow, delivery_id)
     if row is None or row.acked_at is not None:
         return False
+    user = session.get(UserRow, row.user_id)
+    if user is None or user.notify_blocked_at is not None:
+        return False
     if row.last_sent_at is None:
         return True
     retry_before = _aware_utc(now) - timedelta(seconds=max(1, retry_interval_seconds))
     return _aware_utc(row.last_sent_at) <= retry_before
+
+
+def block_user_notifications(
+    session: Session,
+    *,
+    user_id: int,
+    blocked_at: datetime,
+    reason: str,
+) -> bool:
+    """Отложить все личные доставки при постоянном отказе MAX без ложного ack."""
+    user = session.get(UserRow, user_id)
+    if user is None or user.notify_blocked_at is not None:
+        return False
+    user.notify_blocked_at = _aware_utc(blocked_at)
+    user.notify_blocked_reason = reason
+    session.flush()
+    return True
+
+
+def is_suspended_dialog_error(exc: Exception) -> bool:
+    """Только подтверждённый 403 chat.denied/dialog.suspended, не сетевые сбои."""
+    raw = getattr(exc, "raw", None)
+    return (
+        getattr(exc, "code", None) == 403
+        and isinstance(raw, dict)
+        and raw.get("code") == "chat.denied"
+        and "error.dialog.suspended" in str(raw.get("message", ""))
+    )
 
 
 def mark_delivery_sent(

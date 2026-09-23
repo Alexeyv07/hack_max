@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import auth.commands.start as start
+import auth.handlers.authorize as authorize
+import notify.commands as commands
 from address.db.address import AddressRow
 from auth.db.user import UserRow
 from events.db.event import EventRow
@@ -15,6 +19,7 @@ from notify.priority import (
     PRIORITY_CURSOR,
     acknowledge_delivery,
     enqueue_new_priority_deliveries,
+    is_suspended_dialog_error,
     parse_ack_payload,
 )
 from notify.worker import run_priority_cycle
@@ -295,3 +300,204 @@ def test_ack_callback_falls_back_to_plain_ack_if_edit_fails() -> None:
     asyncio.run(_finish_ack_callback(event, acknowledged=True))
 
     event.ack.assert_awaited_once_with(notification="Отмечено как увиденное")
+
+
+class _CallbackDispatcher:
+    def __init__(self) -> None:
+        self.handlers = []
+
+    def message_callback(self, _filter):
+        def register(handler):
+            self.handlers.append(handler)
+            return handler
+
+        return register
+
+
+def test_ack_opens_fresh_main_menu_only_once_for_owner(session_factory, monkeypatch) -> None:
+    with session_factory() as session:
+        address = _address(
+            "Москва, Тестовая улица, д. 1", city="Москва", street="Тестовая", house="1"
+        )
+        session.add(address)
+        session.flush()
+        _seed_member(session, max_user_id=1501, private_chat_id=5501, address=address)
+        event = _event(address=address, title="Важное", importance=2)
+        session.add(event)
+        session.flush()
+        user = session.query(UserRow).filter_by(max_user_id=1501).one()
+        delivery = NotifyDeliveryRow(user_id=user.id, event_id=event.id)
+        session.add(delivery)
+        session.commit()
+        delivery_id = delivery.id
+
+    @contextmanager
+    def scoped_session():
+        with session_factory() as session:
+            yield session
+            session.commit()
+
+    monkeypatch.setattr(commands, "session_scope", scoped_session)
+    render_welcome = AsyncMock()
+    monkeypatch.setattr(start, "_render_welcome", render_welcome)
+    dp = _CallbackDispatcher()
+    bot = SimpleNamespace()
+    commands.register_notify_commands(dp, bot)
+    handler = dp.handlers[0]
+    context = SimpleNamespace()
+
+    def callback(user_id):
+        return SimpleNamespace(
+            callback=SimpleNamespace(
+                payload=f"notify:ack:{delivery_id}",
+                user=SimpleNamespace(user_id=user_id),
+            ),
+            edit=AsyncMock(),
+            ack=AsyncMock(),
+        )
+
+    other = callback(9999)
+    asyncio.run(handler(other, context))
+    other.edit.assert_not_awaited()
+    render_welcome.assert_not_awaited()
+
+    first = callback(1501)
+    asyncio.run(handler(first, context))
+    first.edit.assert_awaited_once()
+    render_welcome.assert_awaited_once()
+    args, kwargs = render_welcome.await_args
+    assert args[0] is bot
+    assert args[1] is first
+    assert args[2] is context
+    assert args[3].max_user_id == 1501
+    assert kwargs == {"recipient_chat_id": 5501}
+
+    repeated = callback(1501)
+    asyncio.run(handler(repeated, context))
+    repeated.edit.assert_awaited_once()
+    render_welcome.assert_awaited_once()
+
+    with session_factory() as session:
+        assert session.get(NotifyDeliveryRow, delivery_id).acked_at is not None
+
+
+class _MaxDenied(Exception):
+    def __init__(
+        self,
+        *,
+        code: int = 403,
+        reason: str = "chat.denied",
+        message: str = "Key: error.dialog.suspended",
+    ):
+        self.code = code
+        self.raw = {"code": reason, "message": message}
+        super().__init__(self.raw)
+
+
+def test_only_suspended_dialog_is_permanent() -> None:
+    assert is_suspended_dialog_error(_MaxDenied())
+    assert not is_suspended_dialog_error(_MaxDenied(code=500))
+    assert not is_suspended_dialog_error(_MaxDenied(reason="access.denied"))
+    assert not is_suspended_dialog_error(_MaxDenied(message="Temporary chat error"))
+    assert not is_suspended_dialog_error(RuntimeError("Server disconnected"))
+
+
+def test_dialog_suspended_blocks_user_without_false_ack_and_start_restores(
+    session_factory, monkeypatch
+) -> None:
+    now = datetime(2026, 9, 23, 12, tzinfo=UTC)
+    cfg = NotifyConfig(retry_interval_seconds=3600)
+    with session_factory() as session:
+        address = _address(
+            "Москва, Тестовая улица, д. 1", city="Москва", street="Тестовая", house="1"
+        )
+        session.add(address)
+        session.flush()
+        user = _seed_member(session, max_user_id=1601, private_chat_id=5601, address=address)
+        _enable_cursor(session)
+        session.add_all(
+            [
+                _event(address=address, title="Событие 1", importance=1),
+                _event(address=address, title="Событие 2", importance=2),
+            ]
+        )
+        session.commit()
+        user_id = user.id
+
+    bot = SimpleNamespace(send_message=AsyncMock(side_effect=_MaxDenied()))
+    kwargs = dict(
+        now=now,
+        config=cfg,
+        session_factory=session_factory,
+        keyboard_factory=lambda delivery: "ack",
+    )
+    assert asyncio.run(run_priority_cycle(bot, **kwargs)) == 0
+    # Вторая доставка того же пользователя в одном цикле уже не отправляется.
+    bot.send_message.assert_awaited_once()
+    with session_factory() as session:
+        row = session.get(UserRow, user_id)
+        assert row.notify_blocked_at is not None
+        assert row.notify_blocked_reason == "chat.denied:dialog.suspended"
+        deliveries = session.query(NotifyDeliveryRow).all()
+        assert len(deliveries) == 2
+        assert all(
+            d.acked_at is None and d.last_sent_at is None and d.attempts == 0 for d in deliveries
+        )
+        # Новые события также не должны уходить, пока личный диалог заблокирован.
+        session.add(_event(address=address, title="Событие 3", importance=1))
+        session.commit()
+
+    assert asyncio.run(run_priority_cycle(bot, **{**kwargs, "now": now + timedelta(days=1)})) == 0
+    bot.send_message.assert_awaited_once()
+
+    @contextmanager
+    def scoped_session():
+        with session_factory() as session:
+            yield session
+            session.commit()
+
+    monkeypatch.setattr(authorize, "session_scope", scoped_session)
+    sender = SimpleNamespace(user_id=1601, name="Сосед")
+    # Команда в группе не открывает личный диалог.
+    authorize.authorize_from_event(SimpleNamespace(user=sender, chat_id=-12345))
+    with session_factory() as session:
+        assert session.get(UserRow, user_id).notify_blocked_at is not None
+
+    authorize.authorize_from_event(SimpleNamespace(user=sender, chat_id=5601))
+    with session_factory() as session:
+        row = session.get(UserRow, user_id)
+        assert row.notify_blocked_at is None
+        assert row.notify_blocked_reason is None
+
+    bot.send_message.side_effect = None
+    assert asyncio.run(run_priority_cycle(bot, **{**kwargs, "now": now + timedelta(days=1)})) == 3
+    assert bot.send_message.await_count == 4
+
+
+def test_transient_max_error_stays_retryable(session_factory) -> None:
+    now = datetime(2026, 9, 23, 12, tzinfo=UTC)
+    with session_factory() as session:
+        address = _address(
+            "Москва, Тестовая улица, д. 1", city="Москва", street="Тестовая", house="1"
+        )
+        session.add(address)
+        session.flush()
+        user = _seed_member(session, max_user_id=1701, private_chat_id=5701, address=address)
+        _enable_cursor(session)
+        session.add(_event(address=address, title="Событие", importance=1))
+        session.commit()
+        user_id = user.id
+
+    bot = SimpleNamespace(send_message=AsyncMock(side_effect=RuntimeError("Server disconnected")))
+    kwargs = dict(
+        now=now,
+        config=NotifyConfig(),
+        session_factory=session_factory,
+        keyboard_factory=lambda delivery: "ack",
+    )
+    assert asyncio.run(run_priority_cycle(bot, **kwargs)) == 0
+    with session_factory() as session:
+        assert session.get(UserRow, user_id).notify_blocked_at is None
+    bot.send_message.side_effect = None
+    assert asyncio.run(run_priority_cycle(bot, **kwargs)) == 1
+    assert bot.send_message.await_count == 2

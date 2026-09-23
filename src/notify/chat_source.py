@@ -1,36 +1,81 @@
-"""Тонкий интерфейс к сообщениям домовых чатов из будущего ``parse_chat``."""
+"""Хранилище обычных текстов домовых чатов для ежедневной суммаризации.
+
+KAN-10 сохраняет в events лишь отфильтрованные события. Здесь хранятся
+сообщения для #итого отдельно, без текста от ботов и MAX-команд.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from project.logging_setup import get_logger
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-logger = get_logger(__name__)
+from notify.db import NotifyChatMessageRow
+from project.database import get_session_factory
+
+if TYPE_CHECKING:
+    from parse_chat.models.message import RawChatMessage
 
 
 @dataclass(frozen=True, slots=True)
 class ChatMessage:
-    """Минимум данных, который notify получает от хранилища ``parse_chat``."""
-
     text: str
     created_at: datetime
+    row_id: int | None = None
 
 
 ChatMessageLoader = Callable[[int, datetime | None], Awaitable[Sequence[ChatMessage]]]
 
 
-async def load_chat_messages(chat_id: int, after: datetime | None) -> Sequence[ChatMessage]:
-    """Заглушка адаптера до подключения таблицы сообщений ``parse_chat``.
+def persist_digest_message(session: Session, message: RawChatMessage) -> bool:
+    """Идемпотентно сохранить содержательное сообщение уже подключённого чата."""
+    text = " ".join(message.text.split())
+    if message.sender_is_bot or not text or text.startswith("/") or not message.message_id:
+        return False
 
-    KAN-15 не создаёт своё хранилище сообщений. Когда KAN-10 предоставит таблицу,
-    здесь останется только запрос к ней с фильтром ``created_at > after``.
-    """
-    logger.debug(
-        "Источник сообщений parse_chat ещё не подключён: chat_id=%s after=%s",
-        chat_id,
-        after,
+    # Один и тот же update MAX может прийти повторно при reconnect.
+    existing = session.scalar(
+        select(NotifyChatMessageRow.id).where(
+            NotifyChatMessageRow.chat_id == message.chat_id,
+            NotifyChatMessageRow.message_id == message.message_id,
+        )
     )
-    return []
+    if existing is not None:
+        return False
+
+    try:
+        with session.begin_nested():
+            session.add(
+                NotifyChatMessageRow(
+                    chat_id=message.chat_id,
+                    message_id=message.message_id,
+                    text=text[:4000],
+                    created_at=message.published_at or datetime.now(UTC),
+                )
+            )
+            session.flush()
+    except IntegrityError:
+        return False
+    return True
+
+
+async def load_chat_messages(
+    chat_id: int, after: datetime | None, *, after_id: int | None = None
+) -> Sequence[ChatMessage]:
+    """Вернуть тексты одного чата после курсора предыдущего успешного дайджеста."""
+    with get_session_factory()() as session:
+        query = select(NotifyChatMessageRow).where(NotifyChatMessageRow.chat_id == chat_id)
+        if after_id is not None:
+            query = query.where(NotifyChatMessageRow.id > after_id)
+        elif after is not None:
+            # Совместимость с cursor из версии до появления ID сообщений.
+            query = query.where(NotifyChatMessageRow.created_at > after)
+        rows = session.scalars(query.order_by(NotifyChatMessageRow.id)).all()
+        return [
+            ChatMessage(text=row.text, created_at=row.created_at, row_id=row.id) for row in rows
+        ]

@@ -96,4 +96,16 @@ def authorize_from_event(event: Any) -> User | None:
         payload=getattr(event, "payload", None),
     )
     with session_scope() as session:
-        return authorize_user(session, payload)
+        user = authorize_user(session, payload)
+        # Только новое обращение в личном диалоге даёт основание повторить доставку.
+        # Групповой /start (отрицательный chat_id) не снимает блокировку.
+        if payload.chat_id is not None and payload.chat_id > 0:
+            row = session.get(UserRow, user.id)
+            if row is not None and row.notify_blocked_at is not None:
+                row.notify_blocked_at = None
+                row.notify_blocked_reason = None
+                session.flush()
+                logger.info(
+                    "Повторно разрешены личные уведомления max_user_id=%s", user.max_user_id
+                )
+        return user
