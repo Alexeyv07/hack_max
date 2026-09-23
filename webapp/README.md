@@ -2,10 +2,10 @@
 
 Лента событий + chat_link. HTTPS для Max — CloudPub.
 
-| Где | URL |
-|-----|-----|
-| Локально | http://localhost:5173 |
-| Max | `docker compose logs cloudpub` → `https://….cloudpub.ru` |
+| Где      | URL                                                                                     |
+|----------|-----------------------------------------------------------------------------------------|
+| Локально | http://localhost:5173                                                                   |
+| Max      | `https://incompletely-immortal-ling.cloudpub.ru` (`CLOUDPUB_AGENT_ID` + token в `.env`) |
 
 `/api` → Vite proxy на `:8000`. На localhost user id = `159064979`.  
 Yandex Maps: `YANDEX_MAPS_API_KEY` в `src/lib/yandexMaps.ts`.

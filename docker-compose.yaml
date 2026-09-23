@@ -69,6 +69,9 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
+  # https://cloudpub.ru/docs/docker
+  # Один CLOUDPUB_AGENT_ID на всех машинах → один *.cloudpub.ru (публикации на сервере).
+  # Не ставить HTTP=: иначе пустой register → новый hostname.
   cloudpub:
     image: cloudpub/cloudpub:latest
     container_name: hack_max_cloudpub
@@ -76,14 +79,16 @@ services:
     network_mode: "service:webapp"
     environment:
       TOKEN: ${CLOUDPUB_TOKEN:-}
-      HTTP: localhost:5173
-    command: ["run"]
+      HOME: /home/cloudpub
+      # Не секрет: общий id агента команды (см. .env.example).
+      CLOUDPUB_AGENT_ID: ${CLOUDPUB_AGENT_ID:-cc9d4150-d529-48e0-93c2-ff8ba5c56fd8}
+    entrypoint: ["/bin/sh", "/cloudpub-entrypoint.sh"]
     volumes:
-      - cloudpub_config:/home/cloudpub
+      - ./docker/cloudpub-entrypoint.sh:/cloudpub-entrypoint.sh:ro
+      - ./docker/cloudpub:/home/cloudpub
     depends_on:
       - webapp
 
 volumes:
   postgres_data:
   webapp_node_modules:
-  cloudpub_config:
