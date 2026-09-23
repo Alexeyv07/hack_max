@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import auth.commands.start as start
+import notify.commands as commands
 from address.db.address import AddressRow
 from auth.db.user import UserRow
 from events.db.event import EventRow
@@ -295,3 +298,82 @@ def test_ack_callback_falls_back_to_plain_ack_if_edit_fails() -> None:
     asyncio.run(_finish_ack_callback(event, acknowledged=True))
 
     event.ack.assert_awaited_once_with(notification="Отмечено как увиденное")
+
+
+class _CallbackDispatcher:
+    def __init__(self) -> None:
+        self.handlers = []
+
+    def message_callback(self, _filter):
+        def register(handler):
+            self.handlers.append(handler)
+            return handler
+
+        return register
+
+
+def test_ack_opens_fresh_main_menu_only_once_for_owner(session_factory, monkeypatch) -> None:
+    with session_factory() as session:
+        address = _address(
+            "Москва, Тестовая улица, д. 1", city="Москва", street="Тестовая", house="1"
+        )
+        session.add(address)
+        session.flush()
+        _seed_member(session, max_user_id=1501, private_chat_id=5501, address=address)
+        event = _event(address=address, title="Важное", importance=2)
+        session.add(event)
+        session.flush()
+        user = session.query(UserRow).filter_by(max_user_id=1501).one()
+        delivery = NotifyDeliveryRow(user_id=user.id, event_id=event.id)
+        session.add(delivery)
+        session.commit()
+        delivery_id = delivery.id
+
+    @contextmanager
+    def scoped_session():
+        with session_factory() as session:
+            yield session
+            session.commit()
+
+    monkeypatch.setattr(commands, "session_scope", scoped_session)
+    render_welcome = AsyncMock()
+    monkeypatch.setattr(start, "_render_welcome", render_welcome)
+    dp = _CallbackDispatcher()
+    bot = SimpleNamespace()
+    commands.register_notify_commands(dp, bot)
+    handler = dp.handlers[0]
+    context = SimpleNamespace()
+
+    def callback(user_id):
+        return SimpleNamespace(
+            callback=SimpleNamespace(
+                payload=f"notify:ack:{delivery_id}",
+                user=SimpleNamespace(user_id=user_id),
+            ),
+            edit=AsyncMock(),
+            ack=AsyncMock(),
+        )
+
+    other = callback(9999)
+    asyncio.run(handler(other, context))
+    other.edit.assert_not_awaited()
+    render_welcome.assert_not_awaited()
+
+    first = callback(1501)
+    asyncio.run(handler(first, context))
+    first.edit.assert_awaited_once()
+    render_welcome.assert_awaited_once()
+    args, kwargs = render_welcome.await_args
+    assert args[0] is bot
+    assert args[1] is first
+    assert args[2] is context
+    assert args[3].max_user_id == 1501
+    assert kwargs == {"recipient_chat_id": 5501}
+
+    repeated = callback(1501)
+    asyncio.run(handler(repeated, context))
+    repeated.edit.assert_awaited_once()
+    render_welcome.assert_awaited_once()
+
+    with session_factory() as session:
+        assert session.get(NotifyDeliveryRow, delivery_id).acked_at is not None

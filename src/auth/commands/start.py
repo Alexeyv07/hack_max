@@ -89,6 +89,7 @@ async def _render_welcome(
     admin_token: str | None = None,
     notice: str | None = None,
     target_chat_id: int | None = None,
+    recipient_chat_id: int | None = None,
 ) -> None:
     text = build_welcome_text(
         _display_name(user),
@@ -107,7 +108,9 @@ async def _render_welcome(
     if target_chat_id is not None:
         await context.update_data(target_chat_id=target_chat_id)
     # Каждый /start создаёт новый экран в конце переписки; прежние не редактируем.
-    chat_id = getattr(event, "chat_id", None)
+    chat_id = (
+        recipient_chat_id if recipient_chat_id is not None else getattr(event, "chat_id", None)
+    )
     if chat_id is None:
         message = getattr(event, "message", None)
         recipient = getattr(message, "recipient", None)

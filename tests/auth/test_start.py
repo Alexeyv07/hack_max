@@ -182,3 +182,19 @@ def test_two_explicit_starts_both_create_new_messages(monkeypatch) -> None:
 
     assert bot.send_message.await_count == 2
     bot.edit_message.assert_not_awaited()
+
+
+def test_welcome_explicit_recipient_for_notify_callback(monkeypatch) -> None:
+    bot = _bot()
+    monkeypatch.setattr(start, "_show_events", lambda max_user_id: True)
+    context = FakeContext({"flow_mid": "previous-message"})
+    message = SimpleNamespace(answer=AsyncMock())
+    event = SimpleNamespace(message=message)
+
+    asyncio.run(start._render_welcome(bot, event, context, _user(), recipient_chat_id=54321))
+
+    assert bot.send_message.await_args.kwargs["chat_id"] == 54321
+    assert "Привет, Алексей!" in bot.send_message.await_args.kwargs["text"]
+    assert context.data == {"flow_mid": "welcome-mid"}
+    message.answer.assert_not_awaited()
+    bot.edit_message.assert_not_awaited()

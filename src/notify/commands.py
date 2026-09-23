@@ -7,6 +7,8 @@ from typing import Any
 
 from maxapi import F
 
+from auth.handlers.authorize import get_user_by_max_id
+from notify.db import NotifyDeliveryRow
 from notify.priority import acknowledge_delivery, parse_ack_payload
 from project.database import session_scope
 from project.logging_setup import get_logger
@@ -41,19 +43,23 @@ def register_notify_commands(dp: Any, bot: Any) -> None:
     """Зарегистрировать только notify callback; остальные callbacks не перехватываем."""
 
     @dp.message_callback(F.callback.payload.startswith("notify:ack:"))
-    async def on_notify_ack(event: Any) -> None:
+    async def on_notify_ack(event: Any, context: Any) -> None:
         delivery_id = parse_ack_payload(str(getattr(event.callback, "payload", "") or ""))
         if delivery_id is None:
             await _finish_ack_callback(event, acknowledged=False)
             return
         max_user_id = int(event.callback.user.user_id)
         with session_scope() as session:
+            delivery = session.get(NotifyDeliveryRow, delivery_id)
+            first_ack = delivery is not None and delivery.acked_at is None
             acknowledged = acknowledge_delivery(
                 session,
                 delivery_id=delivery_id,
                 max_user_id=max_user_id,
                 acked_at=datetime.now(UTC),
             )
+            first_ack = first_ack and acknowledged
+            user = get_user_by_max_id(session, max_user_id) if first_ack else None
         await _finish_ack_callback(event, acknowledged=acknowledged)
         if not acknowledged:
             logger.warning(
@@ -61,6 +67,14 @@ def register_notify_commands(dp: Any, bot: Any) -> None:
                 delivery_id,
                 max_user_id,
             )
+            return
+        if user is not None:
+            try:
+                from auth.commands.start import _render_welcome
+
+                await _render_welcome(bot, event, context, user, recipient_chat_id=user.chat_id)
+            except Exception:
+                logger.exception("Не удалось показать главное меню после notify ack")
 
     @dp.message_callback(F.callback.payload.startswith("notify:approval:"))
     async def on_obsolete_approval(event: Any) -> None:
