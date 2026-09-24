@@ -4,12 +4,16 @@ import asyncio
 from typing import Any
 
 from maxapi import F
+from maxapi.enums.format import Format
+from maxapi.filters.command import Command
 from maxapi.utils.deep_linking import create_start_link
 
 from address.street_catalog import normalize_ui_text
+from auth.commands.start import build_welcome_keyboard, build_welcome_text
+from auth.handlers import get_user_by_max_id
 from chat_link.commands.keyboards import (
+    add_more_addresses_keyboard,
     admin_setup_keyboard,
-    existing_chats_keyboard,
     list_keyboard,
     method_keyboard,
     postal_input_keyboard,
@@ -20,9 +24,12 @@ from chat_link.commands.states import ChatLinkStates
 from chat_link.handlers import (
     announce_connected_group,
     announce_group_address_setup,
+    bind_existing_chat_member,
     bot_can_read_group,
     connect_added_group,
     connect_added_group_to_address,
+    connected_group_address,
+    connected_group_keyboard,
     create_request,
     get_address_catalog,
     mark_waiting_group,
@@ -30,7 +37,14 @@ from chat_link.handlers import (
 )
 from project.database import session_scope
 from project.logging_setup import get_logger
-from user_chat.handlers import bind_known_chat_member, detach_chat, get_chat
+from user_chat.handlers import (
+    bind_known_chat_member,
+    detach_chat,
+    get_chat,
+    has_connected_chat,
+    list_chats_by_address,
+    set_member_address,
+)
 
 logger = get_logger(__name__)
 
@@ -98,6 +112,54 @@ def _house_labels(rows: list[Any]) -> list[str]:
     return labels
 
 
+async def _show_welcome(event: Any, context: Any, bot: Any) -> None:
+    """Вернуть callback-flow на основной welcome-screen бота."""
+    max_user_id = _callback_user_id(event)
+    with session_scope() as session:
+        user = get_user_by_max_id(session, max_user_id)
+        show_events = has_connected_chat(session, max_user_id)
+    if user is None:
+        return
+
+    data = await context.get_data()
+    target_chat_id = data.get("target_chat_id")
+    resident_chat_id = data.get("resident_chat_id")
+    flow_mid = _screen_mid(event) or data.get("flow_mid")
+    await context.set_state(None)
+    clean_data = {}
+    if flow_mid:
+        clean_data["flow_mid"] = flow_mid
+    if target_chat_id is not None:
+        clean_data["target_chat_id"] = target_chat_id
+    if resident_chat_id is not None:
+        clean_data["resident_chat_id"] = resident_chat_id
+    await context.set_data(clean_data)
+
+    name = user.name or user.username or "друг"
+    kwargs = {
+        "text": build_welcome_text(
+            name,
+            binding_group=target_chat_id is not None,
+            choosing_residence=resident_chat_id is not None,
+        ),
+        "attachments": [
+            build_welcome_keyboard(
+                bot,
+                show_events=show_events,
+                binding_group=target_chat_id is not None,
+                choosing_residence=resident_chat_id is not None,
+            )
+        ],
+        "format": Format.HTML,
+        "notify": False,
+    }
+    if flow_mid:
+        await _ack_callback(event)
+        await bot.edit_message(flow_mid, **kwargs)
+    else:
+        await event.edit(**kwargs)
+
+
 async def _show_methods(event: Any, context: Any, bot: Any) -> None:
     await context.set_state(ChatLinkStates.choosing)
     mid = _screen_mid(event)
@@ -105,21 +167,36 @@ async def _show_methods(event: Any, context: Any, bot: Any) -> None:
         await context.update_data(flow_mid=mid)
     data = await context.get_data()
     target_chat_id = data.get("target_chat_id")
-    if target_chat_id is None:
+    resident_chat_id = data.get("resident_chat_id")
+    if resident_chat_id is not None:
+        text = (
+            "Укажите адрес вашего дома, чтобы показывать события рядом с ним. "
+            "В одном чате могут состоять жители нескольких домов.\n\n"
+            "Индекс только сужает список домов — он не считается выбранным адресом."
+        )
+    elif target_chat_id is None:
         text = (
             "Как хотите указать место жительства?\n\n"
             "Индекс только сужает список домов — он не считается выбранным адресом."
         )
     else:
         text = (
-            "Выберите адрес, к которому нужно привязать этот домовой чат.\n\n"
+            "Выберите дом для этого чата. Можно будет добавить и другие дома двора.\n\n"
             "Индекс только сужает список домов — он не считается выбранным адресом."
         )
-    await event.edit(
-        text=text,
-        attachments=[method_keyboard(bot, target_chat_id=target_chat_id)],
-        notify=False,
-    )
+    kwargs = {
+        "text": text,
+        "attachments": [
+            method_keyboard(bot, target_chat_id=target_chat_id, resident_chat_id=resident_chat_id)
+        ],
+        "notify": False,
+    }
+    if mid:
+        # Через обычный PUT /messages клавиатура не зависит от callback-answer UI.
+        await _ack_callback(event)
+        await bot.edit_message(mid, **kwargs)
+    else:
+        await event.edit(**kwargs)
 
 
 async def _show_city(event: Any, context: Any, page: int = 0) -> None:
@@ -243,6 +320,33 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
 
     data = await context.get_data()
     target_chat_id = data.get("target_chat_id")
+    resident_chat_id = data.get("resident_chat_id")
+    if resident_chat_id is not None:
+        try:
+            with session_scope() as session:
+                if not await bind_existing_chat_member(
+                    bot, session, chat_id=int(resident_chat_id), max_user_id=user_id
+                ):
+                    raise ValueError("Сначала вступите в этот групповой чат.")
+                set_member_address(
+                    session, int(resident_chat_id), max_user_id=user_id, address_id=address_id
+                )
+        except ValueError as exc:
+            await event.edit(
+                text=f"Не удалось сохранить адрес.\n\n{exc}",
+                attachments=[method_keyboard(bot, resident_chat_id=int(resident_chat_id))],
+                notify=False,
+            )
+            return
+        await event.edit(
+            text=(
+                f"✅ Ваш адрес сохранён: {address.address_text}\n\n"
+                "Теперь события рядом с вами доступны в мини-приложении."
+            ),
+            attachments=[build_welcome_keyboard(bot, show_events=True, choosing_residence=True)],
+            notify=False,
+        )
+        return
     if target_chat_id is not None:
         with session_scope() as session:
             outcome = await connect_added_group_to_address(
@@ -264,43 +368,66 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
             bot,
             int(target_chat_id),
             requester_added=outcome.requester_added,
+            address_text=address.address_text,
+            additional=outcome.message is not None,
         )
         await context.update_data(address_id=address_id)
         await event.edit(
             text=(
                 "✅ Чат успешно привязан к адресу:\n"
                 f"{address.address_text}\n\n"
-                "Можно вернуться в групповой чат."
+                "Нажмите «Добавить ещё адрес», если в чате есть жители других домов. "
+                "Когда закончите, вернитесь в главное меню через /start."
             ),
-            attachments=[],
+            attachments=[add_more_addresses_keyboard()],
             notify=False,
         )
         return
 
     with session_scope() as session:
-        request, chats = create_request(session, max_user_id=user_id, address_id=address_id)
-    await context.update_data(address_id=address_id, link_token=request.token)
+        chats = [
+            chat for chat in list_chats_by_address(session, address_id) if chat.chat_type == "chat"
+        ]
+        if chats:
+            try:
+                connected = False
+                for chat in chats:
+                    if await bind_existing_chat_member(
+                        bot, session, chat_id=chat.chat_id, max_user_id=user_id
+                    ):
+                        set_member_address(
+                            session, chat.chat_id, max_user_id=user_id, address_id=address_id
+                        )
+                        connected = True
+            except ValueError as exc:
+                await event.edit(
+                    text=f"Не удалось привязать чат: {exc}",
+                    attachments=[],
+                    notify=False,
+                )
+                return
+            except Exception:
+                logger.exception("Не удалось проверить членство в MAX")
+                await event.edit(
+                    text="Не удалось проверить членство через MAX. Попробуйте позже.",
+                    attachments=[],
+                    notify=False,
+                )
+                return
+        else:
+            request, _ = create_request(session, max_user_id=user_id, address_id=address_id)
     if chats:
-        linked = [chat for chat in chats if chat.invite_link]
-        names_without_link = [chat.title for chat in chats if not chat.invite_link]
-        text = (
-            f"Для этого дома уже подключён домовой чат:\n{address.address_text}\n\n"
-            "Вступите в него по ссылке ниже. После вступления MAX сам пришлёт событие, "
-            "и бот привяжет ваш профиль к дому."
-        )
-        if names_without_link:
-            text += (
-                "\n\nУ некоторых чатов нет публичной ссылки. Для них попросите "
-                "администратора прислать приглашение: " + ", ".join(names_without_link[:3])
-            )
         await event.edit(
-            text=text,
-            attachments=[existing_chats_keyboard(linked or chats)],
+            text=(
+                f"✅ Домовой чат привязан к вашему профилю.\n\nАдрес: {address.address_text}"
+                if connected
+                else "Вы не состоите в домовом чате, привязанном к выбранному адресу."
+            ),
+            attachments=[],
             notify=False,
         )
         return
-    # В старом mock `chats` мог содержать личный DIALOG. После проверки MAX
-    # такая запись не должна оставлять заявку в WAITING_JOIN.
+    await context.update_data(address_id=address_id, link_token=request.token)
     with session_scope() as session:
         mark_waiting_group(session, token=request.token)
     await _show_resident_setup(event, context, bot)
@@ -351,9 +478,11 @@ async def _show_admin_setup(event: Any, context: Any, bot: Any) -> None:
     await event.edit(
         text=(
             f"Адрес: {address.address_text}\n\n"
-            "Если вы администратор домового чата, добавьте этого бота в нужный групповой чат, "
-            "затем назначьте его администратором с правом «Читать все сообщения». "
-            "После этого чат подключится автоматически — дополнительных команд не нужно."
+            "Если бот уже есть в вашем чате, повторно добавлять его не нужно: "
+            "отправьте в группу /address и нажмите «Добавить адрес чата (админ)». "
+            "Затем выберите этот дом в личном диалоге с ботом.\n\n"
+            "Если бота ещё нет в чате, добавьте его и назначьте администратором "
+            "с правом «Читать все сообщения». После этого можно выбрать первый адрес."
         ),
         attachments=[admin_setup_keyboard()],
         notify=False,
@@ -387,10 +516,22 @@ async def _finish_added_group_when_ready(
                     await bot.send_message(chat_id=chat_id, text=outcome.message)
                     return
 
+                with session_scope() as session:
+                    connected_chat = get_chat(session, chat_id)
+                connected_address = (
+                    get_address_catalog().get(connected_chat.address_id)
+                    if connected_chat is not None
+                    else None
+                )
                 await announce_connected_group(
                     bot,
                     chat_id,
                     requester_added=outcome.requester_added,
+                    address_text=(
+                        connected_address.address_text
+                        if connected_address is not None
+                        else "адрес не найден в справочнике — сообщите администратору"
+                    ),
                 )
                 return
         except asyncio.CancelledError:
@@ -454,7 +595,6 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
         payload = _callback_payload(event)
         if not payload.startswith("cl:") and payload != "chat_link:start":
             return
-        await _ack_callback(event)
         if payload == "chat_link:start":
             await _show_methods(event, context, bot)
             return
@@ -465,14 +605,16 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             await _show_resident_setup(event, context, bot)
             return
         if payload == "cl:noop":
+            await _ack_callback(event)
             return
-
         parts = payload.split(":")
         if payload == "cl:method:native":
             current = await context.get_data()
             data = {"flow_mid": _screen_mid(event)}
             if current.get("target_chat_id") is not None:
                 data["target_chat_id"] = current["target_chat_id"]
+            if current.get("resident_chat_id") is not None:
+                data["resident_chat_id"] = current["resident_chat_id"]
             await context.set_data(data)
             await context.set_state(ChatLinkStates.choosing)
             await _show_city(event, context)
@@ -492,7 +634,9 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
 
         if parts[:2] == ["cl", "back"]:
             target = parts[2]
-            if target == "root":
+            if target == "welcome":
+                await _show_welcome(event, context, bot)
+            elif target == "root":
                 await _show_methods(event, context, bot)
             elif target == "city":
                 await _show_city(event, context)
@@ -565,6 +709,33 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                 await _finish_address(event, context, bot, rows[idx].id)
             return
 
+        # Неизвестный chat_link callback всё равно подтверждаем, чтобы снять spinner.
+        # Ветви выше используют event.edit()/event.ack() как единственный callback-ответ.
+        await _ack_callback(event)
+
+    @dp.message_created(Command("address"))
+    async def on_group_address(event: Any) -> None:
+        chat_id = getattr(event, "chat_id", None)
+        if chat_id is None:
+            recipient = getattr(getattr(event, "message", None), "recipient", None)
+            chat_id = getattr(recipient, "chat_id", None)
+        if chat_id is None:
+            return
+        with session_scope() as session:
+            address_text = connected_group_address(session, int(chat_id))
+        if address_text is None:
+            return
+        keyboard = connected_group_keyboard(bot, int(chat_id))
+        await bot.send_message(
+            chat_id=int(chat_id),
+            text=(
+                f"🏠 Адреса этого чата:\n{address_text}\n\n"
+                "Чтобы подключить ещё один дом, администратор может нажать "
+                "«Добавить адрес чата (админ)». Бота повторно добавлять не нужно."
+            ),
+            attachments=[keyboard] if keyboard is not None else None,
+        )
+
     @dp.message_created(F.message.body.text, ChatLinkStates.postal)
     async def on_postal(event: Any, context: Any) -> None:
         body = getattr(event.message, "body", None)
@@ -600,6 +771,8 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
         }
         if data.get("target_chat_id") is not None:
             next_data["target_chat_id"] = data["target_chat_id"]
+        if data.get("resident_chat_id") is not None:
+            next_data["resident_chat_id"] = data["resident_chat_id"]
         await context.set_data(next_data)
         if not mid:
             return

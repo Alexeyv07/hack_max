@@ -106,7 +106,7 @@ def test_bot_started_sends_welcome(monkeypatch) -> None:
     assert context.data["flow_mid"] == "welcome-mid"
 
 
-def test_start_reuses_existing_bot_screen(monkeypatch) -> None:
+def test_start_sends_new_welcome_instead_of_editing_previous(monkeypatch) -> None:
     dp = FakeDispatcher()
     bot = _bot()
     monkeypatch.setattr(start, "authorize_from_event", lambda event: _user(name=None))
@@ -120,9 +120,10 @@ def test_start_reuses_existing_bot_screen(monkeypatch) -> None:
     )
     asyncio.run(dp.handlers["message_created"](event, context))
 
-    bot.edit_message.assert_awaited_once()
-    bot.send_message.assert_not_awaited()
-    assert context.data == {"flow_mid": "old-mid"}
+    bot.edit_message.assert_not_awaited()
+    bot.send_message.assert_awaited_once()
+    assert bot.send_message.await_args.kwargs["chat_id"] == 123
+    assert context.data == {"flow_mid": "welcome-mid"}
 
 
 def test_group_bind_deep_link_keeps_target_chat_in_context(monkeypatch) -> None:
@@ -136,7 +137,6 @@ def test_group_bind_deep_link_keeps_target_chat_in_context(monkeypatch) -> None:
         yield object()
 
     monkeypatch.setattr(start, "session_scope", fake_session_scope)
-    monkeypatch.setattr(start, "get_chat", lambda session, chat_id: None)
     start.register_auth_commands(dp, bot)
 
     context = FakeContext()
@@ -148,4 +148,52 @@ def test_group_bind_deep_link_keeps_target_chat_in_context(monkeypatch) -> None:
     kwargs = bot.send_message.await_args.kwargs
     assert "уже добавленный групповой чат" in kwargs["text"]
     buttons = kwargs["attachments"][0].payload.buttons
-    assert buttons[0][0].text == "Выбрать адрес для чата"
+    assert buttons[0][0].text == "Добавить адрес чата"
+
+
+def test_plain_start_delivered_as_two_update_types_sends_one_welcome(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = _bot()
+    monkeypatch.setattr(start, "authorize_from_event", lambda event: _user())
+    monkeypatch.setattr(start, "_show_events", lambda max_user_id: False)
+    start.register_auth_commands(dp, bot)
+
+    context = FakeContext()
+    event = SimpleNamespace(chat_id=123, payload=None)
+    asyncio.run(dp.handlers["bot_started"](event, context))
+    asyncio.run(dp.handlers["message_created"](event, context))
+
+    bot.send_message.assert_awaited_once()
+    bot.edit_message.assert_not_awaited()
+
+
+def test_two_explicit_starts_both_create_new_messages(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = _bot()
+    monkeypatch.setattr(start, "authorize_from_event", lambda event: _user())
+    monkeypatch.setattr(start, "_show_events", lambda max_user_id: False)
+    start.register_auth_commands(dp, bot)
+
+    context = FakeContext({"flow_mid": "old-mid"})
+    event = SimpleNamespace(chat_id=123)
+    asyncio.run(dp.handlers["message_created"](event, context))
+    asyncio.run(dp.handlers["message_created"](event, context))
+
+    assert bot.send_message.await_count == 2
+    bot.edit_message.assert_not_awaited()
+
+
+def test_welcome_explicit_recipient_for_notify_callback(monkeypatch) -> None:
+    bot = _bot()
+    monkeypatch.setattr(start, "_show_events", lambda max_user_id: True)
+    context = FakeContext({"flow_mid": "previous-message"})
+    message = SimpleNamespace(answer=AsyncMock())
+    event = SimpleNamespace(message=message)
+
+    asyncio.run(start._render_welcome(bot, event, context, _user(), recipient_chat_id=54321))
+
+    assert bot.send_message.await_args.kwargs["chat_id"] == 54321
+    assert "Привет, Алексей!" in bot.send_message.await_args.kwargs["text"]
+    assert context.data == {"flow_mid": "welcome-mid"}
+    message.answer.assert_not_awaited()
+    bot.edit_message.assert_not_awaited()

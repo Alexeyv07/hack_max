@@ -10,6 +10,7 @@ from maxapi import Bot, Dispatcher
 from auth.commands import register_auth_commands
 from chat_link.commands import register_chat_link_commands
 from chat_link.handlers import get_address_catalog
+from notify.commands import register_notify_commands
 from parse_chat import register_parse_chat_commands
 from project.config import get_settings
 from project.logging_setup import get_logger
@@ -69,12 +70,17 @@ async def run_max_bot() -> None:
     # True: handlers не сериализуют polling. parse_chat сам fire-and-forget.
     dp = Dispatcher(use_create_task=True)
     register_auth_commands(dp, bot)
+    # notify имеет фильтр по payload, а chat_link ниже ловит любой callback.
+    # В MAX API выполняется первый подходящий handler, поэтому notify должен быть раньше.
+    register_notify_commands(dp, bot)
     register_chat_link_commands(dp, bot)
-    if chat_on:
+    if chat_on or settings.notify.enabled:
+        # Один message_created listener: digest собирает обычные тексты, KAN-10 — events.
         register_parse_chat_commands(dp, bot)
         logger.info(
-            "parse_chat: low-latency bg persist (updates_limit=%s, spaCy+time+classify+dedup)",
-            settings.chat_parser.updates_limit,
+            "chat listener: parse_chat=%s digest_capture=%s",
+            chat_on,
+            settings.notify.enabled,
         )
 
     logger.info("Polling Max-бота запущен")

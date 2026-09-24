@@ -20,6 +20,11 @@ class UserRow(Base):
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     username: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Постоянный отказ MAX: не ретраим ни старые, ни новые доставки до нового /start.
+    notify_blocked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    notify_blocked_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
     start_payload: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

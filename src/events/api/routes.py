@@ -64,8 +64,8 @@ def get_feed(
     """
     TikTok-лента nearby|city.
 
-    Nearby: события в радиусе улицы чата пользователя, вес ↑ чем ближе.
-    City: общая городская лента. X-Max-User-Id обязателен.
+    Nearby — по выбранному дому, city — общая выдача.
+    X-Max-User-Id обязателен.
     """
     try:
         page = crud.list_feed(

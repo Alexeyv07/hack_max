@@ -7,6 +7,7 @@ import contextlib
 import sys
 
 from events.api.server import run_api_server
+from notify import run_notify_worker
 from parse_mc import run_mc_parser
 from parse_news import run_news_parser
 from project.config import get_settings
@@ -49,7 +50,8 @@ async def run() -> None:
     settings = get_settings()
 
     log.info(
-        "Запуск %s (environment=%s, debug=%s, bot=%s, api=%s, news_parser=%s, mc_parser=%s)",
+        "Запуск %s (environment=%s, debug=%s, bot=%s, api=%s, news_parser=%s, "
+        "mc_parser=%s, notify=%s)",
         settings.app.name,
         settings.environment,
         settings.app.debug,
@@ -57,6 +59,7 @@ async def run() -> None:
         settings.runtime.enable_api,
         settings.runtime.enable_news_parser,
         settings.runtime.enable_mc_parser,
+        settings.notify.enabled,
     )
 
     if (
@@ -102,6 +105,17 @@ async def run() -> None:
                 name="mc-parser",
             )
         )
+
+    if settings.notify.enabled:
+        if settings.runtime.enable_bot:
+            tasks.append(
+                asyncio.create_task(
+                    _run_supervised("notify", run_notify_worker),
+                    name="notify",
+                )
+            )
+        else:
+            log.warning("Notify включён, но runtime.enable_bot=false — worker не запущен")
 
     assert tasks
     results = await asyncio.gather(*tasks, return_exceptions=True)

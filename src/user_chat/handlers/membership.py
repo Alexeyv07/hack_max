@@ -11,7 +11,7 @@ from address.db.address import AddressRow
 from auth.db.user import UserRow
 from auth.handlers.authorize import get_user_by_max_id
 from project.config import get_settings
-from user_chat.db import ChatRow, users_chat
+from user_chat.db import ChatRow, chat_addresses, users_chat
 from user_chat.models.chat import ChatMember
 from user_chat.models.membership import ChatMembership
 
@@ -34,6 +34,38 @@ def add_user_to_chat(session: Session, chat_id: int, *, max_user_id: int) -> boo
     )
     session.expire(chat, ["users"])
     return result.rowcount == 1
+
+
+def set_member_address(
+    session: Session, chat_id: int, *, max_user_id: int, address_id: int
+) -> None:
+    """Запомнить личный дом участника, только из адресов его подключённого чата."""
+    user = get_user_by_max_id(session, max_user_id)
+    chat = session.get(ChatRow, chat_id)
+    if user is None or chat is None or chat.chat_type != "chat":
+        raise ValueError("Домовой чат не подключён")
+    allowed = session.scalar(
+        select(chat_addresses.c.address_id).where(
+            chat_addresses.c.chat_id == chat_id, chat_addresses.c.address_id == address_id
+        )
+    )
+    if allowed is None:
+        raise ValueError(
+            "Этого адреса нет среди домов чата. Попросите администратора добавить его."
+        )
+    membership = session.execute(
+        select(users_chat.c.user_id).where(
+            users_chat.c.chat_id == chat_id, users_chat.c.user_id == user.id
+        )
+    ).first()
+    if membership is None:
+        raise ValueError("Сначала вступите в групповой чат")
+    session.execute(
+        users_chat.update()
+        .where(users_chat.c.chat_id == chat_id, users_chat.c.user_id == user.id)
+        .values(address_id=address_id)
+    )
+    session.flush()
 
 
 def remove_user_from_chat(session: Session, chat_id: int, *, max_user_id: int) -> bool:
@@ -66,10 +98,11 @@ def list_chat_members(session: Session, chat_id: int) -> list[ChatMember]:
 
 
 def list_memberships_for_user(session: Session, max_user_id: int) -> list[ChatMembership]:
-    """Реальные чаты пользователя; координаты читаются из связанного Address."""
+    """Координаты собственного выбранного дома, а не первого адреса дворового чата."""
     rows = session.execute(
         select(
             ChatRow,
+            AddressRow.id,
             AddressRow.latitude,
             AddressRow.longitude,
             AddressRow.street,
@@ -77,7 +110,7 @@ def list_memberships_for_user(session: Session, max_user_id: int) -> list[ChatMe
         )
         .join(users_chat, users_chat.c.chat_id == ChatRow.chat_id)
         .join(UserRow, UserRow.id == users_chat.c.user_id)
-        .join(AddressRow, AddressRow.id == ChatRow.address_id)
+        .join(AddressRow, AddressRow.id == users_chat.c.address_id)
         .where(UserRow.max_user_id == max_user_id, ChatRow.chat_type == "chat")
         .order_by(ChatRow.chat_id)
     )
@@ -85,6 +118,7 @@ def list_memberships_for_user(session: Session, max_user_id: int) -> list[ChatMe
     return [
         ChatMembership(
             chat_id=chat.chat_id,
+            address_id=address_id,
             title=chat.title,
             lat=float(lat),
             lon=float(lon),
@@ -93,7 +127,7 @@ def list_memberships_for_user(session: Session, max_user_id: int) -> list[ChatMe
             street=street,
             house=house,
         )
-        for chat, lat, lon, street, house in rows
+        for chat, address_id, lat, lon, street, house in rows
     ]
 
 
@@ -106,7 +140,11 @@ def has_connected_chat(session: Session, max_user_id: int) -> bool:
         session.scalar(
             select(users_chat.c.user_id)
             .join(ChatRow, ChatRow.chat_id == users_chat.c.chat_id)
-            .where(users_chat.c.user_id == user_id, ChatRow.chat_type == "chat")
+            .where(
+                users_chat.c.user_id == user_id,
+                users_chat.c.address_id.is_not(None),
+                ChatRow.chat_type == "chat",
+            )
             .limit(1)
         )
         is not None

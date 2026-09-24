@@ -12,7 +12,7 @@ from auth.handlers.authorize import authorize_user
 from auth.models.user import MaxUserPayload
 from events.handlers import crud
 from events.models.event import EventCreate, EventSource, EventUpdate
-from user_chat.handlers import add_user_to_chat, create_chat
+from user_chat.handlers import add_user_to_chat, create_chat, set_member_address
 from user_chat.models import ChatCreate
 
 
@@ -61,6 +61,7 @@ def seed_user_chat(
     )
     create_chat(db_session, ChatCreate(chat_id=chat_id, address_id=address.id))
     add_user_to_chat(db_session, chat_id, max_user_id=max_user_id)
+    set_member_address(db_session, chat_id, max_user_id=max_user_id, address_id=address.id)
     return address
 
 
@@ -166,7 +167,7 @@ def test_create_with_and_without_image(db_session) -> None:
 
 
 def test_feed_nearby_city_and_cursor(db_session) -> None:
-    seed_user_chat(
+    home = seed_user_chat(
         db_session,
         max_user_id=4242,
         chat_id=900_001,
@@ -230,8 +231,7 @@ def test_feed_nearby_city_and_cursor(db_session) -> None:
             geo_by="city",
         ),
     )
-    # home тоже в nearby (~1.1 км — внутри 3 км)
-    home_addr = add_address(db_session, lat=55.76, lon=37.63, suffix="22")
+    # home только на выбранном доме жителя
     crud.create_event(
         db_session,
         EventCreate(
@@ -239,7 +239,7 @@ def test_feed_nearby_city_and_cursor(db_session) -> None:
             body="x",
             importance=2,
             source="news",
-            address_id=home_addr.id,
+            address_id=home.id,
             geo_by="home",
         ),
     )

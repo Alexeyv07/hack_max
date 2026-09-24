@@ -90,6 +90,7 @@ known-first-party = [
     "parse_chat",
     "parser_common",
     "ml_dedup",
+    "notify",
     "main",
     "max",
 ]

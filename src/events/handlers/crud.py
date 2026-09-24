@@ -241,6 +241,11 @@ def _list_nearby_feed(
         )
         if distance > radius_m:
             continue
+        # geo_by=home — только выбранный дом жителя (не чужие квартиры во дворе).
+        if row.geo_by == "home" and not any(
+            residence.address_id == row.address_id for residence in memberships
+        ):
+            continue
         same_street = _same_street_for_origins(row.address.street, memberships)
         active = event_is_active_now(
             active_from=row.active_from,
@@ -564,14 +569,16 @@ def list_feed(
     """
     TikTok-лента nearby|city.
 
+    Nearby учитывает выбранный адрес жителя; city — общая городская лента.
+
     Общее:
     - только события с address_id + непустым Address.address_text;
     - importance 1|2 (3 не показываем);
     - keyset cursor по weight DESC, id DESC.
 
-    Nearby (персонально по улице чата):
-    - нужны memberships пользователя; иначе пустая страница;
-    - geo_by street|home;
+    Nearby (персонально по выбранному дому):
+    - нужны memberships с address_id; иначе пустая страница;
+    - geo_by street|home (home — только свой address_id);
     - отсев дальше ``events.nearby_radius_m`` (~6 км);
     - вес с distance_m + same_street / ml_time (просроченные active_to скрыты).
 
@@ -590,7 +597,7 @@ def list_feed(
 
     memberships = list_memberships_for_user(session, max_user_id)
     if not memberships:
-        # Без привязанного чата «рядом» нечего ранжировать — городская лента отдельно.
+        # Без выбранного дома «рядом» нечего ранжировать — городская лента отдельно.
         return FeedPage(items=[], next_cursor=None, scope=EventScope.NEARBY, origin=None)
 
     return _list_nearby_feed(

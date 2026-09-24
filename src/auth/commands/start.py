@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from html import escape
+from time import monotonic
 from typing import Any
 
 from maxapi.enums.format import Format
@@ -15,7 +16,7 @@ from auth.handlers.authorize import authorize_from_event
 from chat_link.handlers import bind_referral_member, claim_admin_request
 from project.config import get_settings
 from project.database import session_scope
-from user_chat.handlers import get_chat, has_connected_chat
+from user_chat.handlers import has_connected_chat
 
 CHAT_LINK_START_PAYLOAD = "chat_link:start"
 CHAT_BIND_PREFIX = "chat_bind_"
@@ -27,6 +28,7 @@ def build_welcome_text(
     admin_token: str | None = None,
     notice: str | None = None,
     binding_group: bool = False,
+    choosing_residence: bool = False,
 ) -> str:
     safe_name = escape(name)
     docs_url = get_settings().docs.url
@@ -46,17 +48,34 @@ def build_welcome_text(
     if binding_group:
         text += (
             "\n\nВы подключаете уже добавленный групповой чат. "
-            "Теперь выберите адрес дома для этого чата."
+            "Вы можете добавить к нему несколько адресов, например все дома вашего двора."
+        )
+    if choosing_residence:
+        text += (
+            "\n\nЧтобы показывать события рядом именно с вашим домом, "
+            "укажите свой адрес. Чат может объединять несколько домов."
         )
     return text
 
 
-def build_welcome_keyboard(bot: Any, *, show_events: bool, binding_group: bool = False) -> Any:
+def build_welcome_keyboard(
+    bot: Any,
+    *,
+    show_events: bool,
+    binding_group: bool = False,
+    choosing_residence: bool = False,
+) -> Any:
     me = getattr(bot, "me", None)
     username = getattr(me, "username", None)
     user_id = getattr(me, "user_id", None)
     keyboard = InlineKeyboardBuilder()
-    add_text = "Выбрать адрес для чата" if binding_group else "Добавить чат"
+    add_text = (
+        "Указать свой адрес"
+        if choosing_residence
+        else "Добавить адрес чата"
+        if binding_group
+        else "Добавить чат"
+    )
     buttons: list[Any] = [CallbackButton(text=add_text, payload=CHAT_LINK_START_PAYLOAD)]
     if show_events:
         buttons.append(OpenAppButton(text="Смотреть события", web_app=username, contact_id=user_id))
@@ -71,11 +90,6 @@ def _display_name(user: Any) -> str:
 def _show_events(max_user_id: int) -> bool:
     with session_scope() as session:
         return has_connected_chat(session, max_user_id)
-
-
-def _lookup_chat(chat_id: int):
-    with session_scope() as session:
-        return get_chat(session, chat_id)
 
 
 def _claim_admin(*, token: str, max_user_id: int) -> None:
@@ -99,14 +113,15 @@ async def _render_welcome(
     admin_token: str | None = None,
     notice: str | None = None,
     target_chat_id: int | None = None,
+    resident_chat_id: int | None = None,
+    recipient_chat_id: int | None = None,
 ) -> None:
-    data = await context.get_data()
-    old_mid = data.get("flow_mid")
     text = build_welcome_text(
         _display_name(user),
         admin_token=admin_token,
         notice=notice,
         binding_group=target_chat_id is not None,
+        choosing_residence=resident_chat_id is not None,
     )
     show_events = await asyncio.to_thread(_show_events, user.max_user_id)
     attachments = [
@@ -114,26 +129,18 @@ async def _render_welcome(
             bot,
             show_events=show_events,
             binding_group=target_chat_id is not None,
+            choosing_residence=resident_chat_id is not None,
         )
     ]
     await context.clear()
     if target_chat_id is not None:
         await context.update_data(target_chat_id=target_chat_id)
-    if old_mid:
-        try:
-            await bot.edit_message(
-                old_mid,
-                text=text,
-                attachments=attachments,
-                format=Format.HTML,
-                notify=False,
-            )
-            await context.update_data(flow_mid=old_mid)
-            return
-        except Exception:
-            # Сообщение могло быть удалено пользователем — создаём один новый screen.
-            pass
-    chat_id = getattr(event, "chat_id", None)
+    if resident_chat_id is not None:
+        await context.update_data(resident_chat_id=resident_chat_id)
+    # Каждый /start создаёт новый экран в конце переписки; прежние не редактируем.
+    chat_id = (
+        recipient_chat_id if recipient_chat_id is not None else getattr(event, "chat_id", None)
+    )
     if chat_id is None:
         message = getattr(event, "message", None)
         recipient = getattr(message, "recipient", None)
@@ -157,16 +164,36 @@ async def _render_welcome(
 
 
 def register_auth_commands(dp: Any, bot: Any) -> None:
+    recent_starts: dict[int, tuple[str, float]] = {}
+
+    def duplicate_start(user_id: int, source: str, *, allow_skip: bool = True) -> bool:
+        """Снять дубликат одного запуска из bot_started и message_created."""
+        now = monotonic()
+        previous = recent_starts.get(user_id)
+        if (
+            allow_skip
+            and previous is not None
+            and previous[0] != source
+            and now - previous[1] < 1.5
+        ):
+            return True
+        recent_starts[user_id] = (source, now)
+        return False
+
     @dp.bot_started()
     async def on_bot_started(event: Any, context: Any) -> None:
         user = await asyncio.to_thread(authorize_from_event, event)
         if user is None:
             return
         payload = getattr(event, "payload", None) or ""
+        # Deep-link всегда обрабатываем: он может содержать привязку чата.
+        if duplicate_start(user.max_user_id, "bot_started", allow_skip=not payload):
+            return
         admin_token = (
             payload.removeprefix("chat_admin_") if payload.startswith("chat_admin_") else None
         )
         target_chat_id = None
+        resident_chat_id = None
         notice = None
         if payload.startswith(CHAT_BIND_PREFIX):
             try:
@@ -174,11 +201,7 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             except ValueError:
                 notice = "Ссылка на подключение чата некорректна."
             else:
-                existing = await asyncio.to_thread(_lookup_chat, parsed_chat_id)
-                if existing is not None and existing.chat_type == "chat":
-                    notice = "Этот домовой чат уже привязан к адресу."
-                else:
-                    target_chat_id = parsed_chat_id
+                target_chat_id = parsed_chat_id
         if admin_token:
             try:
                 await asyncio.to_thread(
@@ -206,6 +229,8 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
                         max_user_id=user.max_user_id,
                     )
                 notice = outcome.message
+                if outcome.joined:
+                    resident_chat_id = chat_id
         await _render_welcome(
             bot,
             event,
@@ -214,11 +239,12 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             admin_token=admin_token,
             notice=notice,
             target_chat_id=target_chat_id,
+            resident_chat_id=resident_chat_id,
         )
 
     @dp.message_created(CommandStart())
     async def on_start(event: Any, context: Any) -> None:
         user = await asyncio.to_thread(authorize_from_event, event)
-        if user is None:
+        if user is None or duplicate_start(user.max_user_id, "message_created"):
             return
         await _render_welcome(bot, event, context, user)

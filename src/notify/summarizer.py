@@ -1,0 +1,201 @@
+"""Тонкий LLM-клиент для суммаризации сообщений одного домового чата."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+from collections.abc import Sequence
+
+import httpx
+
+from notify.chat_source import ChatMessage
+from project.config import NotifyConfig, get_settings
+from project.logging_setup import get_logger
+
+logger = get_logger(__name__)
+
+_AITUNNEL_URL = "https://api.aitunnel.ru/v1/chat/completions"
+_DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
+_YANDEX_URL = "https://ai.api.cloud.yandex.net/v1/chat/completions"
+_AITUNNEL_DEEPSEEK_MODEL = "deepseek-v4-flash-0731"
+_DEEPSEEK_MODEL = "deepseek-flash"
+
+_SYSTEM_PROMPT = (
+    "Ты составляешь короткое резюме переписки соседей одного дома. "
+    "Верни только 3–5 коротких буллетов на русском языке, без вступления. "
+    "Объединяй повторяющиеся мысли и оставляй факты, решения, проблемы и важные вопросы. "
+    "Используй только факты из переданных сообщений и ничего не придумывай."
+)
+
+_BULLET_RE = re.compile(r"^\s*(?:[-*•–—]|\d+[.)])\s*(.+?)\s*$")
+
+
+async def summarize_digest(
+    messages: Sequence[ChatMessage],
+    *,
+    config: NotifyConfig | None = None,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> str | None:
+    """Суммаризировать тексты сообщений; при любой проблеме вернуть ``None`` для fallback."""
+    if not messages:
+        return None
+
+    cfg = config or get_settings().notify
+    provider = cfg.summarizer_provider.strip().lower()
+    if provider == "none":
+        return None
+
+    request = _build_request(provider, messages=messages)
+    if request is None:
+        return None
+
+    attempts = max(1, int(cfg.summarizer_retry_count) + 1)
+    timeout = max(1.0, float(cfg.summarizer_timeout_seconds))
+
+    async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
+        for attempt in range(1, attempts + 1):
+            try:
+                response = await client.post(
+                    request.url,
+                    headers=request.headers,
+                    json=request.payload,
+                )
+                response.raise_for_status()
+                content = _extract_content(response.json())
+                digest = _normalize_digest(content)
+                if digest is not None:
+                    return digest
+                logger.warning("Summarizer вернул ответ не в формате 3–5 буллетов")
+            except asyncio.CancelledError:
+                raise
+            except (httpx.HTTPError, ValueError, TypeError, KeyError):
+                logger.warning(
+                    "Ошибка внешнего summarizer provider=%s attempt=%s/%s",
+                    provider,
+                    attempt,
+                    attempts,
+                    exc_info=True,
+                )
+
+            if attempt < attempts:
+                await asyncio.sleep(0.25)
+
+    return None
+
+
+class _Request:
+    __slots__ = ("headers", "payload", "url")
+
+    def __init__(self, *, url: str, headers: dict[str, str], payload: dict[str, object]):
+        self.url = url
+        self.headers = headers
+        self.payload = payload
+
+
+def _build_request(provider: str, *, messages: Sequence[ChatMessage]) -> _Request | None:
+    llm_messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": _messages_prompt(messages)},
+    ]
+
+    if provider == "deepseek":
+        aitunnel_key = os.getenv("AITUNNEL_API_KEY", "").strip()
+        if aitunnel_key:
+            model = os.getenv("AITUNNEL_MODEL", "").strip() or _AITUNNEL_DEEPSEEK_MODEL
+            return _Request(
+                url=_AITUNNEL_URL,
+                headers={"Authorization": f"Bearer {aitunnel_key}"},
+                payload={
+                    "model": model,
+                    "messages": llm_messages,
+                    "temperature": 0.2,
+                    "max_tokens": 1000,
+                    "reasoning": {"effort": "minimal", "exclude": True},
+                    "stream": False,
+                },
+            )
+
+        api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+        if not api_key:
+            logger.warning(
+                "SUMMARIZER_PROVIDER=deepseek, но AITUNNEL_API_KEY/DEEPSEEK_API_KEY не заданы"
+            )
+            return None
+        return _Request(
+            url=_DEEPSEEK_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            payload={
+                "model": _DEEPSEEK_MODEL,
+                "messages": llm_messages,
+                "temperature": 0.2,
+                "max_tokens": 500,
+                "stream": False,
+            },
+        )
+
+    if provider == "yandex":
+        api_key = os.getenv("YANDEXGPT_API_KEY", "").strip()
+        folder_id = os.getenv("YANDEXGPT_FOLDER_ID", "").strip()
+        if not api_key or not folder_id:
+            logger.warning(
+                "SUMMARIZER_PROVIDER=yandex, но YANDEXGPT_API_KEY/YANDEXGPT_FOLDER_ID не заданы"
+            )
+            return None
+        return _Request(
+            url=_YANDEX_URL,
+            headers={"Authorization": f"Api-Key {api_key}"},
+            payload={
+                "model": f"gpt://{folder_id}/yandexgpt/latest",
+                "messages": llm_messages,
+                "temperature": 0.2,
+                "max_tokens": 500,
+                "stream": False,
+            },
+        )
+
+    logger.warning("Неизвестный SUMMARIZER_PROVIDER=%r; используется fallback", provider)
+    return None
+
+
+def _messages_prompt(messages: Sequence[ChatMessage]) -> str:
+    # В LLM не передаём Event, chat_id, user_id, importance, адреса и другие метаданные.
+    return "\n".join(f"- {message.text}" for message in messages)
+
+
+def _extract_content(payload: object) -> str:
+    if not isinstance(payload, dict):
+        raise TypeError("Ответ summarizer должен быть JSON object")
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ValueError("В ответе summarizer нет choices")
+    first = choices[0]
+    if not isinstance(first, dict):
+        raise TypeError("choices[0] должен быть object")
+    message = first.get("message")
+    if not isinstance(message, dict):
+        raise TypeError("В choices[0] нет message")
+    content = message.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("Пустой content от summarizer")
+    return content
+
+
+def _normalize_digest(content: str) -> str | None:
+    bullets: list[str] = []
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("```"):
+            continue
+        match = _BULLET_RE.match(line)
+        if match is None:
+            continue
+        item = " ".join(match.group(1).split())
+        if item:
+            bullets.append(item)
+        if len(bullets) == 5:
+            break
+
+    if len(bullets) < 3:
+        return None
+    return "\n".join(f"• {item}" for item in bullets)

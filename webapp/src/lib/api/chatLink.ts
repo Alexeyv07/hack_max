@@ -17,7 +17,7 @@ export type ChatOption = {
 
 export type SelectResult = {
 	address: AddressOption;
-	mode: 'existing_chat' | 'connect_group' | 'group_connected';
+	mode: 'connect_group' | 'group_connected' | 'already_member' | 'resident_address';
 	token?: string | null;
 	admin_link?: string | null;
 	chats: ChatOption[];
@@ -52,13 +52,14 @@ export async function nearestAddresses(lat: number, lon: number): Promise<Addres
 
 export async function selectAddress(
 	addressId: number,
-	targetChatId: number | null = null
+	targetChatId: number | null = null,
+	residentChatId: number | null = null
 ): Promise<SelectResult> {
 	return json(
 		await fetch(apiUrl('/chat-link/select'), {
 			method: 'POST',
 			headers: await authenticatedHeaders(),
-			body: JSON.stringify({ address_id: addressId, chat_id: targetChatId })
+			body: JSON.stringify({ address_id: addressId, chat_id: targetChatId, resident_chat_id: residentChatId })
 		})
 	);
 }

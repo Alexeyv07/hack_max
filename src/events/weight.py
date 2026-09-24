@@ -261,7 +261,11 @@ def allowed_in_feed(*, importance: int) -> bool:
 
 
 def matches_feed_geo(*, scope: str, geo_by: str | None) -> bool:
-    """Nearby — street|home; city — city. Дистанция/радиус — в list_feed nearby."""
+    """
+    Nearby — только street|home; city — только city.
+
+    Проверка выбранного адреса жителя выполняется отдельно в list_feed.
+    """
     if geo_by is None:
         return False
     value = geo_by.strip().lower()

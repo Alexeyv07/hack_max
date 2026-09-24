@@ -17,7 +17,13 @@ from chat_link.handlers.links import (
     pending_for_actor,
 )
 from chat_link.models import ConnectOutcome, JoinOutcome
-from user_chat.handlers import bind_known_chat_member, get_chat, list_chats_by_address
+from user_chat.handlers import (
+    add_chat_address,
+    bind_known_chat_member,
+    get_chat,
+    list_chat_addresses,
+    list_chats_by_address,
+)
 from user_chat.models import Chat
 
 
@@ -33,6 +39,24 @@ async def bot_can_read_group(bot: Any, chat_id: int) -> bool:
     member = await bot.get_me_from_chat(chat_id)
     is_admin = bool(getattr(member, "is_admin", False) or getattr(member, "is_owner", False))
     return is_admin and "read_all_messages" in _permission_names(member)
+
+
+async def bind_existing_chat_member(
+    bot: Any,
+    session: Session,
+    *,
+    chat_id: int,
+    max_user_id: int,
+) -> bool:
+    """Привязать пользователя только после проверки членства через MAX API.
+
+    Не добавляем человека в MAX-чат и не требуем решения администратора.
+    """
+    member = await bot.get_chat_member(chat_id, max_user_id)
+    if member is None:
+        return False
+    bind_known_chat_member(session, chat_id, max_user_id=max_user_id)
+    return True
 
 
 async def bind_referral_member(
@@ -55,7 +79,7 @@ async def bind_referral_member(
         return JoinOutcome(False, "Этот домовой чат ещё не подключён к сервису.")
     return JoinOutcome(
         True,
-        "Домовой чат привязан к вашему профилю. Раздел событий теперь доступен.",
+        "Членство в чате подтверждено. Укажите свой адрес, чтобы видеть события рядом с домом.",
     )
 
 
@@ -107,13 +131,7 @@ async def join_existing_chat(
 
     member = await bot.get_chat_member(chat_id, max_user_id)
     if member is None:
-        if chat.invite_link:
-            return JoinOutcome(
-                False,
-                "Сначала вступите в домовой чат по ссылке.",
-                invite_link=chat.invite_link,
-            )
-        return JoinOutcome(False, "Сначала вступите в домовой чат через администратора.")
+        return JoinOutcome(False, "Вы не состоите в домовом чате, привязанном к выбранному адресу.")
 
     mark_joined(session, token=token, chat_id=chat_id)
     return JoinOutcome(True, "Членство в домовом чате подтверждено")
@@ -190,9 +208,7 @@ async def connect_added_group_to_address(
 ) -> ConnectOutcome:
     """Привязать уже добавленную MAX-группу к выбранному после этого адресу.
 
-    Это основной admin-flow: бот сначала появляется в группе, затем администратор
-    открывает deep-link и выбирает дом. Адрес можно занять только одним активным
-    домовым чатом.
+    Администратор выбирает первый или дополнительный адрес для уже добавленной группы.
     """
     if not await bot_can_read_group(bot, chat_id):
         return ConnectOutcome(
@@ -216,11 +232,24 @@ async def connect_added_group_to_address(
     existing_chat = get_chat(session, chat_id)
     if existing_chat is not None:
         if existing_chat.chat_type == "chat":
+            occupied = [
+                chat
+                for chat in list_chats_by_address(session, address_id)
+                if chat.chat_id != chat_id
+            ]
+            if occupied:
+                return ConnectOutcome(
+                    False,
+                    chat_id,
+                    False,
+                    "Для этого адреса уже подключён другой домовой чат. Выберите другой адрес.",
+                )
+            added = add_chat_address(session, chat_id, address_id)
             return ConnectOutcome(
-                False,
+                True,
                 chat_id,
-                False,
-                "Этот MAX-чат уже привязан к адресу.",
+                True,
+                "Адрес добавлен к чату." if added else "Этот адрес уже добавлен к чату.",
             )
         if existing_chat.address_id != address_id:
             return ConnectOutcome(
@@ -262,6 +291,12 @@ async def connect_added_group_to_address(
     )
 
 
+def connected_group_address(session: Session, chat_id: int) -> str | None:
+    """Все адреса подтверждённой группы для команды /address."""
+    addresses = list_chat_addresses(session, chat_id)
+    return "\n".join(address.address_text for address in addresses) or None
+
+
 def _group_link_keyboard(url: str | None, *, text: str) -> Any | None:
     if not url:
         return None
@@ -277,8 +312,8 @@ async def announce_group_address_setup(bot: Any, chat_id: int) -> None:
     text = (
         "Бот добавлен в чат. Чтобы подключить этот чат к дому, администратору нужно:\n"
         "1. Назначить бота администратором с правом «Читать все сообщения».\n"
-        "2. Нажать «Выбрать адрес» и указать дом.\n\n"
-        "К адресу можно привязать чат, только если другой домовой чат к нему ещё не подключён."
+        "2. Нажать «Выбрать адрес» и указать дом. Позже можно добавить другие дома двора.\n\n"
+        "Каждый адрес должен быть свободен от привязки к другому чату."
     )
     if not bind_link:
         text += (
@@ -298,21 +333,50 @@ async def announce_connected_group(
     chat_id: int,
     *,
     requester_added: bool = True,
+    address_text: str,
+    additional: bool = False,
 ) -> None:
-    """Сообщить группе об успешной привязке и дать соседям referral-кнопку."""
+    """Объявить в группе точный адрес привязки и дать соседям referral-кнопку."""
     username = getattr(getattr(bot, "me", None), "username", None)
     referral = create_start_link(username, f"chat_{chat_id}") if username else None
+    bind_link = create_start_link(username, f"chat_bind_{chat_id}") if username else None
+    prefix = (
+        f"✅ К чату добавлен адрес:\n{address_text}\n\n"
+        if additional
+        else f"✅ Чат привязан к адресу:\n{address_text}\n\n"
+    )
     text = (
-        "Чат привязан к дому. Теперь сервис будет использовать сообщения этого домового чата "
-        "для событий рядом с жителями."
+        prefix + "Проверьте, что адрес указан верно. Если заметили ошибку, "
+        "сообщите администратору чата.\n\n"
+        "Чат может объединять несколько домов. Каждый житель должен указать свой адрес, "
+        "чтобы видеть события рядом с ним."
     )
     if referral:
-        text += "\n\nСоседи могут привязать дом кнопкой ниже после того, как вступят в этот чат."
+        text += "\n\nСоседи могут указать дом кнопкой ниже после вступления в чат."
     if not requester_added:
-        text += "\n\nИнициатору нужно вступить в этот чат и нажать кнопку «Привязать дом» ниже."
-    keyboard = _group_link_keyboard(referral, text="Привязать дом")
+        text += "\n\nИнициатору нужно вступить в этот чат и нажать «Указать свой адрес» ниже."
+    keyboard = _connected_group_keyboard(referral, bind_link)
     await bot.send_message(
         chat_id=chat_id,
         text=text,
         attachments=[keyboard] if keyboard is not None else None,
     )
+
+
+def _connected_group_keyboard(referral: str | None, bind_link: str | None) -> Any | None:
+    builder = InlineKeyboardBuilder()
+    if referral:
+        builder.row(LinkButton(text="Указать свой адрес", url=referral))
+    if bind_link:
+        builder.row(LinkButton(text="Добавить адрес чата (админ)", url=bind_link))
+    return builder.as_markup() if referral or bind_link else None
+
+
+def connected_group_keyboard(bot: Any, chat_id: int) -> Any | None:
+    """Повторно показать действия группы, даже если старое сообщение потерялось в чате."""
+    username = getattr(getattr(bot, "me", None), "username", None)
+    if not username:
+        return None
+    referral = create_start_link(username, f"chat_{chat_id}")
+    bind_link = create_start_link(username, f"chat_bind_{chat_id}")
+    return _connected_group_keyboard(referral, bind_link)

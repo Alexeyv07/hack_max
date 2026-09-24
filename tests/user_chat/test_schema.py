@@ -72,9 +72,13 @@ def test_user_deletion_keeps_chat_and_address(db_session, chat, address, user) -
 def test_sql_migrations_chain_complete() -> None:
     versions = available_versions()
     assert versions[0] == "0001_create_users"
-    assert versions[-1] == "0013_events_active_window"
     assert "0009_create_chats" in versions
     assert "0011_chat_link" in versions
+    assert "0014_events_title_nullable" in versions
+    assert "0015_api_query_indexes" in versions
+    assert "0016_notify_workers" in versions
+    assert "0021_chat_addresses" in versions
+    assert versions[-1] == "0021_chat_addresses"
     for version in versions:
         assert up_path(version).is_file()
         assert down_path(version).is_file()
