@@ -204,8 +204,8 @@ def decide_relation(
 
 def build_update_payload(existing: ActiveEventView, draft: EventDraft) -> EventUpdate:
     """Смержить поля: свежий текст, max importance, OR disaster, окна дат."""
-    new_title = draft.title.strip()
-    new_body = draft.body.strip()
+    new_title = (draft.title or "").strip() or None
+    new_body = (draft.body or "").strip()
     if new_body and new_body not in (existing.body or ""):
         body = new_body
         title = new_title or existing.title

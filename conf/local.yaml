@@ -133,6 +133,18 @@ news_parser:
       listing_url: "https://www.m24.ru/news"
       reliability: 0.85
 
+#  mode: bootstrap
+#  lookback_days: 7
+#  poll_interval_seconds: 300
+#  request_timeout_seconds: 25
+#  collect_timeout_seconds: 180
+#  max_articles_per_source_per_run: 40
+#  max_pages_per_run: 4
+#  bootstrap_articles_per_source: 0
+#  insert_batch_size: 20
+#  early_stop_known_streak: 12
+#  source_pause_seconds: 0.5
+#  backfill_pause_seconds: 2.0
 mc_parser:
   mode: production
   lookback_days: 3

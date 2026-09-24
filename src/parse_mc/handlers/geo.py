@@ -49,6 +49,9 @@ def resolve_notice_geos(
     (воркер создаст отдельное событие на каждую).
     """
     text = notice_text(notice)
+    # Иностранное / чужой регион без явных московских улиц → не пишем.
+    if is_foreign_geo(text):
+        return []
     if is_non_moscow_geo(text) and not notice.streets:
         return []
 
@@ -79,12 +82,16 @@ def resolve_notice_geos(
             geo_by = GeoByLevel.HOME if hit.house else GeoByLevel.STREET
             return [GeoBind(address_id=hit.address_id, geo_by=geo_by)]
 
+    # City-default только если текст не про чужой регион.
+    if is_non_moscow_geo(text):
+        return []
+
     city = (
         notice.geo_city
         or MC_OUTLET_DEFAULT_CITY.get(notice.outlet)
         or OUTLET_DEFAULT_CITY.get(notice.outlet)
     )
-    if city and not is_non_moscow_geo(text):
+    if city:
         bind = find_geo_bind(session, city=city)
         if bind is not None:
             return [bind]

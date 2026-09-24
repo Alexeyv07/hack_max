@@ -19,6 +19,7 @@ from events.cursor import (
     is_after_cursor,
 )
 from events.db.event import EventRow
+from events.feed_dedupe import dedupe_feed_events
 from events.models.event import Event, EventCreate, EventSource, EventUpdate
 from events.weight import (
     allowed_on_map,
@@ -276,6 +277,7 @@ def _list_nearby_feed(
         )
 
     scored.sort(key=lambda item: (item.weight, item.id), reverse=True)
+    scored = dedupe_feed_events(scored, prefer="distance")
     parsed: FeedCursor | None = decode_feed_cursor(cursor) if cursor else None
     if parsed is not None:
         scored = [
@@ -346,6 +348,7 @@ def _list_city_feed(
         )
 
     scored.sort(key=lambda item: (item.weight, item.id), reverse=True)
+    scored = dedupe_feed_events(scored, prefer="weight")
     parsed: FeedCursor | None = decode_feed_cursor(cursor) if cursor else None
     if parsed is not None:
         scored = [
@@ -614,7 +617,10 @@ def list_map_points(
 
     stmt = (
         _addressed_event_stmt()
-        .where(EventRow.importance.in_((1, 2)))
+        .where(
+            EventRow.importance.in_((1, 2)),
+            _not_expired_clause(datetime.now(UTC)),
+        )
         .order_by(EventRow.importance.asc(), EventRow.id.asc())
         .limit(limit)
     )

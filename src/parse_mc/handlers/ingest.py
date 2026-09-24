@@ -6,7 +6,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from address.resolve import GeoBind
-from address.street_catalog import StreetCatalog
 from events.handlers.crud import list_existing_source_msg_ids
 from events.models.event import Event, EventSource
 from parse_mc.models.notice import RawMcNotice
@@ -16,20 +15,6 @@ from parser_common.models.candidate import ParserCandidate
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
-
-_street_catalog: StreetCatalog | None = None
-
-
-def _get_street_catalog(session: Session) -> StreetCatalog | None:
-    global _street_catalog
-    if _street_catalog is not None:
-        return _street_catalog
-    try:
-        _street_catalog = StreetCatalog.load(session, city="Москва")
-    except Exception:
-        logger.exception("StreetCatalog.load failed")
-        return None
-    return _street_catalog
 
 
 def notice_to_candidate(
@@ -55,9 +40,9 @@ def notice_to_candidate(
     )
 
 
-def _msg_id_for_geo(notice: RawMcNotice, geo: GeoBind | None, *, multi: bool) -> str:
+def _msg_id_for_geo(notice: RawMcNotice, geo: GeoBind, *, multi: bool) -> str:
     base = notice.source_msg_id
-    if not multi or geo is None:
+    if not multi:
         return base
     return f"{base}:addr:{geo.address_id}"
 
@@ -73,9 +58,19 @@ def persist_notice(
 
     Несколько ``geos`` (разные улицы) → отдельное событие на каждую улицу
     с уникальным ``source_msg_id`` ``…:addr:{address_id}``.
+
+    Без московских привязок — не пишем (catalog не угадывает улицу).
     """
-    binds: list[GeoBind | None] = list(geos) if geos else [None]
-    multi = len([b for b in binds if b is not None]) > 1
+    if not geos:
+        logger.info(
+            "Пропуск УК-объявления без московского geo %s: %s",
+            notice.source_msg_id,
+            (notice.title or "")[:80],
+        )
+        return []
+
+    binds = list(geos)
+    multi = len(binds) > 1
 
     msg_ids = [_msg_id_for_geo(notice, g, multi=multi) for g in binds]
     existing = list_existing_source_msg_ids(
@@ -90,10 +85,12 @@ def persist_notice(
             logger.debug("Дубликат УК-объявления %s — пропуск", msg_id)
             continue
         candidate = notice_to_candidate(notice, geo=geo, source_msg_id=msg_id)
+        if candidate.address_id is None:
+            continue
         try:
             with session.begin_nested():
-                catalog = _get_street_catalog(session) if candidate.address_id is None else None
-                event = persist_candidate(session, candidate, street_catalog=catalog)
+                # geo уже из resolve_notice_geos — каталог не передаём.
+                event = persist_candidate(session, candidate, street_catalog=None)
         except IntegrityError:
             logger.debug("Дубликат УК-объявления %s (IntegrityError) — пропуск", msg_id)
             continue

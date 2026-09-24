@@ -14,6 +14,7 @@ from parser_common.geo_text import (
     extract_house,
     extract_postcodes,
     extract_street_hints,
+    has_other_ru_city,
     is_foreign_geo,
     is_moscow_context,
     is_non_moscow_geo,
@@ -76,6 +77,9 @@ def resolve_article_geo(
         return bind
 
     if local_outlet:
+        # Не дефолтим Москву, если текст явно про другой город РФ.
+        if has_other_ru_city(text) and not moscow:
+            return None
         return find_geo_bind(session, city=OUTLET_DEFAULT_CITY[article.outlet])
     return None
 

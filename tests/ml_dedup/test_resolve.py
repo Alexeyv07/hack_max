@@ -265,3 +265,38 @@ def test_persist_candidate_with_dedup(db_session) -> None:
     )
     assert event.id is not None
     assert event.importance == 3
+
+
+def test_build_update_payload_null_title() -> None:
+    """title=None (nullable events) не должен ронять UPDATE-дедуп."""
+    from ml_dedup.models import ActiveEventView
+    from ml_dedup.resolve import build_update_payload
+
+    existing = ActiveEventView(
+        id=1,
+        title="Старый заголовок",
+        body="Старое тело",
+        importance=2,
+        disaster_flag=False,
+        address_id=10,
+        geo_by="street",
+        source="mc",
+        source_msg_id="granel:1",
+        source_url=None,
+        image_url=None,
+        published_at=None,
+        active_from=None,
+        active_to=None,
+        created_at=None,
+    )
+    draft = EventDraft(
+        title=None,
+        body="Новое тело объявления УК с доп. деталями",
+        importance=2,
+        source="mc",
+        address_id=10,
+        geo_by="street",
+    )
+    payload = build_update_payload(existing, draft)
+    assert payload.title == "Старый заголовок"
+    assert payload.body == "Новое тело объявления УК с доп. деталями"

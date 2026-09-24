@@ -2,7 +2,8 @@
 Извлечение места из текста → привязка к таблице addresses.
 
 Прототип: spaCy NER (ru) → spans LOC/ORG → StreetCatalog / GeoMatcher.
-Без spaCy — эвристический fallback через StreetCatalog.lookup по кускам текста.
+Без spaCy — эвристический fallback через StreetCatalog.lookup_hints.
+Fuzzy по всему тексту статьи не используем (ложные московские улицы).
 """
 
 from __future__ import annotations
@@ -123,9 +124,11 @@ def resolve_place_to_address(
     Найти address_id по тексту новости/объявления.
 
     Порядок:
-      1) regex+spaCy hints → StreetCatalog
-      2) StreetCatalog по всему тексту
-      3) GeoMatcher.resolve (fuzzy/postcode), если передан
+      1) regex+spaCy hints → StreetCatalog.lookup_hints
+      2) GeoMatcher.resolve (fuzzy/postcode), если передан
+
+    Не делаем fuzzy по всему тексту статьи — иначе чужие топонимы
+    «прилипают» к московским улицам (Самара→Самарская и т.п.).
     """
     if not text.strip():
         return None
@@ -141,27 +144,6 @@ def resolve_place_to_address(
                 address_id=hit.address_id,
                 geo_by=_geo_by_from_hit(house=hit.house, canonical=hit.canonical),
                 method=method,
-                span=hit.canonical,
-                score=float(hit.score),
-            )
-
-    if street_catalog is not None:
-        hit = street_catalog.lookup(text[:500])
-        if hit is not None:
-            return PlaceHit(
-                address_id=hit.address_id,
-                geo_by=_geo_by_from_hit(house=hit.house, canonical=hit.canonical),
-                method="catalog",
-                span=hit.canonical,
-                score=float(hit.score),
-            )
-        chunks = [c.strip() for c in text.replace("\n", ",").split(",") if c.strip()]
-        hit = street_catalog.lookup_hints(chunks[:20])
-        if hit is not None:
-            return PlaceHit(
-                address_id=hit.address_id,
-                geo_by=_geo_by_from_hit(house=hit.house, canonical=hit.canonical),
-                method="catalog",
                 span=hit.canonical,
                 score=float(hit.score),
             )
