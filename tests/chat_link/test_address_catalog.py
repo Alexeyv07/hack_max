@@ -63,6 +63,57 @@ def test_picker_hierarchy_uses_prebuilt_indexes(monkeypatch) -> None:
     assert index.postal_streets("129226") == ["Сельскохозяйственная улица"]
 
 
+def test_webapp_postal_lookup_filters_and_paginates_in_memory() -> None:
+    index = catalog(
+        [
+            row(1, "Ростокино", "Сельскохозяйственная улица", "15 к1", "129226"),
+            row(2, "Ростокино", "Сельскохозяйственная улица", "17", "129226"),
+            row(3, "Останкинский", "улица Академика Королёва", "1", "129226"),
+            row(4, "Ростокино", "Сельскохозяйственная улица", "19", "129128"),
+        ]
+    )
+    first, total = index.postal_addresses("129226", limit=2)
+    second, another_total = index.postal_addresses("129226", offset=2, limit=2)
+    assert total == another_total == 3
+    assert {item.id for item in first + second} == {1, 2, 3}
+    filtered, count = index.postal_addresses("129226", query="сельск 15")
+    assert count == 1
+    assert [item.id for item in filtered] == [1]
+    assert index.postal_addresses("000000") == ([], 0)
+    assert index.postal_addresses("129128", query="королева") == ([], 0)
+
+
+def test_webapp_postal_endpoint_returns_total(monkeypatch) -> None:
+    from chat_link.api import routes
+
+    index = catalog([row(1, "Ростокино", "Сельскохозяйственная улица", "15", "129226")])
+    monkeypatch.setattr(routes, "get_address_catalog", lambda: index)
+    result = routes.search_postal_addresses("129226", q="сельск", offset=0, limit=12)
+    assert result.total == 1
+    assert [item.id for item in result.items] == [1]
+
+
+def test_webapp_postal_endpoint_validates_code_and_page(monkeypatch) -> None:
+    from fastapi.testclient import TestClient
+
+    from chat_link.api import routes
+    from events.api.app import create_app
+
+    index = catalog([row(1, "Ростокино", "Сельскохозяйственная улица", "15", "129226")])
+    monkeypatch.setattr(routes, "get_address_catalog", lambda: index)
+    client = TestClient(create_app())
+    valid = client.get("/chat-link/addresses/postal", params={"code": "129226"})
+    assert valid.status_code == 200
+    assert valid.json()["total"] == 1
+    for params in (
+        {"code": "12922"},
+        {"code": "12922а"},
+        {"code": "129226", "offset": -1},
+        {"code": "129226", "limit": 31},
+    ):
+        assert client.get("/chat-link/addresses/postal", params=params).status_code == 422
+
+
 def test_locality_labels_hide_source_noise() -> None:
     assert clean_city_label("Moscow") == "Москва"
     assert clean_city_label("Город не указан") is None

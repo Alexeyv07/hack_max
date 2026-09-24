@@ -429,6 +429,8 @@ def test_referral_binds_only_after_max_membership(db_session) -> None:
 
 
 def test_group_announcement_contains_full_address() -> None:
+    from project.bot_media import FIRST_START_IMAGE_PATH
+
     bot = SimpleNamespace(
         me=SimpleNamespace(username=None),
         send_message=AsyncMock(),
@@ -439,6 +441,13 @@ def test_group_announcement_contains_full_address() -> None:
     assert kwargs["chat_id"] == -9001
     assert address in kwargs["text"]
     assert "сообщите администратору" in kwargs["text"]
+    assert kwargs["attachments"][0].path == str(FIRST_START_IMAGE_PATH)
+
+    asyncio.run(announce_connected_group(bot, -9001, address_text=address, additional=True))
+    assert not any(
+        getattr(item, "path", None) == str(FIRST_START_IMAGE_PATH)
+        for item in bot.send_message.await_args.kwargs["attachments"]
+    )
 
 
 def test_group_address_lookup_shows_only_connected_group(db_session) -> None:

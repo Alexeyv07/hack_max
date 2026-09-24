@@ -12,6 +12,7 @@ from chat_link.commands import register_chat_link_commands
 from chat_link.handlers import get_address_catalog
 from notify.commands import register_notify_commands
 from parse_chat import register_parse_chat_commands
+from project.bot_media import install_bot_images
 from project.config import get_settings
 from project.logging_setup import get_logger
 from project.max_runtime import set_max_bot
@@ -59,6 +60,7 @@ async def run_max_bot() -> None:
     except Exception:
         logger.exception("Не удалось получить GET /me — open_app возьмёт fallback из конфига")
 
+    install_bot_images(bot)
     set_max_bot(bot)
     # ~125k адресов: только в thread — иначе весь event loop (и HTTP) мёртв на 10–30с.
     await asyncio.to_thread(get_address_catalog)

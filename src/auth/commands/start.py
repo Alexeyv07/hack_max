@@ -7,13 +7,16 @@ from html import escape
 from time import monotonic
 from typing import Any
 
+from maxapi import F
 from maxapi.enums.format import Format
 from maxapi.filters.command import CommandStart
 from maxapi.types import CallbackButton, OpenAppButton
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
+from auth.commands.home import MANAGE_ADDRESSES_PAYLOAD, send_home
 from auth.handlers.authorize import authorize_from_event
 from chat_link.handlers import bind_referral_member, claim_admin_request
+from project.bot_media import first_start_image
 from project.config import get_settings
 from project.database import session_scope
 from user_chat.handlers import has_connected_chat
@@ -145,25 +148,39 @@ async def _render_welcome(
         message = getattr(event, "message", None)
         recipient = getattr(message, "recipient", None)
         chat_id = getattr(recipient, "chat_id", None)
-    if chat_id is not None:
+    is_new = getattr(user, "is_new", False)
+    if (
+        show_events
+        and not is_new
+        and not any((admin_token, notice, target_chat_id, resident_chat_id))
+    ):
+        with session_scope() as session:
+            result = await send_home(bot, session, user.max_user_id, recipient_chat_id=chat_id)
+    elif chat_id is not None:
         result = await bot.send_message(
             chat_id=chat_id,
             text=text,
-            attachments=attachments,
+            attachments=[first_start_image(), *attachments] if is_new else attachments,
             format=Format.HTML,
         )
     else:
         result = await event.message.answer(
             text=text,
-            attachments=attachments,
+            attachments=[first_start_image(), *attachments] if is_new else attachments,
             format=Format.HTML,
         )
     mid = _sent_mid(result)
     if mid:
         await context.update_data(flow_mid=mid)
+        if is_new:
+            await context.update_data(first_welcome_mid=mid)
 
 
 def register_auth_commands(dp: Any, bot: Any) -> None:
+    @dp.message_callback(F.callback.payload == MANAGE_ADDRESSES_PAYLOAD)
+    async def on_manage_addresses(event: Any) -> None:
+        await event.ack(notification="Управление адресами скоро появится")
+
     recent_starts: dict[int, tuple[str, float]] = {}
 
     def duplicate_start(user_id: int, source: str, *, allow_skip: bool = True) -> bool:

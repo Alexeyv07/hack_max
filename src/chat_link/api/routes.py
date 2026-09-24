@@ -5,11 +5,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from maxapi.utils.deep_linking import create_start_link
 
+from auth.commands.home import send_home
 from chat_link.api.schemas import (
     AddressOption,
     AddressSearchResponse,
     AddressSelectRequest,
     AddressSelectResponse,
+    PostalAddressSearchResponse,
 )
 from chat_link.handlers import (
     announce_connected_group,
@@ -20,11 +22,24 @@ from chat_link.handlers import (
     mark_waiting_group,
 )
 from project.api_deps import DbSession, get_max_user_id
+from project.logging_setup import get_logger
 from project.max_runtime import get_max_bot
 from user_chat.handlers import list_chats_by_address, set_member_address
 
 router = APIRouter(prefix="/chat-link", tags=["chat-link"])
 MaxUserId = Annotated[int, Depends(get_max_user_id)]
+logger = get_logger(__name__)
+
+
+async def _send_selected_home(bot, session, max_user_id: int, *, notice: str | None = None) -> None:
+    # Сначала сохраняем привязку. Ошибка отправки сообщения не должна откатывать адрес.
+    session.commit()
+    if bot is None:
+        return
+    try:
+        await send_home(bot, session, max_user_id, notice=notice)
+    except Exception:
+        logger.exception("Не удалось отправить главную после выбора адреса через WebApp")
 
 
 def _option(row, score: float | None = None) -> AddressOption:
@@ -43,6 +58,17 @@ def search_addresses(
 ) -> AddressSearchResponse:
     items = [_option(row, score) for row, score in get_address_catalog().search(q, limit=12)]
     return AddressSearchResponse(items=items)
+
+
+@router.get("/addresses/postal", response_model=PostalAddressSearchResponse)
+def search_postal_addresses(
+    code: Annotated[str, Query(pattern=r"^\d{6}$")],
+    q: Annotated[str, Query(max_length=120)] = "",
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=30)] = 12,
+) -> PostalAddressSearchResponse:
+    rows, total = get_address_catalog().postal_addresses(code, query=q, offset=offset, limit=limit)
+    return PostalAddressSearchResponse(items=[_option(row) for row in rows], total=total)
 
 
 @router.get("/addresses/nearest", response_model=AddressSearchResponse)
@@ -84,6 +110,7 @@ async def select_address(
             )
         except ValueError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        await _send_selected_home(bot, session, max_user_id)
         return AddressSelectResponse(address=_option(address), mode="resident_address", chats=[])
     if payload.chat_id is not None:
         if bot is None:
@@ -110,6 +137,7 @@ async def select_address(
             address_text=address.address_text,
             additional=outcome.message is not None,
         )
+        await _send_selected_home(bot, session, max_user_id)
         return AddressSelectResponse(
             address=_option(address),
             mode="group_connected",
@@ -149,6 +177,7 @@ async def select_address(
                 status.HTTP_403_FORBIDDEN,
                 "Вы не состоите в домовом чате, привязанном к выбранному адресу.",
             )
+        await _send_selected_home(bot, session, max_user_id)
         return AddressSelectResponse(
             address=_option(address),
             mode="already_member",
@@ -165,6 +194,12 @@ async def select_address(
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
     mark_waiting_group(session, token=request.token)
+    await _send_selected_home(
+        bot,
+        session,
+        max_user_id,
+        notice="Дом выбран, но чат для него пока не подключён. Передайте ссылку администратору из мини-приложения.",
+    )
     username = getattr(getattr(bot, "me", None), "username", None) if bot else None
     admin_link = create_start_link(username, f"chat_admin_{request.token}") if username else None
     return AddressSelectResponse(

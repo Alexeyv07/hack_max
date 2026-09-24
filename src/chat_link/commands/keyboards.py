@@ -117,6 +117,15 @@ def method_keyboard(
     return builder.as_markup()
 
 
+def bot_method_keyboard():
+    """Выбор способа внутри бота, без открытия WebApp."""
+    builder = InlineKeyboardBuilder()
+    builder.row(CallbackButton(text="По адресу", payload="cl:method:native"))
+    builder.row(CallbackButton(text="По почтовому индексу", payload="cl:method:postal"))
+    builder.row(CallbackButton(text="← Назад", payload="cl:back:root"))
+    return builder.as_markup()
+
+
 def postal_input_keyboard():
     """Выход из ручного ввода индекса, в том числе после ошибки."""
     builder = InlineKeyboardBuilder()

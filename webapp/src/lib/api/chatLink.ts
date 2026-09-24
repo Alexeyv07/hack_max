@@ -43,6 +43,21 @@ export async function searchAddresses(q: string): Promise<AddressOption[]> {
 	return (await json<{ items: AddressOption[] }>(response)).items;
 }
 
+export type PostalAddressPage = {
+	items: AddressOption[];
+	total: number;
+};
+
+export async function postalAddresses(
+	code: string,
+	q = '',
+	offset = 0
+): Promise<PostalAddressPage> {
+	const params = new URLSearchParams({ code, q, offset: String(offset) });
+	const response = await fetch(`${apiUrl('/chat-link/addresses/postal')}?${params}`);
+	return json<PostalAddressPage>(response);
+}
+
 export async function nearestAddresses(lat: number, lon: number): Promise<AddressOption[]> {
 	const response = await fetch(
 		`${apiUrl('/chat-link/addresses/nearest')}?lat=${lat}&lon=${lon}`

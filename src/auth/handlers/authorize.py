@@ -17,7 +17,7 @@ from project.max_events import extract_chat_id, extract_sender
 logger = get_logger(__name__)
 
 
-def _to_domain(row: UserRow) -> User:
+def _to_domain(row: UserRow, *, is_new: bool = False) -> User:
     return User(
         id=row.id,
         max_user_id=row.max_user_id,
@@ -28,6 +28,7 @@ def _to_domain(row: UserRow) -> User:
         created_at=row.created_at,
         updated_at=row.updated_at,
         last_seen_at=row.last_seen_at,
+        is_new=is_new,
     )
 
 
@@ -48,6 +49,7 @@ def authorize_user(session: Session, payload: MaxUserPayload) -> User:
     stmt = select(UserRow).where(UserRow.max_user_id == payload.max_user_id)
     row = session.scalars(stmt).first()
 
+    is_new = row is None
     if row is None:
         row = UserRow(
             max_user_id=payload.max_user_id,
@@ -80,7 +82,7 @@ def authorize_user(session: Session, payload: MaxUserPayload) -> User:
             payload.username,
         )
 
-    return _to_domain(row)
+    return _to_domain(row, is_new=is_new)
 
 
 def authorize_from_event(event: Any) -> User | None:

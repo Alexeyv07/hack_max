@@ -17,6 +17,7 @@ from chat_link.handlers.links import (
     pending_for_actor,
 )
 from chat_link.models import ConnectOutcome, JoinOutcome
+from project.bot_media import first_start_image
 from user_chat.handlers import (
     add_chat_address,
     bind_known_chat_member,
@@ -356,11 +357,10 @@ async def announce_connected_group(
     if not requester_added:
         text += "\n\nИнициатору нужно вступить в этот чат и нажать «Указать свой адрес» ниже."
     keyboard = _connected_group_keyboard(referral, bind_link)
-    await bot.send_message(
-        chat_id=chat_id,
-        text=text,
-        attachments=[keyboard] if keyboard is not None else None,
+    attachments = ([first_start_image()] if not additional else []) + (
+        [keyboard] if keyboard is not None else []
     )
+    await bot.send_message(chat_id=chat_id, text=text, attachments=attachments)
 
 
 def _connected_group_keyboard(referral: str | None, bind_link: str | None) -> Any | None:

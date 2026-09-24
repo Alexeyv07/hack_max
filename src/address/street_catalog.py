@@ -505,6 +505,10 @@ class StreetCatalog:
         self._ui_postal_houses = {
             key: self._sorted_houses(values.values()) for key, values in postal_houses.items()
         }
+        postal_addresses: dict[str, list[CatalogAddress]] = defaultdict(list)
+        for (postal_code, _street), rows in sorted(self._ui_postal_houses.items()):
+            postal_addresses[postal_code].extend(rows)
+        self._ui_postal_addresses = dict(postal_addresses)
         self._by_key: dict[str, list[StreetEntry]] = defaultdict(list)
         self._fuzzy_choices: list[str] = []
         self._fuzzy_entry_for_choice: dict[str, StreetEntry] = {}
@@ -677,6 +681,21 @@ class StreetCatalog:
     def postal_streets(self, postal_code: str) -> list[str]:
         """Улицы внутри индекса: индекс уже заменяет шаги города/района."""
         return list(self._ui_postal_streets.get(postal_code, ()))
+
+    def postal_addresses(
+        self, postal_code: str, *, query: str = "", offset: int = 0, limit: int = 12
+    ) -> tuple[list[CatalogAddress], int]:
+        """Дома по точному индексу: фильтрация и пагинация без запросов к БД."""
+        rows = self._ui_postal_addresses.get(postal_code, ())
+        tokens = normalize_search_text(query).split()
+        if tokens:
+
+            def matches(row: CatalogAddress) -> bool:
+                words = normalize_search_text(row.address_text).split()
+                return all(any(word.startswith(token) for word in words) for token in tokens)
+
+            rows = [row for row in rows if matches(row)]
+        return list(rows[offset : offset + limit]), len(rows)
 
     def postal_houses(self, postal_code: str, street: str) -> list[CatalogAddress]:
         """Дома на улице внутри индекса, без отдельного выбора города/района."""

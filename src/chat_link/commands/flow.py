@@ -9,11 +9,13 @@ from maxapi.filters.command import Command
 from maxapi.utils.deep_linking import create_start_link
 
 from address.street_catalog import normalize_ui_text
+from auth.commands.home import send_home
 from auth.commands.start import build_welcome_keyboard, build_welcome_text
 from auth.handlers import get_user_by_max_id
 from chat_link.commands.keyboards import (
     add_more_addresses_keyboard,
     admin_setup_keyboard,
+    bot_method_keyboard,
     list_keyboard,
     method_keyboard,
     postal_input_keyboard,
@@ -133,6 +135,8 @@ async def _show_welcome(event: Any, context: Any, bot: Any) -> None:
         clean_data["target_chat_id"] = target_chat_id
     if resident_chat_id is not None:
         clean_data["resident_chat_id"] = resident_chat_id
+    if data.get("first_welcome_mid"):
+        clean_data["first_welcome_mid"] = data["first_welcome_mid"]
     await context.set_data(clean_data)
 
     name = user.name or user.username or "друг"
@@ -172,17 +176,17 @@ async def _show_methods(event: Any, context: Any, bot: Any) -> None:
         text = (
             "Укажите адрес вашего дома, чтобы показывать события рядом с ним. "
             "В одном чате могут состоять жители нескольких домов.\n\n"
-            "Индекс только сужает список домов — он не считается выбранным адресом."
+            "Выберите дом в боте, по индексу, на карте или текстом. Индекс сам по себе не считается выбранным домом."
         )
     elif target_chat_id is None:
         text = (
             "Как хотите указать место жительства?\n\n"
-            "Индекс только сужает список домов — он не считается выбранным адресом."
+            "Выберите дом в боте, по индексу, на карте или текстом. Индекс сам по себе не считается выбранным домом."
         )
     else:
         text = (
             "Выберите дом для этого чата. Можно будет добавить и другие дома двора.\n\n"
-            "Индекс только сужает список домов — он не считается выбранным адресом."
+            "Выберите дом в боте, по индексу, на карте или текстом. Индекс сам по себе не считается выбранным домом."
         )
     kwargs = {
         "text": text,
@@ -191,12 +195,31 @@ async def _show_methods(event: Any, context: Any, bot: Any) -> None:
         ],
         "notify": False,
     }
-    if mid:
+    if mid and mid == data.get("first_welcome_mid"):
+        # Первую обложку не перезаписываем: следующие экраны открываются новым сообщением.
+        await _ack_callback(event)
+        result = await bot.send_message(user_id=_callback_user_id(event), **kwargs)
+        body = getattr(getattr(result, "message", None), "body", None)
+        if getattr(body, "mid", None):
+            await context.update_data(flow_mid=str(body.mid))
+    elif mid:
         # Через обычный PUT /messages клавиатура не зависит от callback-answer UI.
         await _ack_callback(event)
         await bot.edit_message(mid, **kwargs)
     else:
         await event.edit(**kwargs)
+
+
+async def _show_bot_methods(event: Any, context: Any) -> None:
+    await context.set_state(ChatLinkStates.choosing)
+    mid = _screen_mid(event)
+    if mid:
+        await context.update_data(flow_mid=mid)
+    await event.edit(
+        text="Выберите способ в боте. Индекс сузит список, затем нужно выбрать конкретный дом.",
+        attachments=[bot_method_keyboard()],
+        notify=False,
+    )
 
 
 async def _show_city(event: Any, context: Any, page: int = 0) -> None:
@@ -310,6 +333,16 @@ async def _show_postal_house(event: Any, context: Any, page: int = 0) -> None:
     )
 
 
+async def _send_home_after_native_selection(
+    bot: Any, max_user_id: int, *, notice: str | None = None
+) -> None:
+    try:
+        with session_scope() as session:
+            await send_home(bot, session, max_user_id, notice=notice)
+    except Exception:
+        logger.exception("Не удалось отправить главную после выбора дома в боте")
+
+
 async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -> None:
     user_id = _callback_user_id(event)
     index = get_address_catalog()
@@ -346,6 +379,7 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
             attachments=[build_welcome_keyboard(bot, show_events=True, choosing_residence=True)],
             notify=False,
         )
+        await _send_home_after_native_selection(bot, user_id)
         return
     if target_chat_id is not None:
         with session_scope() as session:
@@ -377,11 +411,12 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
                 "✅ Чат успешно привязан к адресу:\n"
                 f"{address.address_text}\n\n"
                 "Нажмите «Добавить ещё адрес», если в чате есть жители других домов. "
-                "Когда закончите, вернитесь в главное меню через /start."
+                "Главная страница придёт следующим сообщением."
             ),
             attachments=[add_more_addresses_keyboard()],
             notify=False,
         )
+        await _send_home_after_native_selection(bot, user_id)
         return
 
     with session_scope() as session:
@@ -426,11 +461,18 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
             attachments=[],
             notify=False,
         )
+        if connected:
+            await _send_home_after_native_selection(bot, user_id)
         return
     await context.update_data(address_id=address_id, link_token=request.token)
     with session_scope() as session:
         mark_waiting_group(session, token=request.token)
     await _show_resident_setup(event, context, bot)
+    await _send_home_after_native_selection(
+        bot,
+        user_id,
+        notice="Дом выбран, но чат для него пока не подключён. Инструкция и ссылка для администратора — в сообщении выше.",
+    )
 
 
 async def _show_resident_setup(event: Any, context: Any, bot: Any) -> None:
@@ -608,6 +650,9 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             await _ack_callback(event)
             return
         parts = payload.split(":")
+        if payload == "cl:method:bot":
+            await _show_bot_methods(event, context)
+            return
         if payload == "cl:method:native":
             current = await context.get_data()
             data = {"flow_mid": _screen_mid(event)}
@@ -638,6 +683,8 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                 await _show_welcome(event, context, bot)
             elif target == "root":
                 await _show_methods(event, context, bot)
+            elif target == "bot_methods":
+                await _show_bot_methods(event, context)
             elif target == "city":
                 await _show_city(event, context)
             elif target == "district":

@@ -86,6 +86,8 @@ def test_admin_can_add_next_address_without_readding_bot(monkeypatch) -> None:
 
     connect = AsyncMock(return_value=ConnectOutcome(True, -100500, True, "Адрес добавлен к чату."))
     announce = AsyncMock()
+    home = AsyncMock()
+    monkeypatch.setattr(flow, "_send_home_after_native_selection", home)
     monkeypatch.setattr(flow, "session_scope", fake_session_scope)
     monkeypatch.setattr(
         flow,
@@ -109,6 +111,7 @@ def test_admin_can_add_next_address_without_readding_bot(monkeypatch) -> None:
     asyncio.run(flow._finish_address(event, context, bot, address_id=2))
 
     connect.assert_awaited_once()
+    home.assert_awaited_once_with(bot, 101)
     assert connect.await_args.kwargs["chat_id"] == -100500
     assert context.data["target_chat_id"] == -100500
     add_button = event.edit.await_args.kwargs["attachments"][0].payload.buttons[0][0]
@@ -335,8 +338,49 @@ def test_method_screen_has_back_to_welcome_button() -> None:
     buttons = markup.payload.buttons
 
     assert len(buttons) == 5
+    assert [button[0].text for button in buttons[:4]] == [
+        "Выбрать место жительства",
+        "Указать почтовый индекс",
+        "Указать на карте",
+        "Ввести текстом",
+    ]
+    assert [buttons[0][0].payload, buttons[1][0].payload] == [
+        "cl:method:native",
+        "cl:method:postal",
+    ]
+    assert buttons[2][0].payload == "chat_link_map"
+    assert buttons[3][0].payload == "chat_link_text"
     assert buttons[-1][0].text == "← Назад"
     assert buttons[-1][0].payload == "cl:back:welcome"
+
+
+def test_bot_picker_has_both_search_modes_and_back() -> None:
+    from chat_link.commands.keyboards import bot_method_keyboard
+
+    buttons = bot_method_keyboard().payload.buttons
+    assert [(row[0].text, row[0].payload) for row in buttons] == [
+        ("По адресу", "cl:method:native"),
+        ("По почтовому индексу", "cl:method:postal"),
+        ("← Назад", "cl:back:root"),
+    ]
+
+
+def test_bot_picker_keeps_group_context() -> None:
+    dp = FakeDispatcher()
+    bot = SimpleNamespace(me=SimpleNamespace(username="test_bot", user_id=999))
+    flow.register_chat_link_commands(dp, bot)
+    context = FakeContext({"target_chat_id": 42, "flow_mid": "mid"})
+    event = SimpleNamespace(
+        callback=SimpleNamespace(payload="cl:method:bot", user=SimpleNamespace(user_id=123)),
+        message=SimpleNamespace(body=SimpleNamespace(mid="mid")),
+        edit=AsyncMock(),
+    )
+    asyncio.run(dp.handlers["message_callback"](event, context))
+    assert context.data["target_chat_id"] == 42
+    assert (
+        event.edit.await_args.kwargs["attachments"][0].payload.buttons[1][0].payload
+        == "cl:method:postal"
+    )
 
 
 def test_back_from_method_screen_returns_to_welcome(monkeypatch) -> None:
@@ -394,3 +438,27 @@ def test_back_from_method_screen_returns_to_welcome(monkeypatch) -> None:
     assert buttons[0][0].text == "Добавить чат"
     assert context.data == {"flow_mid": "mid"}
     assert context.state is None
+
+
+def test_first_welcome_photo_is_not_overwritten_by_address_picker() -> None:
+    dp = FakeDispatcher()
+    sent = SimpleNamespace(message=SimpleNamespace(body=SimpleNamespace(mid="picker-mid")))
+    bot = SimpleNamespace(
+        me=SimpleNamespace(username="test_bot", user_id=999),
+        send_message=AsyncMock(return_value=sent),
+        edit_message=AsyncMock(),
+    )
+    flow.register_chat_link_commands(dp, bot)
+    context = FakeContext({"first_welcome_mid": "first-mid", "flow_mid": "first-mid"})
+    event = SimpleNamespace(
+        callback=SimpleNamespace(payload="chat_link:start", user=SimpleNamespace(user_id=123)),
+        message=SimpleNamespace(body=SimpleNamespace(mid="first-mid")),
+        ack=AsyncMock(),
+        edit=AsyncMock(),
+    )
+    asyncio.run(dp.handlers["message_callback"](event, context))
+    bot.edit_message.assert_not_awaited()
+    bot.send_message.assert_awaited_once()
+    assert bot.send_message.await_args.kwargs["user_id"] == 123
+    assert context.data["first_welcome_mid"] == "first-mid"
+    assert context.data["flow_mid"] == "picker-mid"

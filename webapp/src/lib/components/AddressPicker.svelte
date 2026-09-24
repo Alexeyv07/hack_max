@@ -270,13 +270,13 @@
 	function scheduleSearch(value: string) {
 		query = value;
 		selected = null;
+		options = [];
+		loading = false;
 		error = '';
 		searchSeq += 1;
 		if (searchTimer !== null) window.clearTimeout(searchTimer);
 		saveDraft();
 		if (value.trim().length < 3) {
-			loading = false;
-			options = [];
 			return;
 		}
 		searchTimer = window.setTimeout(() => {
@@ -328,12 +328,10 @@
 		error = '';
 		linkCopied = false;
 		showAdminHelp = false;
+		query = '';
 		clearDraft();
 		saveActiveChatLinkMode(activeMode);
-		if (mode === 'text') {
-			query = '';
-			return;
-		}
+		if (mode === 'text') return;
 		mapLoadError = '';
 		await tick();
 		void initYandexMap(null);
@@ -407,6 +405,7 @@
 		{:else}
 			<div class="search-box">
 				<input
+					aria-label="Адрес дома"
 					value={query}
 					oninput={(event) => scheduleSearch(event.currentTarget.value)}
 					placeholder="Например: улица, дом, район"
@@ -602,7 +601,7 @@
 	.choice { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-weight: 800; color: #52b7ff; }
 	.address-label { min-width: 0; line-height: 1.3; }
 	.selection-status { margin: 0 0 8px; line-height: 1.35; font-size: 13px; }
-	.hint-text { margin: 8px 2px 0; color: #8fa0aa; font-size: 13px; }
+	.hint-text { margin: 8px 2px 14px; color: #8fa0aa; font-size: 13px; }
 	.search-box { width: 100%; }
 	input {
 		box-sizing: border-box;
@@ -622,7 +621,6 @@
 		padding-bottom: max(2px, env(safe-area-inset-bottom));
 	}
 	.confirm-wrap .primary { margin-top: 0; }
-	.link { display: block; box-sizing: border-box; text-align: center; text-decoration: none; }
 	.secondary { background: #263740; }
 	.done { display: grid; gap: 12px; }
 	.muted { color: #aebbc3; }

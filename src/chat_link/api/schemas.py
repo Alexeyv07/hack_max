@@ -15,6 +15,10 @@ class AddressSearchResponse(BaseModel):
     items: list[AddressOption]
 
 
+class PostalAddressSearchResponse(AddressSearchResponse):
+    total: int
+
+
 class AddressSelectRequest(BaseModel):
     address_id: int
     chat_id: int | None = None
