@@ -170,10 +170,10 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
 - SvelteKit mini-app в `webapp/`: TikTok-лента nearby | city.
 - Данные **только** с API (`GET /events/feed`) → БД.
 - **Max / HTTPS:** CloudPub → `localhost:5173` (сеть контейнера webapp)
-  ([docs](https://cloudpub.ru/docs/docker)). В `.env`: `CLOUDPUB_TOKEN` +
-  **`CLOUDPUB_AGENT_ID`** (один на всю команду → один
-  `https://incompletely-immortal-ling.cloudpub.ru`). Entrypoint пишет
-  `agent_id` в конфиг и делает `clo run` (без `HTTP=`/register).
+  ([docs](https://cloudpub.ru/docs/docker)). В `.env`: `CLOUDPUB_TOKEN`.
+  Sticky URL команды (`https://incompletely-immortal-ling.cloudpub.ru`) —
+  `agent_id` зашит в `docker/cloudpub-entrypoint.sh` + volume `./docker/cloudpub`.
+  Entrypoint делает `clo run` (без `HTTP=`/register).
   Не гонять cloudpub на двух машинах с одним id одновременно.
   Смотреть: `docker compose logs cloudpub` / `clo ls`.
   API: Vite `/api` → `host.docker.internal:8000` (проброшенный `:8000`).

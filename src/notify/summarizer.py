@@ -1,4 +1,4 @@
-"""Тонкий LLM-клиент для суммаризации сообщений одного домового чата."""
+"""Тонкий LLM-клиент (AITunnel) для суммаризации сообщений домового чата."""
 
 from __future__ import annotations
 
@@ -16,10 +16,7 @@ from project.logging_setup import get_logger
 logger = get_logger(__name__)
 
 _AITUNNEL_URL = "https://api.aitunnel.ru/v1/chat/completions"
-_DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
-_YANDEX_URL = "https://ai.api.cloud.yandex.net/v1/chat/completions"
-_AITUNNEL_DEEPSEEK_MODEL = "deepseek-v4-flash-0731"
-_DEEPSEEK_MODEL = "deepseek-flash"
+_DEFAULT_MODEL = "deepseek-v4-flash-0731"
 
 _SYSTEM_PROMPT = (
     "Ты составляешь короткое резюме переписки соседей одного дома. "
@@ -42,11 +39,7 @@ async def summarize_digest(
         return None
 
     cfg = config or get_settings().notify
-    provider = cfg.summarizer_provider.strip().lower()
-    if provider == "none":
-        return None
-
-    request = _build_request(provider, messages=messages)
+    request = _build_request(cfg, messages=messages)
     if request is None:
         return None
 
@@ -71,8 +64,7 @@ async def summarize_digest(
                 raise
             except (httpx.HTTPError, ValueError, TypeError, KeyError):
                 logger.warning(
-                    "Ошибка внешнего summarizer provider=%s attempt=%s/%s",
-                    provider,
+                    "Ошибка AITunnel summarizer attempt=%s/%s",
                     attempt,
                     attempts,
                     exc_info=True,
@@ -93,69 +85,28 @@ class _Request:
         self.payload = payload
 
 
-def _build_request(provider: str, *, messages: Sequence[ChatMessage]) -> _Request | None:
-    llm_messages = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
-        {"role": "user", "content": _messages_prompt(messages)},
-    ]
+def _build_request(cfg: NotifyConfig, *, messages: Sequence[ChatMessage]) -> _Request | None:
+    api_key = os.getenv("AITUNNEL_API_KEY", "").strip()
+    if not api_key:
+        logger.warning("AITUNNEL_API_KEY не задан — суммаризация пропущена")
+        return None
 
-    if provider == "deepseek":
-        aitunnel_key = os.getenv("AITUNNEL_API_KEY", "").strip()
-        if aitunnel_key:
-            model = os.getenv("AITUNNEL_MODEL", "").strip() or _AITUNNEL_DEEPSEEK_MODEL
-            return _Request(
-                url=_AITUNNEL_URL,
-                headers={"Authorization": f"Bearer {aitunnel_key}"},
-                payload={
-                    "model": model,
-                    "messages": llm_messages,
-                    "temperature": 0.2,
-                    "max_tokens": 1000,
-                    "reasoning": {"effort": "minimal", "exclude": True},
-                    "stream": False,
-                },
-            )
-
-        api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
-        if not api_key:
-            logger.warning(
-                "SUMMARIZER_PROVIDER=deepseek, но AITUNNEL_API_KEY/DEEPSEEK_API_KEY не заданы"
-            )
-            return None
-        return _Request(
-            url=_DEEPSEEK_URL,
-            headers={"Authorization": f"Bearer {api_key}"},
-            payload={
-                "model": _DEEPSEEK_MODEL,
-                "messages": llm_messages,
-                "temperature": 0.2,
-                "max_tokens": 500,
-                "stream": False,
-            },
-        )
-
-    if provider == "yandex":
-        api_key = os.getenv("YANDEXGPT_API_KEY", "").strip()
-        folder_id = os.getenv("YANDEXGPT_FOLDER_ID", "").strip()
-        if not api_key or not folder_id:
-            logger.warning(
-                "SUMMARIZER_PROVIDER=yandex, но YANDEXGPT_API_KEY/YANDEXGPT_FOLDER_ID не заданы"
-            )
-            return None
-        return _Request(
-            url=_YANDEX_URL,
-            headers={"Authorization": f"Api-Key {api_key}"},
-            payload={
-                "model": f"gpt://{folder_id}/yandexgpt/latest",
-                "messages": llm_messages,
-                "temperature": 0.2,
-                "max_tokens": 500,
-                "stream": False,
-            },
-        )
-
-    logger.warning("Неизвестный SUMMARIZER_PROVIDER=%r; используется fallback", provider)
-    return None
+    model = (cfg.summarizer_model or "").strip() or _DEFAULT_MODEL
+    return _Request(
+        url=_AITUNNEL_URL,
+        headers={"Authorization": f"Bearer {api_key}"},
+        payload={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": _messages_prompt(messages)},
+            ],
+            "temperature": 0.2,
+            "max_tokens": 1000,
+            "reasoning": {"effort": "minimal", "exclude": True},
+            "stream": False,
+        },
+    )
 
 
 def _messages_prompt(messages: Sequence[ChatMessage]) -> str:

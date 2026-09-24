@@ -82,7 +82,6 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "ML_DEDUP_ENABLED": "ml_dedup.enabled",
         "ML_DEDUP_ACTIVE_DAYS": "ml_dedup.active_days",
         "NOTIFY_ENABLED": "notify.enabled",
-        "SUMMARIZER_PROVIDER": "notify.summarizer_provider",
         "DOCS_URL": "docs.url",
         "DOCS_GITHUB_URL": "docs.github_url",
     }
@@ -265,7 +264,7 @@ class NotifyConfig:
     digest_jitter_minutes: int = 60
     digest_min_new_messages: int = 30
     retry_interval_seconds: int = 3600
-    summarizer_provider: str = "none"
+    summarizer_model: str = "deepseek-v4-flash-0731"
     summarizer_timeout_seconds: float = 12.0
     summarizer_retry_count: int = 1
 
@@ -543,9 +542,10 @@ def load_settings() -> Settings:
             digest_jitter_minutes=int(notify_raw.get("digest_jitter_minutes", 60)),
             digest_min_new_messages=int(notify_raw.get("digest_min_new_messages", 30)),
             retry_interval_seconds=int(notify_raw.get("retry_interval_seconds", 3600)),
-            summarizer_provider=(
-                str(notify_raw.get("summarizer_provider", "none")).strip().lower()
-            ),
+            summarizer_model=str(
+                notify_raw.get("summarizer_model", "deepseek-v4-flash-0731")
+            ).strip()
+            or "deepseek-v4-flash-0731",
             summarizer_timeout_seconds=float(notify_raw.get("summarizer_timeout_seconds", 12.0)),
             summarizer_retry_count=int(notify_raw.get("summarizer_retry_count", 1)),
         ),

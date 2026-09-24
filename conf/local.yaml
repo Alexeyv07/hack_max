@@ -40,7 +40,6 @@ events:
   nearby_radius_m: 6000
   city_radius_m: 30000
 
-# KAN-19: дедуп / актуализация (окно «ещё активна» = 21 день)
 ml_dedup:
   enabled: true
   active_days: 21
@@ -51,7 +50,6 @@ ml_dedup:
   require_geo_match: false
   queue_maxsize: 500
 
-# time-window ML + place NER (spaCy → addresses)
 ml_enrich:
   time_enabled: true
   time_min_confidence: 0.45
@@ -59,8 +57,7 @@ ml_enrich:
   spacy_model: ru_core_news_md
 
 notify:
-  # Защита от спама на demo/local: включать только явно через NOTIFY_ENABLED=true.
-  enabled: false
+  enabled: true
   poll_interval_seconds: 30
   timezone: Europe/Moscow
   digest_hour: 20
@@ -68,7 +65,7 @@ notify:
   # Суммаризировать только если накопилось строго больше этого числа новых сообщений.
   digest_min_new_messages: 30
   retry_interval_seconds: 3600
-  summarizer_provider: none
+  summarizer_model: deepseek-v4-flash-0731
   summarizer_timeout_seconds: 12
   summarizer_retry_count: 1
 
@@ -79,7 +76,6 @@ runtime:
   enable_mc_parser: true
   enable_chat_parser: true
 
-# KAN-10: минимальный фильтр (важность — classify ML)
 chat_parser:
   enabled: true
   min_chars: 3

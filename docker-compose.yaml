@@ -70,7 +70,7 @@ services:
     restart: unless-stopped
 
   # https://cloudpub.ru/docs/docker
-  # Один CLOUDPUB_AGENT_ID на всех машинах → один *.cloudpub.ru (публикации на сервере).
+  # Sticky URL: agent_id в entrypoint + volume ./docker/cloudpub (не CLOUDPUB_AGENT_ID).
   # Не ставить HTTP=: иначе пустой register → новый hostname.
   cloudpub:
     image: cloudpub/cloudpub:latest
@@ -80,8 +80,6 @@ services:
     environment:
       TOKEN: ${CLOUDPUB_TOKEN:-}
       HOME: /home/cloudpub
-      # Не секрет: общий id агента команды (см. .env.example).
-      CLOUDPUB_AGENT_ID: ${CLOUDPUB_AGENT_ID:-cc9d4150-d529-48e0-93c2-ff8ba5c56fd8}
     entrypoint: ["/bin/sh", "/cloudpub-entrypoint.sh"]
     volumes:
       - ./docker/cloudpub-entrypoint.sh:/cloudpub-entrypoint.sh:ro
