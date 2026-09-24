@@ -1,4 +1,4 @@
-"""HTTP-роуты событий — GET персональная nearby-лента и общая городская лента."""
+"""HTTP-роуты событий — GET лента/карта (nearby персонально, city общий)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from events.api.deps import DbSession, get_max_user_id
 from events.api.schemas import (
     FeedItemResponse,
+    FeedOriginResponse,
     FeedResponse,
     MapPointResponse,
     MapResponse,
@@ -41,6 +42,11 @@ def _to_feed_item(event: Event) -> FeedItemResponse:
         created_at=event.created_at,
         updated_at=event.updated_at,
         distance_m=event.distance_m,
+        proximity=event.proximity
+        if event.proximity in ("home", "block", "street", "district")
+        else None,
+        same_street=event.same_street,
+        is_active_now=event.is_active_now,
     )
 
 
@@ -56,9 +62,10 @@ def get_feed(
     ] = None,
 ) -> FeedResponse:
     """
-    Nearby — по выбранному дому, city — общая выдача.
+    TikTok-лента nearby|city.
 
-    Только события с определённым адресом. X-Max-User-Id обязателен (идентификация).
+    Nearby — по выбранному дому, city — общая выдача.
+    X-Max-User-Id обязателен.
     """
     try:
         page = crud.list_feed(
@@ -74,11 +81,21 @@ def get_feed(
             detail=str(exc),
         ) from exc
 
+    origin = None
+    if page.origin is not None:
+        origin = FeedOriginResponse(
+            lat=page.origin.lat,
+            lon=page.origin.lon,
+            radius_m=page.origin.radius_m,
+            chat_count=page.origin.chat_count,
+        )
+
     return FeedResponse(
         items=[_to_feed_item(item) for item in page.items],
         scope=page.scope.value,
         next_cursor=page.next_cursor,
         count=len(page.items),
+        origin=origin,
     )
 
 

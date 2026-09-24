@@ -15,8 +15,6 @@ RUN apt-get update \
 COPY pyproject.toml .
 COPY src ./src
 COPY conf ./conf
-COPY alembic.ini .
-COPY alembic ./alembic
 COPY scripts ./scripts
 
 # ML runtime artifacts (train → artifacts; без ONNX — soft fallback в коде)

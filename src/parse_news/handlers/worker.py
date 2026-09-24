@@ -24,14 +24,15 @@ from parse_news.registry import get_sources
 from parse_news.sources.base import CollectMode, CollectResult, NewsSource
 from project.config import NewsParserConfig, get_settings
 from project.database import session_scope
+from project.executors import PARSER_ML_SEM, run_in_parser_pool
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
 
 async def _in_thread[**P, T](fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> T:
-    """Синхронный CPU/DB/ONNX — вне event loop, чтобы API и бот не голодали."""
-    return await asyncio.to_thread(fn, *args, **kwargs)
+    """Синхронный CPU/DB/ONNX — в parser pool, чтобы default to_thread остался для API."""
+    return await run_in_parser_pool(fn, *args, **kwargs)
 
 
 def _aware(dt: datetime | None) -> datetime | None:
@@ -230,14 +231,16 @@ async def _process_source(
         return False
 
     # ONNX classify + geo + INSERT — главная причина «заморозки» HTTP.
-    created, skipped, oldest_at, newest_at = await _in_thread(
-        _persist_articles_batched,
-        result.articles,
-        cfg=cfg,
-        mode=mode,
-        source_key=source_key,
-        street_index=street_index,
-    )
+    # Семафор: news и mc не гоняют ML параллельно.
+    async with PARSER_ML_SEM:
+        created, skipped, oldest_at, newest_at = await _in_thread(
+            _persist_articles_batched,
+            result.articles,
+            cfg=cfg,
+            mode=mode,
+            source_key=source_key,
+            street_index=street_index,
+        )
 
     backfill_done = _backfill_done_after_collect(
         previous_complete=previous_complete,
@@ -379,7 +382,7 @@ def _flush_batch(
 async def run_news_parser() -> None:
     from pathlib import Path
 
-    from parser_common.seed import DEFAULT_SNAPSHOT, dump_events_snapshot, ensure_events_seeded
+    from parser_common.seed import DEFAULT_SNAPSHOT, dump_events_snapshot
 
     settings = get_settings()
     cfg = settings.news_parser
@@ -393,12 +396,6 @@ async def run_news_parser() -> None:
         snap_path = Path(__file__).resolve().parents[3] / snap_path
     if not snap_path.is_file():
         snap_path = DEFAULT_SNAPSHOT
-
-    try:
-        if await _in_thread(ensure_events_seeded, snap_path):
-            logger.info("События загружены из snapshot %s", snap_path)
-    except Exception:
-        logger.exception("Не удалось загрузить snapshot событий — продолжаем парсинг")
 
     sources = get_sources(cfg)
     logger.info(

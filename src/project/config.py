@@ -82,7 +82,6 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "ML_DEDUP_ENABLED": "ml_dedup.enabled",
         "ML_DEDUP_ACTIVE_DAYS": "ml_dedup.active_days",
         "NOTIFY_ENABLED": "notify.enabled",
-        "SUMMARIZER_PROVIDER": "notify.summarizer_provider",
         "DOCS_URL": "docs.url",
         "DOCS_GITHUB_URL": "docs.github_url",
     }
@@ -162,8 +161,9 @@ class ApiConfig:
 
 @dataclass(frozen=True, slots=True)
 class EventsConfig:
-    nearby_radius_m: float = 3000.0
-    city_radius_m: float = 30000.0
+    # Отсев «рядом» (haversine от улицы чата), ~5–6 км.
+    nearby_radius_m: float = 6_000.0
+    city_radius_m: float = 30_000.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,7 +264,7 @@ class NotifyConfig:
     digest_jitter_minutes: int = 60
     digest_min_new_messages: int = 30
     retry_interval_seconds: int = 3600
-    summarizer_provider: str = "none"
+    summarizer_model: str = "deepseek-v4-flash-0731"
     summarizer_timeout_seconds: float = 12.0
     summarizer_retry_count: int = 1
 
@@ -459,8 +459,8 @@ def load_settings() -> Settings:
             cors_origins=_parse_cors_origins(api_raw.get("cors_origins")),
         ),
         events=EventsConfig(
-            nearby_radius_m=float(events_raw.get("nearby_radius_m", 3000)),
-            city_radius_m=float(events_raw.get("city_radius_m", 30000)),
+            nearby_radius_m=float(events_raw.get("nearby_radius_m", 6_000)),
+            city_radius_m=float(events_raw.get("city_radius_m", 30_000)),
         ),
         ml_dedup=MlDedupConfig(
             enabled=bool(ml_dedup_raw.get("enabled", True)),
@@ -542,9 +542,10 @@ def load_settings() -> Settings:
             digest_jitter_minutes=int(notify_raw.get("digest_jitter_minutes", 60)),
             digest_min_new_messages=int(notify_raw.get("digest_min_new_messages", 30)),
             retry_interval_seconds=int(notify_raw.get("retry_interval_seconds", 3600)),
-            summarizer_provider=(
-                str(notify_raw.get("summarizer_provider", "none")).strip().lower()
-            ),
+            summarizer_model=str(
+                notify_raw.get("summarizer_model", "deepseek-v4-flash-0731")
+            ).strip()
+            or "deepseek-v4-flash-0731",
             summarizer_timeout_seconds=float(notify_raw.get("summarizer_timeout_seconds", 12.0)),
             summarizer_retry_count=int(notify_raw.get("summarizer_retry_count", 1)),
         ),

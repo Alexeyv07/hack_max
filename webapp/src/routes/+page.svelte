@@ -275,6 +275,7 @@
 				error={city.error}
 				hasMore={!city.exhausted}
 				onnearend={() => loadMore('city')}
+				onrequestnearby={() => setScope('nearby')}
 				ondownswipe={onDownSwipe}
 			/>
 		</div>
@@ -292,6 +293,10 @@
 		background: #0a1014;
 		color: #eef3f6;
 		touch-action: pan-y;
+		/* На широком экране колонка как телефон, по краям фон страницы. */
+		width: min(100%, 28rem);
+		margin-inline: auto;
+		box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
 	}
 
 	.rail {

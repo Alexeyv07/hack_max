@@ -2,9 +2,11 @@
 
 export type FeedScope = 'nearby' | 'city';
 
+export type ProximityBand = 'home' | 'block' | 'street' | 'district';
+
 export type FeedItem = {
 	id: number;
-	title: string;
+	title: string | null;
 	body: string;
 	importance: number;
 	source: string;
@@ -18,9 +20,21 @@ export type FeedItem = {
 	geo_by: string | null;
 	location: string | null;
 	published_at: string | null;
+	active_from?: string | null;
+	active_to?: string | null;
 	created_at: string | null;
 	updated_at: string | null;
 	distance_m: number | null;
+	proximity?: ProximityBand | null;
+	same_street?: boolean;
+	is_active_now?: boolean | null;
+};
+
+export type FeedOrigin = {
+	lat: number;
+	lon: number;
+	radius_m: number;
+	chat_count: number;
 };
 
 export type FeedResponse = {
@@ -28,4 +42,5 @@ export type FeedResponse = {
 	scope: FeedScope;
 	next_cursor: string | null;
 	count: number;
+	origin?: FeedOrigin | null;
 };

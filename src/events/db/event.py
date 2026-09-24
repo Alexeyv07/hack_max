@@ -41,7 +41,7 @@ class EventRow(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(512), nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     importance: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(64), nullable=False, index=True)

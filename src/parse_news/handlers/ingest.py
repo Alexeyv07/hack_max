@@ -6,7 +6,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from address.resolve import GeoBind
-from address.street_catalog import StreetCatalog
 from events.handlers.crud import list_existing_source_msg_ids
 from events.models.event import Event, EventSource
 from parse_news.models.article import RawNewsArticle
@@ -17,20 +16,6 @@ from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
-_street_catalog: StreetCatalog | None = None
-
-
-def _get_street_catalog(session: Session) -> StreetCatalog | None:
-    global _street_catalog
-    if _street_catalog is not None:
-        return _street_catalog
-    try:
-        _street_catalog = StreetCatalog.load(session, city="Москва")
-    except Exception:
-        logger.exception("StreetCatalog.load failed")
-        return None
-    return _street_catalog
-
 
 def article_to_candidate(
     article: RawNewsArticle,
@@ -39,9 +24,9 @@ def article_to_candidate(
     address_id: int | None = None,
     geo_by: str | None = None,
 ) -> ParserCandidate:
-    title = article.title
+    title = (article.title or "").strip() or None
     body = clean_article_body(article.body, title=title) or ""
-    raw_text = f"{title}\n{body}".strip() if body else title
+    raw_text = "\n".join(part for part in (title, body) if part).strip() or (title or body or "")
     resolved_id = geo.address_id if geo is not None else address_id
     resolved_by = geo.geo_by if geo is not None else geo_by
     return ParserCandidate(
@@ -81,10 +66,19 @@ def persist_article(
         address_id=address_id,
         geo_by=geo_by,
     )
+    # Без московского адреса не пишем: place_ner/catalog не должен «угадывать» улицу.
+    if candidate.address_id is None:
+        logger.info(
+            "Пропуск новости без московского geo %s: %s",
+            article.source_msg_id,
+            (article.title or "")[:80],
+        )
+        return None
+
     try:
         with session.begin_nested():
-            catalog = _get_street_catalog(session) if candidate.address_id is None else None
-            return persist_candidate(session, candidate, street_catalog=catalog)
+            # address_id уже задан resolve_article_geo — каталог не передаём.
+            return persist_candidate(session, candidate, street_catalog=None)
     except IntegrityError:
         logger.debug("Дубликат новости %s (IntegrityError) — пропуск", article.source_msg_id)
         return None

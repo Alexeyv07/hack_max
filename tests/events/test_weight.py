@@ -10,11 +10,16 @@ from events.weight import (
     allowed_in_city_feed,
     allowed_in_feed,
     allowed_on_map,
+    apply_nearby_boosts,
     compute_weight,
+    event_is_active_now,
     haversine_m,
     map_icon_category,
     matches_feed_geo,
+    normalize_street_name,
+    proximity_band,
     resolve_source_reliability,
+    streets_match,
     timeliness_score,
 )
 
@@ -106,3 +111,37 @@ def test_map_rules_and_categories() -> None:
     assert not allowed_on_map(importance=0, disaster_flag=False)
     assert map_icon_category(importance=1, disaster_flag=True) == "catastrophe"
     assert map_icon_category(importance=2, disaster_flag=False) == "important"
+
+
+def test_proximity_bands_and_street_match() -> None:
+    assert proximity_band(100) == "home"
+    assert proximity_band(500) == "block"
+    assert proximity_band(1200) == "street"
+    assert proximity_band(2500) == "district"
+    assert normalize_street_name("ул. Лесная") == "лесная"
+    assert streets_match("улица Лесная", "Лесная")
+    assert not streets_match("Лесная", "Тверская")
+
+
+def test_activity_and_nearby_boosts() -> None:
+    now = datetime(2026, 9, 17, 12, 0, tzinfo=UTC)
+    assert event_is_active_now(active_from=None, active_to=None, now=now) is None
+    assert (
+        event_is_active_now(
+            active_from=now - timedelta(hours=1),
+            active_to=now + timedelta(hours=1),
+            now=now,
+        )
+        is True
+    )
+    assert (
+        event_is_active_now(
+            active_from=now - timedelta(days=2),
+            active_to=now - timedelta(hours=1),
+            now=now,
+        )
+        is False
+    )
+    boosted = apply_nearby_boosts(0.5, same_street=True, is_active_now=True)
+    demoted = apply_nearby_boosts(0.5, same_street=False, is_active_now=False)
+    assert boosted > 0.5 > demoted

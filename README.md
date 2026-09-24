@@ -11,9 +11,10 @@
 
 ```
 conf/                  # local.yaml / prod.yaml (+ ml_dedup, ml_enrich)
-alembic/               # миграции (в т.ч. active_from/to)
+db/migrations/         # SQL up/down (вместо Alembic)
+docker/postgres/       # образ Postgres: migrate + COPY seed
 src/
-  project/             # config, logging, database
+  project/             # config, logging, database, sql_migrate
   auth/                # пользователи Max
   address/             # addresses + StreetCatalog + GeoMatcher (+ district)
   events/              # CRUD + feed/map API (KAN-14)
@@ -38,7 +39,9 @@ tests/ scripts/
 
 | скрипт                    | зачем                                                               |
 |---------------------------|---------------------------------------------------------------------|
-| `bot_entrypoint.py`       | Docker bot: проверка ML-артефактов, `alembic upgrade`, seed, `main` |
+| `bot_entrypoint.py`       | Docker bot: ML-check → `main` (схема/seed — в образе Postgres) |
+| `migrate.py`              | `up` / `down` / `status` / `stamp` для `db/migrations` |
+| `build_pg_seed_dumps.py`  | jsonl → `docker/postgres/seed/*.csv.gz` |
 | `classify_try.py`         | REPL importance (ONNX → rules)                                      |
 | `smoke_parser_collect.py` | live smoke news/mc collect                                          |
 
@@ -86,16 +89,17 @@ docker compose up -d postgres webapp cloudpub
 python -m main
 ```
 
-## Миграции (Alembic)
+## Миграции (SQL)
+
+См. [`db/README.md`](./db/README.md).
 
 ```bash
-alembic upgrade head
-alembic current
-alembic history
+set PYTHONPATH=src
+python scripts/migrate.py status
+python scripts/migrate.py up
+python scripts/migrate.py down          # на 1 шаг
+python scripts/migrate.py down --steps 3
 ```
-
-Актуальный head: `0013_events_active_window` (`active_from` / `active_to`).
-Перед ним: `0011_chat_link` (district + chat_links), `0012_chat_group_type`.
 
 ## Конфиг
 

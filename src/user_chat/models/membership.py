@@ -21,3 +21,5 @@ class ChatMembership:
     lon: float
     nearby_radius_m: float
     city_radius_m: float
+    street: str | None = None
+    house: str | None = None

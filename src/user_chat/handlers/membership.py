@@ -100,7 +100,14 @@ def list_chat_members(session: Session, chat_id: int) -> list[ChatMember]:
 def list_memberships_for_user(session: Session, max_user_id: int) -> list[ChatMembership]:
     """Координаты собственного выбранного дома, а не первого адреса дворового чата."""
     rows = session.execute(
-        select(ChatRow, AddressRow.id, AddressRow.latitude, AddressRow.longitude)
+        select(
+            ChatRow,
+            AddressRow.id,
+            AddressRow.latitude,
+            AddressRow.longitude,
+            AddressRow.street,
+            AddressRow.house,
+        )
         .join(users_chat, users_chat.c.chat_id == ChatRow.chat_id)
         .join(UserRow, UserRow.id == users_chat.c.user_id)
         .join(AddressRow, AddressRow.id == users_chat.c.address_id)
@@ -117,8 +124,10 @@ def list_memberships_for_user(session: Session, max_user_id: int) -> list[ChatMe
             lon=float(lon),
             nearby_radius_m=settings.events.nearby_radius_m,
             city_radius_m=settings.events.city_radius_m,
+            street=street,
+            house=house,
         )
-        for chat, address_id, lat, lon in rows
+        for chat, address_id, lat, lon, street, house in rows
     ]
 
 

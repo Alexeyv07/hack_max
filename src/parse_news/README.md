@@ -25,7 +25,8 @@ python -m parser_common.seed dump
 python -m parser_common.seed load
 ```
 
-Docker entrypoint (`scripts/bot_entrypoint.py`): addresses seed → events snapshot → main.
+В Docker addresses/events seed грузит init образа Postgres (`docker/postgres`),
+не bot entrypoint.
 
 ## Геопривязка
 

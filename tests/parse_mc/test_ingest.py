@@ -24,12 +24,32 @@ def _notice(*, external_id: str = "42") -> RawMcNotice:
     )
 
 
-def test_persist_notice_single(db_session) -> None:
+def test_persist_notice_skips_without_geo(db_session) -> None:
     notice = _notice(external_id="100")
-    events = persist_notice(db_session, notice, geos=None)
+    assert persist_notice(db_session, notice, geos=None) == []
+    assert persist_notice(db_session, notice, geos=[]) == []
+
+
+def test_persist_notice_single(db_session) -> None:
+    addr = AddressRow(
+        address_text="Москва, город",
+        city="Москва",
+        latitude=55.75,
+        longitude=37.61,
+    )
+    db_session.add(addr)
+    db_session.flush()
+
+    notice = _notice(external_id="100")
+    events = persist_notice(
+        db_session,
+        notice,
+        geos=[GeoBind(address_id=addr.id, geo_by=GeoByLevel.CITY)],
+    )
     assert len(events) == 1
     assert events[0].source == EventSource.MC.value
     assert events[0].source_msg_id == "zhil_nagatino:100"
+    assert events[0].address_id == addr.id
 
 
 def test_persist_notice_fanout_per_street(db_session) -> None:

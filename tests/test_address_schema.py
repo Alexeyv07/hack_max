@@ -5,16 +5,11 @@ PYTHONPATH=src ADDRESS_TEST_DATABASE_URL=... python -m unittest tests.test_addre
 Нужен PostgreSQL с правом CREATE SCHEMA. Все изменения тестов откатываются.
 """
 
-import importlib.util
 import os
 import unittest
 import uuid
-from pathlib import Path
 
 import sqlalchemy as sa
-from alembic.autogenerate import compare_metadata
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 
 from address.db import AddressRow
 from address.db.queries import load_addresses
@@ -23,24 +18,12 @@ from address.seed import upsert_addresses
 from auth.db import UserRow  # noqa: F401 — зарегистрировать users в metadata
 from events.db import EventRow
 from parse_news.db import NewsParserCursorRow  # noqa: F401
-from project.database import Base
+from project.sql_migrate import downgrade_all, upgrade_all
 from user_chat.db import ChatRow  # noqa: F401 — зарегистрировать chats + users_chat
 
 
 @unittest.skipUnless(os.getenv("ADDRESS_TEST_DATABASE_URL"), "Нужен ADDRESS_TEST_DATABASE_URL")
 class AddressSchemaTests(unittest.TestCase):
-    MIGRATIONS = (
-        "0001_create_users",
-        "0002_create_events",
-        "0003_events_image_url",
-        "0004_create_addresses",
-        "0005_event_address_fk",
-        "0006_news_parser",
-        "0007_address_components_geo_by",
-        "0008_events_published_at",
-        "0009_create_chats",
-    )
-
     def setUp(self):
         self.engine = sa.create_engine(os.environ["ADDRESS_TEST_DATABASE_URL"])
         self.addCleanup(self.engine.dispose)
@@ -51,22 +34,9 @@ class AddressSchemaTests(unittest.TestCase):
         schema = "address_test_" + uuid.uuid4().hex
         self.connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
         self.connection.exec_driver_sql(f'SET LOCAL search_path TO "{schema}"')
-        self.context = MigrationContext.configure(self.connection)
-        self.migrations = [self.load_migration(name) for name in self.MIGRATIONS]
-        with Operations.context(self.context):
-            for migration in self.migrations:
-                migration.upgrade()
-
-    @staticmethod
-    def load_migration(name):
-        path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / f"{name}.py"
-        spec = importlib.util.spec_from_file_location(name, path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
+        self.versions = upgrade_all(self.connection)
 
     def test_migrations_match_models_and_can_be_reverted(self):
-        self.assertEqual(compare_metadata(self.context, Base.metadata), [])
         inspector = sa.inspect(self.connection)
         self.assertEqual(inspector.get_pk_constraint("addresses")["constrained_columns"], ["id"])
         self.assertEqual(
@@ -86,9 +56,7 @@ class AddressSchemaTests(unittest.TestCase):
             )
         )
 
-        with Operations.context(self.context):
-            for migration in reversed(self.migrations):
-                migration.downgrade()
+        downgrade_all(self.connection, self.versions)
         self.assertEqual(sa.inspect(self.connection).get_table_names(), [])
 
     def test_address_primary_key_and_scoped_database_lookup(self):

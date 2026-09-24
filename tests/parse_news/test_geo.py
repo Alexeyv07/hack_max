@@ -348,6 +348,26 @@ def test_samarskaya_street_still_resolves_in_moscow(db_session) -> None:
     assert bind.address_id == home.id
 
 
+def test_paris_and_london_skipped_even_local_outlet(db_session) -> None:
+    from parse_news.handlers.geo import should_skip_foreign_article
+
+    for title in (
+        "Саммит в Париже обсудил климат",
+        "Переговоры в Лондоне завершились",
+        "В Берлине прошла конференция",
+    ):
+        article = RawNewsArticle(
+            outlet="m24",
+            external_id="eu-1",
+            url="https://www.m24.ru/x",
+            title=title,
+            published_at=datetime(2026, 9, 17, tzinfo=UTC),
+            body="кратко",
+        )
+        assert should_skip_foreign_article(article)
+        assert resolve_article_geo(db_session, article) is None
+
+
 def test_resolve_article_geo_from_source_fields(db_session) -> None:
     home = _add_row(
         db_session,

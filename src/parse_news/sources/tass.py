@@ -13,6 +13,7 @@ from parse_news.models.article import RawNewsArticle
 from parse_news.sources.base import BaseNewsSource, CollectMode, CollectResult
 from parse_news.sources.common import (
     collect_from_rss,
+    enrich_url,
     ensure_aware,
     extract_id_from_url,
     fetch_optional,
@@ -189,16 +190,18 @@ class TassSource(BaseNewsSource):
                     offset += 1
                     continue
 
-                articles.append(
-                    RawNewsArticle(
-                        outlet=self.key,
-                        external_id=external_id,
-                        url=loc,
-                        title=title_from_slug(loc) or external_id,
-                        published_at=published,
-                        body=None,
-                    )
+                article = await enrich_url(
+                    client,
+                    loc,
+                    outlet=self.key,
+                    external_id=external_id,
+                    fallback_title=title_from_slug(loc) or None,
+                    fallback_published=published,
                 )
+                if article is None:
+                    offset += 1
+                    continue
+                articles.append(article)
                 offset += 1
             else:
                 sitemap_idx += 1

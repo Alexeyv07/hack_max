@@ -17,8 +17,8 @@ database:
   user: hack_max
   password: hack_max
   echo: false
-  pool_size: 5
-  max_overflow: 10
+  pool_size: 10
+  max_overflow: 20
 
 max:
   api_base_url: https://botapi.max.ru
@@ -37,10 +37,9 @@ api:
     - http://127.0.0.1:4173
 
 events:
-  nearby_radius_m: 3000
+  nearby_radius_m: 6000
   city_radius_m: 30000
 
-# KAN-19: дедуп / актуализация (окно «ещё активна» = 21 день)
 ml_dedup:
   enabled: true
   active_days: 21
@@ -51,7 +50,6 @@ ml_dedup:
   require_geo_match: false
   queue_maxsize: 500
 
-# time-window ML + place NER (spaCy → addresses)
 ml_enrich:
   time_enabled: true
   time_min_confidence: 0.45
@@ -59,8 +57,7 @@ ml_enrich:
   spacy_model: ru_core_news_md
 
 notify:
-  # Защита от спама на demo/local: включать только явно через NOTIFY_ENABLED=true.
-  enabled: false
+  enabled: true
   poll_interval_seconds: 30
   timezone: Europe/Moscow
   digest_hour: 20
@@ -68,7 +65,7 @@ notify:
   # Суммаризировать только если накопилось строго больше этого числа новых сообщений.
   digest_min_new_messages: 30
   retry_interval_seconds: 3600
-  summarizer_provider: none
+  summarizer_model: deepseek-v4-flash-0731
   summarizer_timeout_seconds: 12
   summarizer_retry_count: 1
 
@@ -79,7 +76,6 @@ runtime:
   enable_mc_parser: true
   enable_chat_parser: true
 
-# KAN-10: минимальный фильтр (важность — classify ML)
 chat_parser:
   enabled: true
   min_chars: 3
@@ -103,21 +99,20 @@ chat_parser:
     - ладно
 
 news_parser:
-  # bootstrap|production: оба делают backfill до lookback_days; bootstrap ещё пишет snapshot.
-  # soft-cap на outlet: bootstrap_articles_per_source (0 = без потолка, весь lookback).
-  mode: bootstrap
-  lookback_days: 7
-  poll_interval_seconds: 120
+  # production: лёгкий backfill + incremental. bootstrap с soft-cap 0 душит API/бота.
+  mode: production
+  lookback_days: 3
+  poll_interval_seconds: 300
   request_timeout_seconds: 15
-  collect_timeout_seconds: 180
-  max_articles_per_source_per_run: 80
-  max_pages_per_run: 7
-  bootstrap_articles_per_source: 0
+  collect_timeout_seconds: 90
+  max_articles_per_source_per_run: 15
+  max_pages_per_run: 3
+  bootstrap_articles_per_source: 50
   bootstrap_snapshot_path: src/parser_common/data/bootstrap_events.jsonl.gz
-  insert_batch_size: 25
+  insert_batch_size: 10
   early_stop_known_streak: 10
-  source_pause_seconds: 0.5
-  backfill_pause_seconds: 2.0
+  source_pause_seconds: 1.0
+  backfill_pause_seconds: 3.0
   user_agent: "HackMaxNewsBot/1.0"
   sources:
     tass:
@@ -148,19 +143,31 @@ news_parser:
       listing_url: "https://www.m24.ru/news"
       reliability: 0.85
 
+#  mode: bootstrap
+#  lookback_days: 7
+#  poll_interval_seconds: 300
+#  request_timeout_seconds: 25
+#  collect_timeout_seconds: 180
+#  max_articles_per_source_per_run: 40
+#  max_pages_per_run: 4
+#  bootstrap_articles_per_source: 0
+#  insert_batch_size: 20
+#  early_stop_known_streak: 12
+#  source_pause_seconds: 0.5
+#  backfill_pause_seconds: 2.0
 mc_parser:
-  mode: bootstrap
-  lookback_days: 14
-  poll_interval_seconds: 180
+  mode: production
+  lookback_days: 3
+  poll_interval_seconds: 300
   request_timeout_seconds: 20
-  collect_timeout_seconds: 180
-  max_articles_per_source_per_run: 40
-  max_pages_per_run: 5
-  bootstrap_articles_per_source: 0
-  insert_batch_size: 20
+  collect_timeout_seconds: 90
+  max_articles_per_source_per_run: 10
+  max_pages_per_run: 2
+  bootstrap_articles_per_source: 30
+  insert_batch_size: 10
   early_stop_known_streak: 8
-  source_pause_seconds: 0.5
-  backfill_pause_seconds: 2.0
+  source_pause_seconds: 1.0
+  backfill_pause_seconds: 3.0
   user_agent: "HackMaxMcBot/1.0"
   sources:
     pik_comfort:

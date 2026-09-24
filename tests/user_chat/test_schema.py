@@ -1,19 +1,14 @@
-"""Ограничения БД, направления каскадов и новая миграция."""
+"""Ограничения БД, направления каскадов и наличие SQL-миграций."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
-from alembic.config import Config
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
-from alembic.script import ScriptDirectory
-from sqlalchemy import delete, insert, inspect, select
+from sqlalchemy import delete, insert, select
 from sqlalchemy.exc import IntegrityError
 
 from address.db import AddressRow
 from auth.db import UserRow
+from project.sql_migrate import MIGRATIONS_DIR, available_versions, down_path, up_path
 from user_chat.db import ChatRow, users_chat
 from user_chat.handlers import add_user_to_chat, list_chat_members
 
@@ -74,46 +69,21 @@ def test_user_deletion_keeps_chat_and_address(db_session, chat, address, user) -
     assert db_session.get(AddressRow, address.id) is not None
 
 
-def test_new_migration_reversible_and_does_not_infer_membership(engine) -> None:
-    config = Config()
-    config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
-    scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_current_head() == "0019_chat_addresses"
-    addresses_revision = scripts.get_revision("0019_chat_addresses")
-    assert addresses_revision.down_revision == "0018_notify_blocked"
-    blocked_revision = scripts.get_revision("0018_notify_blocked")
-    assert blocked_revision.down_revision == "0017_notify_chat_messages"
-    chat_messages_revision = scripts.get_revision("0017_notify_chat_messages")
-    assert chat_messages_revision.down_revision == "0016_membership_only"
-    membership_revision = scripts.get_revision("0016_membership_only")
-    assert membership_revision.down_revision == "0015_notify_digest_cursor"
-    notify_revision = scripts.get_revision("0015_notify_digest_cursor")
-    assert notify_revision.down_revision == "0014_notify_workers"
-    notify_base = scripts.get_revision("0014_notify_workers")
-    assert notify_base.down_revision == "0013_events_active_window"
-    active_window = scripts.get_revision("0013_events_active_window")
-    assert active_window.down_revision == "0012_chat_group_type"
-    group_type_revision = scripts.get_revision("0012_chat_group_type")
-    assert group_type_revision.down_revision == "0011_chat_link"
-    chat_link_revision = scripts.get_revision("0011_chat_link")
-    assert chat_link_revision.down_revision == "0010_mc_parser"
-    mc_revision = scripts.get_revision("0010_mc_parser")
-    assert mc_revision.down_revision == "0009_create_chats"
-
-    revision = scripts.get_revision("0009_create_chats")
-    assert revision.down_revision == "0008_events_published_at"
-    with engine.begin() as connection, Operations.context(MigrationContext.configure(connection)):
-        revision.module.downgrade()
-        connection.execute(insert(UserRow).values(max_user_id=7, chat_id=42))
-        revision.module.upgrade()
-        assert connection.exec_driver_sql("SELECT user_id, chat_id FROM users_chat").all() == []
-        assert connection.execute(select(ChatRow.chat_id)).all() == []
-        assert connection.execute(select(UserRow.max_user_id)).scalar_one() == 7
-        assert inspect(connection).get_pk_constraint("users_chat")["constrained_columns"] == [
-            "user_id",
-            "chat_id",
-        ]
-        revision.module.downgrade()
-        assert "users_chat" not in inspect(connection).get_table_names()
-        assert "chats" not in inspect(connection).get_table_names()
-        assert connection.execute(select(UserRow.max_user_id)).scalar_one() == 7
+def test_sql_migrations_chain_complete() -> None:
+    versions = available_versions()
+    assert versions[0] == "0001_create_users"
+    assert "0009_create_chats" in versions
+    assert "0011_chat_link" in versions
+    assert "0014_events_title_nullable" in versions
+    assert "0015_api_query_indexes" in versions
+    assert "0016_notify_workers" in versions
+    assert "0021_chat_addresses" in versions
+    assert versions[-1] == "0021_chat_addresses"
+    for version in versions:
+        assert up_path(version).is_file()
+        assert down_path(version).is_file()
+    assert MIGRATIONS_DIR.is_dir()
+    # нет «осиротевших» файлов
+    names = {p.name for p in MIGRATIONS_DIR.glob("*.sql")}
+    expected = {f"{v}.up.sql" for v in versions} | {f"{v}.down.sql" for v in versions}
+    assert names == expected

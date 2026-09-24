@@ -1,0 +1,4 @@
+# Persistent CloudPub agent config (bind-mounted to /home/cloudpub).
+# Survives `docker compose down -v`. Do not commit secrets from this dir.
+*
+!.gitignore

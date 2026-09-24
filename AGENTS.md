@@ -54,6 +54,10 @@ fetch → ParserCandidate ─normalize─▶ EventDraft ──resolve──▶ N
 - Snapshot событий (все sources): `parser_common.seed`
   (`python -m parser_common.seed dump|load` →
   `src/parser_common/data/bootstrap_events.jsonl.gz`).
+  В Docker: образ Postgres (`docker/postgres`) на initdb накатывает
+  `db/migrations/*.up.sql`, затем `COPY` из `docker/postgres/seed/*.csv.gz`.
+  Локально без Docker: `python scripts/migrate.py up`.
+  Пересборка CSV: `python scripts/build_pg_seed_dumps.py`.
 - **Дедуп (KAN-19):** `ml_dedup` внутри `persist_candidate` —
   NEW / DUPLICATE / UPDATE; окно активности `ml_dedup.active_days` (21).
 - Контракт для авторов парсеров: `src/parser_common/README.md`.
@@ -132,9 +136,13 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
   - `GET /events/map?limit=` — точки карты.
 - Лента/карта **общие для всех** (без фильтра по чатам пользователя).
 - В ленту попадают **только** события с `address_id` и непустым `Address.address_text`.
-- **Правила ленты:** `importance` 1|2 (`3` не в nearby и не в city); сортировка по
-  `events.weight` DESC; nearby — `geo_by` ∈ {`street`,`home`}; city — `geo_by=city`
-  (персонализация по чатам — позже).
+- **Правила ленты:** `importance` 1|2 (`3` не в nearby и не в city);
+  - **nearby** — персонально по lat/lon улицы чата; haversine ≤ `nearby_radius_m`
+    (6 км); вес с `distance_m` + same_street + **ml_time** (`active_from`/`active_to`:
+    действующие выше, просроченные скрыты); `geo_by` street|home;
+    без чата — пустая nearby;
+  - **city** — все события с `Address.city = Москва` (любой `geo_by`), тоже с
+    ml_time-фильтром/бустом; общая выдача.
 - Ответ feed item: `title`, `body`, `importance`, `disaster_flag`, `image_url`,
   `source` / `source_url`, `location` (текст адреса), `published_at` / `created_at`,
   `lat`/`lon`, `geo_by`, `weight`.
@@ -162,8 +170,12 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
 - SvelteKit mini-app в `webapp/`: TikTok-лента nearby | city.
 - Данные **только** с API (`GET /events/feed`) → БД.
 - **Max / HTTPS:** CloudPub → `localhost:5173` (сеть контейнера webapp)
-  ([docs](https://cloudpub.ru/docs/docker)). `CLOUDPUB_TOKEN` в `.env`.
-  URL: `docker compose logs cloudpub`.
+  ([docs](https://cloudpub.ru/docs/docker)). В `.env`: `CLOUDPUB_TOKEN`.
+  Sticky URL команды (`https://incompletely-immortal-ling.cloudpub.ru`) —
+  `agent_id` зашит в `docker/cloudpub-entrypoint.sh` + volume `./docker/cloudpub`.
+  Entrypoint делает `clo run` (без `HTTP=`/register).
+  Не гонять cloudpub на двух машинах с одним id одновременно.
+  Смотреть: `docker compose logs cloudpub` / `clo ls`.
   API: Vite `/api` → `host.docker.internal:8000` (проброшенный `:8000`).
 - **Запуск:** `docker compose up -d --build` (всё) или
   `docker compose up -d postgres webapp cloudpub` + `python -m main`.
@@ -196,7 +208,7 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
 ```bash
 pip install -e ".[dev]"
 set PYTHONPATH=src
-alembic upgrade head
+python scripts/migrate.py up
 python -m main
 
 # docker compose up -d --build
@@ -223,7 +235,8 @@ API локально: `http://localhost:8000/docs`, health: `/health`.
 
 - `tests/` + pytest; API через `TestClient` и in-memory SQLite.
 - Не требуют живой Postgres / Max token.
-- При добавлении ORM — импорт в `alembic/env.py` и `tests/conftest.py` metadata.
+- При добавлении ORM — импорт в `tests/conftest.py` metadata;
+  схема Postgres — пара файлов в `db/migrations/` (см. `db/README.md`).
 
 ## Стиль
 

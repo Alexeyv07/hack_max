@@ -39,7 +39,8 @@ def _response() -> httpx.Response:
     )
 
 
-def test_none_provider_does_not_call_network() -> None:
+def test_missing_api_key_skips_network(monkeypatch) -> None:
+    monkeypatch.delenv("AITUNNEL_API_KEY", raising=False)
     calls = 0
 
     async def handler(_request: httpx.Request) -> httpx.Response:
@@ -50,7 +51,7 @@ def test_none_provider_does_not_call_network() -> None:
     result = asyncio.run(
         summarize_digest(
             _messages(),
-            config=NotifyConfig(summarizer_provider="none"),
+            config=NotifyConfig(),
             transport=httpx.MockTransport(handler),
         )
     )
@@ -59,9 +60,8 @@ def test_none_provider_does_not_call_network() -> None:
     assert calls == 0
 
 
-def test_deepseek_prompt_contains_only_chat_texts(monkeypatch) -> None:
-    monkeypatch.delenv("AITUNNEL_API_KEY", raising=False)
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-secret")
+def test_aitunnel_prompt_contains_only_chat_texts(monkeypatch) -> None:
+    monkeypatch.setenv("AITUNNEL_API_KEY", "aitunnel-secret")
     seen: dict[str, object] = {}
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -71,7 +71,7 @@ def test_deepseek_prompt_contains_only_chat_texts(monkeypatch) -> None:
     result = asyncio.run(
         summarize_digest(
             _messages(),
-            config=NotifyConfig(summarizer_provider="deepseek"),
+            config=NotifyConfig(),
             transport=httpx.MockTransport(handler),
         )
     )
@@ -86,9 +86,8 @@ def test_deepseek_prompt_contains_only_chat_texts(monkeypatch) -> None:
         assert forbidden not in prompt
 
 
-def test_aitunnel_uses_given_model_and_reasoning_budget(monkeypatch) -> None:
+def test_aitunnel_uses_config_model_and_reasoning_budget(monkeypatch) -> None:
     monkeypatch.setenv("AITUNNEL_API_KEY", "aitunnel-secret")
-    monkeypatch.setenv("AITUNNEL_MODEL", "deepseek-v4-flash-0731")
     seen: dict[str, object] = {}
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -100,7 +99,7 @@ def test_aitunnel_uses_given_model_and_reasoning_budget(monkeypatch) -> None:
     result = asyncio.run(
         summarize_digest(
             _messages(),
-            config=NotifyConfig(summarizer_provider="deepseek"),
+            config=NotifyConfig(summarizer_model="deepseek-v4-flash-0731"),
             transport=httpx.MockTransport(handler),
         )
     )
@@ -116,8 +115,7 @@ def test_aitunnel_uses_given_model_and_reasoning_budget(monkeypatch) -> None:
 
 
 def test_summarizer_retries_then_succeeds(monkeypatch) -> None:
-    monkeypatch.delenv("AITUNNEL_API_KEY", raising=False)
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "secret")
+    monkeypatch.setenv("AITUNNEL_API_KEY", "secret")
     calls = 0
 
     async def handler(_request: httpx.Request) -> httpx.Response:
@@ -131,7 +129,6 @@ def test_summarizer_retries_then_succeeds(monkeypatch) -> None:
         summarize_digest(
             _messages(),
             config=NotifyConfig(
-                summarizer_provider="deepseek",
                 summarizer_retry_count=1,
                 summarizer_timeout_seconds=10,
             ),
@@ -144,8 +141,7 @@ def test_summarizer_retries_then_succeeds(monkeypatch) -> None:
 
 
 def test_invalid_llm_output_falls_back_to_none(monkeypatch) -> None:
-    monkeypatch.delenv("AITUNNEL_API_KEY", raising=False)
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "secret")
+    monkeypatch.setenv("AITUNNEL_API_KEY", "secret")
 
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -156,7 +152,7 @@ def test_invalid_llm_output_falls_back_to_none(monkeypatch) -> None:
     result = asyncio.run(
         summarize_digest(
             _messages(),
-            config=NotifyConfig(summarizer_provider="deepseek", summarizer_retry_count=0),
+            config=NotifyConfig(summarizer_retry_count=0),
             transport=httpx.MockTransport(handler),
         )
     )

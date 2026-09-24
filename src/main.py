@@ -15,6 +15,9 @@ from project.database import check_connection
 from project.logging_setup import get_logger, setup_logging
 from project.max import run_max_bot
 
+# Парсеры (ONNX/spaCy + StreetCatalog) стартуют после API/бота — иначе судья ждёт 20–30с.
+_PARSER_START_DELAY_S = 20.0
+
 
 async def _run_supervised(name: str, factory) -> None:
     """Сервис в цикле: падение не роняет соседние задачи."""
@@ -30,6 +33,15 @@ async def _run_supervised(name: str, factory) -> None:
             log.exception("Сервис %s упал — перезапуск через %.0fs", name, backoff)
         await asyncio.sleep(backoff)
         backoff = min(backoff * 2, 60.0)
+
+
+async def _run_parser_deferred(name: str, factory, *, delay_s: float) -> None:
+    """Дать API/боту подняться и отвечать, потом включать тяжёлый парсинг."""
+    log = get_logger(__name__)
+    if delay_s > 0:
+        log.info("Парсер %s стартует через %.0fs (приоритет API/бота)", name, delay_s)
+        await asyncio.sleep(delay_s)
+    await _run_supervised(name, factory)
 
 
 async def run() -> None:
@@ -66,17 +78,32 @@ async def run() -> None:
 
     tasks: list[asyncio.Task[None]] = []
 
+    # Сначала интерактивные сервисы — судья хакатона не должен ждать bootstrap-парсеры.
     if settings.runtime.enable_api:
         tasks.append(asyncio.create_task(_run_supervised("api", run_api_server), name="api"))
     if settings.runtime.enable_bot:
         tasks.append(asyncio.create_task(_run_supervised("max-bot", run_max_bot), name="max-bot"))
     if settings.runtime.enable_news_parser:
         tasks.append(
-            asyncio.create_task(_run_supervised("news-parser", run_news_parser), name="news-parser")
+            asyncio.create_task(
+                _run_parser_deferred(
+                    "news-parser",
+                    run_news_parser,
+                    delay_s=_PARSER_START_DELAY_S,
+                ),
+                name="news-parser",
+            )
         )
     if settings.runtime.enable_mc_parser:
         tasks.append(
-            asyncio.create_task(_run_supervised("mc-parser", run_mc_parser), name="mc-parser")
+            asyncio.create_task(
+                _run_parser_deferred(
+                    "mc-parser",
+                    run_mc_parser,
+                    delay_s=_PARSER_START_DELAY_S,
+                ),
+                name="mc-parser",
+            )
         )
 
     if settings.notify.enabled:

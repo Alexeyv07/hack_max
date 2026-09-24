@@ -211,6 +211,64 @@ def _json_ld_date(soup: BeautifulSoup) -> datetime | None:
     return None
 
 
+def _is_logo_or_icon_url(url: str) -> bool:
+    """Отсечь типовые логотипы/иконки сайтов, которые часто попадают в og:image."""
+    path = urlparse(url).path.lower()
+    hay = f"{path} {urlparse(url).netloc.lower()}"
+    bad_tokens = (
+        "logo",
+        "favicon",
+        "sprite",
+        "icon",
+        "apple-touch",
+        "brand",
+        "default_share",
+        "default-share",
+        "og_image_default",
+        "social-default",
+        "placeholder",
+        "/static/i/",
+        "cover-default",
+    )
+    return any(token in hay for token in bad_tokens)
+
+
+def pick_article_image(soup: BeautifulSoup, *, base_url: str) -> str | None:
+    """
+    Картинка статьи: og/twitter → itemprop → первое крупное img в article.
+    Логотипы и иконки отбрасываем.
+    """
+    candidates: list[str] = []
+    for key in ("og:image", "twitter:image", "vk:image"):
+        raw = meta_content(soup, key)
+        if raw:
+            candidates.append(raw)
+    for node in soup.select("meta[itemprop=image], link[rel=image_src], [itemprop=image]"):
+        raw = node.get("content") or node.get("href") or node.get("src")
+        if raw:
+            candidates.append(str(raw))
+    for img in soup.select(
+        "article img[src], .article__text img[src], .article__content img[src], "
+        ".js-mediator-article img[src], [itemprop=articleBody] img[src]"
+    ):
+        raw = img.get("src") or img.get("data-src")
+        if raw:
+            candidates.append(str(raw))
+
+    seen: set[str] = set()
+    for raw in candidates:
+        url = absolute_url(base_url, raw.strip())
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        if not url.startswith(("http://", "https://")):
+            continue
+        if _is_logo_or_icon_url(url):
+            continue
+        return url
+    return None
+
+
 def enrich_page_from_html(
     html: str,
     *,
@@ -228,21 +286,25 @@ def enrich_page_from_html(
         or fallback_title
         or ""
     )
-    title = title.strip() or (fallback_title or url)
+    title = title.strip() or (fallback_title or "")
 
     body = clean_article_body(
         join_paragraphs(soup, *body_selectors) or first_text(soup, *body_selectors),
-        title=title,
+        title=title or None,
     )
     if body is None:
         body = clean_article_body(
             meta_content(soup, "og:description", "description", "twitter:description"),
-            title=title,
+            title=title or None,
         )
     if body is None:
-        body = clean_article_body(fallback_body, title=title)
+        body = clean_article_body(fallback_body, title=title or None)
 
-    image = meta_content(soup, "og:image", "twitter:image")
+    # Не подставляем URL как заголовок — лучше None на уровне кандидата.
+    if not title or title == url:
+        title = (fallback_title or "").strip()
+
+    image = pick_article_image(soup, base_url=url)
     published = (
         parse_datetime(meta_content(soup, "article:published_time", "pubdate", "publish_date"))
         or _json_ld_date(soup)

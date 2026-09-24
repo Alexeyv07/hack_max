@@ -10,7 +10,10 @@ from pydantic import BaseModel, Field
 
 class FeedItemResponse(BaseModel):
     id: int
-    title: str
+    title: str | None = Field(
+        default=None,
+        description="Заголовок; null — показывай body как основной текст",
+    )
     body: str
     importance: int
     source: str
@@ -45,7 +48,29 @@ class FeedItemResponse(BaseModel):
     )
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    distance_m: float | None = None
+    distance_m: float | None = Field(
+        default=None,
+        description="Haversine до ближайшей улицы чата пользователя (только nearby)",
+    )
+    proximity: Literal["home", "block", "street", "district"] | None = Field(
+        default=None,
+        description="Порядок близости: home≤250м, block≤800м, street≤1.5км, иначе district",
+    )
+    same_street: bool = Field(
+        default=False,
+        description="Улица события совпадает с улицей чата пользователя",
+    )
+    is_active_now: bool | None = Field(
+        default=None,
+        description="Окно active_from/active_to: True сейчас, False вне окна, None неизвестно",
+    )
+
+
+class FeedOriginResponse(BaseModel):
+    lat: float
+    lon: float
+    radius_m: float = Field(description="Откидываем события дальше этого радиуса (м)")
+    chat_count: int = Field(description="Сколько домовых чатов учтено при min-distance")
 
 
 class FeedResponse(BaseModel):
@@ -53,11 +78,15 @@ class FeedResponse(BaseModel):
     scope: Literal["nearby", "city"]
     next_cursor: str | None = None
     count: int
+    origin: FeedOriginResponse | None = Field(
+        default=None,
+        description="Точка дома для nearby; null если нет чата или scope=city",
+    )
 
 
 class MapPointResponse(BaseModel):
     id: int
-    title: str = Field(description="Имя/заголовок для подписи на карте")
+    title: str | None = Field(description="Имя/заголовок для подписи на карте")
     lat: float
     lon: float
     importance: int

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from address.db import AddressRow
 from auth.db import UserRow
@@ -173,13 +174,7 @@ def test_without_group_keeps_initial_admin_setup(db_session, monkeypatch):
 
 
 def test_migration_closes_old_admin_approvals(db_session):
-    from pathlib import Path
-
-    from alembic.config import Config
-    from alembic.migration import MigrationContext
-    from alembic.operations import Operations
-    from alembic.script import ScriptDirectory
-
+    """Эквивалент SQL-миграции 0018_membership_only без alembic."""
     address, admin, resident, chat = _seed(db_session)
     for token, state in (
         ("old-pending", ChatLinkStatus.WAITING_APPROVAL),
@@ -197,11 +192,12 @@ def test_migration_closes_old_admin_approvals(db_session):
         )
     db_session.flush()
 
-    config = Config()
-    config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
-    revision = ScriptDirectory.from_config(config).get_revision("0016_membership_only")
-    with Operations.context(MigrationContext.configure(db_session.connection())):
-        revision.module.upgrade()
+    up_sql = (
+        Path(__file__).resolve().parents[2] / "db/migrations/0018_membership_only.up.sql"
+    ).read_text(encoding="utf-8")
+    for statement in (s.strip() for s in up_sql.split(";") if s.strip()):
+        db_session.execute(text(statement))
+    db_session.commit()
     db_session.expire_all()
 
     statuses = dict(db_session.execute(select(ChatLinkRow.token, ChatLinkRow.status)).all())

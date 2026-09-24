@@ -1,4 +1,4 @@
-"""Тесты HTTP API: feed + map по X-Max-User-Id (общая лента)."""
+"""Тесты HTTP API: feed + map по X-Max-User-Id (nearby персонально)."""
 
 from __future__ import annotations
 
@@ -45,10 +45,20 @@ def client(session_factory, monkeypatch):
     reset_settings_cache()
 
 
-def _add_address(session, *, text: str, lat: float, lon: float) -> AddressRow:
+def _add_address(
+    session,
+    *,
+    text: str,
+    lat: float,
+    lon: float,
+    street: str | None = "Тестовая",
+    city: str | None = "Москва",
+) -> AddressRow:
     row = AddressRow(
         address_text=text,
         postal_code="123456",
+        city=city,
+        street=street,
         latitude=Decimal(str(lat)),
         longitude=Decimal(str(lon)),
     )
@@ -64,14 +74,14 @@ def _seed_user_and_events(session_factory) -> None:
             session,
             MaxUserPayload(max_user_id=4242, name="Demo", username="demo"),
         )
-        nearby = _add_address(session, text="Москва, улица Тестовая, д. 1", lat=55.75, lon=37.62)
+        nearby = _add_address(
+            session, text="Москва, улица Тестовая, д. 1", lat=55.7505, lon=37.6202
+        )
         create_chat(session, ChatCreate(chat_id=900_001, address_id=nearby.id))
         add_user_to_chat(session, 900_001, max_user_id=4242)
         set_member_address(session, 900_001, max_user_id=4242, address_id=nearby.id)
         cat = _add_address(session, text="Москва, улица Тестовая, д. 2", lat=55.751, lon=37.621)
         far = _add_address(session, text="Москва, улица Тестовая, д. 3", lat=55.90, lon=37.62)
-        water = _add_address(session, text="Москва, улица Тестовая, д. 4", lat=55.80, lon=37.62)
-
         crud.create_event(
             session,
             EventCreate(
@@ -113,7 +123,7 @@ def _seed_user_and_events(session_factory) -> None:
                 body="отключили",
                 importance=2,
                 source="news",
-                address_id=water.id,
+                address_id=nearby.id,
                 geo_by="home",
             ),
         )
@@ -127,6 +137,25 @@ def _seed_user_and_events(session_factory) -> None:
                 source="news",
                 address_id=None,
                 geo_by="city",
+            ),
+        )
+        # За радиусом — не в nearby.
+        beyond = _add_address(
+            session,
+            text="Москва, далеко",
+            lat=56.20,
+            lon=37.70,
+            street="Далёкая",
+        )
+        crud.create_event(
+            session,
+            EventCreate(
+                title="Beyond radius",
+                body="b",
+                importance=2,
+                source="news",
+                address_id=beyond.id,
+                geo_by="street",
             ),
         )
         session.commit()
@@ -147,8 +176,8 @@ def test_feed_requires_user_header(client) -> None:
     assert response.status_code == 401
 
 
-def test_nearby_requires_selected_home(client) -> None:
-    """Nearby не раскрывает чужие домовые события до выбора адреса."""
+def test_feed_empty_without_selected_home(client) -> None:
+    """Без выбранного дома nearby пустой; городская лента всё ещё доступна."""
     test_client, session_factory = client
     _seed_user_and_events(session_factory)
     response = test_client.get(
@@ -157,8 +186,17 @@ def test_nearby_requires_selected_home(client) -> None:
         headers={"X-Max-User-Id": "999"},
     )
     assert response.status_code == 200
-    titles = {item["title"] for item in response.json()["items"]}
-    assert titles == set()
+    body = response.json()
+    assert body["items"] == []
+    assert body["origin"] is None
+
+    city = test_client.get(
+        "/events/feed",
+        params={"scope": "city"},
+        headers={"X-Max-User-Id": "999"},
+    )
+    assert city.status_code == 200
+    assert "Far city" in {item["title"] for item in city.json()["items"]}
 
 
 def test_feed_selected_address(client) -> None:
@@ -173,11 +211,15 @@ def test_feed_selected_address(client) -> None:
     assert first.status_code == 200
     body = first.json()
     assert body["count"] == 1
-    assert body["next_cursor"] is None
+    assert body["next_cursor"] is not None
+    assert body["origin"] is not None
+    assert body["origin"]["radius_m"] == 6_000
     item = body["items"][0]
     assert item["lat"] is not None
     assert item["lon"] is not None
     assert item["location"]
+    assert item["distance_m"] is not None
+    assert item["proximity"] in ("home", "block", "street", "district")
     assert "published_at" in item
 
     full = test_client.get(
@@ -188,6 +230,8 @@ def test_feed_selected_address(client) -> None:
     assert full.status_code == 200
     by_title = {i["title"]: i for i in full.json()["items"]}
     assert by_title["Nearby ok"]["image_url"] == "https://cdn.example/nearby.jpg"
+    assert "Вода в районе" in by_title
+    assert "Beyond radius" not in by_title
     assert "Без локации" not in by_title
 
 
@@ -203,13 +247,17 @@ def test_map_only_important(client) -> None:
     assert "Пропала кошка" not in titles
 
 
-def test_nearby_is_personal_for_different_users(client) -> None:
+def test_nearby_differs_by_user_location(client) -> None:
     test_client, session_factory = client
     _seed_user_and_events(session_factory)
     with session_factory.begin() as session:
         authorize_user(session, MaxUserPayload(max_user_id=999))
         address = _add_address(
-            session, text="Москва, дом второго пользователя", lat=55.90, lon=37.62
+            session,
+            text="Москва, дом второго пользователя",
+            lat=56.20,
+            lon=37.70,
+            street="Далёкая",
         )
         create_chat(session, ChatCreate(chat_id=900_002, address_id=address.id))
         add_user_to_chat(session, 900_002, max_user_id=999)
@@ -220,8 +268,12 @@ def test_nearby_is_personal_for_different_users(client) -> None:
         "/events/feed", params={"scope": "nearby"}, headers={"X-Max-User-Id": "999"}
     )
     assert a.status_code == 200 and b.status_code == 200
-    assert {i["title"] for i in a.json()["items"]} == {"Nearby ok"}
-    assert b.json()["items"] == []
+    titles_a = {i["title"] for i in a.json()["items"]}
+    titles_b = {i["title"] for i in b.json()["items"]}
+    assert "Nearby ok" in titles_a
+    assert "Beyond radius" not in titles_a
+    assert "Beyond radius" in titles_b
+    assert "Nearby ok" not in titles_b
 
 
 def test_write_endpoints_removed(client) -> None:

@@ -41,32 +41,6 @@ def _patch_get_updates_limit(bot: Bot, *, limit: int) -> None:
     logger.info("Max get_updates limit=%s", limit)
 
 
-def _warm_chat_ml() -> None:
-    """Прогреть classify + time + dedup ONNX до первого сообщения."""
-    sample = "прогрев: отключили воду во дворе с 10:00 до 18:00"
-    try:
-        from parser_common.classify import classify_importance
-
-        classify_importance(sample)
-        logger.info("warm ML: classify ok")
-    except Exception:
-        logger.debug("warm classify skipped", exc_info=True)
-    try:
-        from parser_common.time_extract import extract_active_window
-
-        extract_active_window(sample, use_model=True)
-        logger.info("warm ML: time ok")
-    except Exception:
-        logger.debug("warm time skipped", exc_info=True)
-    try:
-        from ml_dedup.embed import embed_text
-
-        embed_text(sample, allow_hash_fallback=True)
-        logger.info("warm ML: dedup embed ok")
-    except Exception:
-        logger.debug("warm embed skipped", exc_info=True)
-
-
 async def run_max_bot() -> None:
     """Polling Max-бота. Токен обязателен только если бот реально запускают."""
     settings = get_settings()
@@ -86,13 +60,12 @@ async def run_max_bot() -> None:
         logger.exception("Не удалось получить GET /me — open_app возьмёт fallback из конфига")
 
     set_max_bot(bot)
-    get_address_catalog()
+    # ~125k адресов: только в thread — иначе весь event loop (и HTTP) мёртв на 10–30с.
+    await asyncio.to_thread(get_address_catalog)
 
     chat_on = settings.runtime.enable_chat_parser and settings.chat_parser.enabled
     if chat_on:
         _patch_get_updates_limit(bot, limit=settings.chat_parser.updates_limit)
-        # Прогрев в фоне — не блокируем старт polling.
-        asyncio.create_task(asyncio.to_thread(_warm_chat_ml), name="warm-chat-ml")
 
     # True: handlers не сериализуют polling. parse_chat сам fire-and-forget.
     dp = Dispatcher(use_create_task=True)

@@ -103,18 +103,19 @@ seed не стирает уже определённый район, если в
 `address_text` остаётся `UNIQUE` и используется для идемпотентного seed/upsert.
 `events.address_id` ссылается на `addresses.id`; координаты события не дублируются
 в таблице `events`, а читаются из связанного `Address`. Миграции `0004`/`0005`
-объединяют параллельные ветки Alembic и переводят существующую схему на эту модель.
+переводят схему на FK `events.address_id → addresses`.
 
 ```bash
 python -m pip install -e '.[dev]'
-alembic upgrade head
+PYTHONPATH=src python scripts/migrate.py up
 python -m unittest discover -s tests -p test_address_geocoding.py -v
 ```
 
 Тесты схемы дополнительно требуют PostgreSQL с правом `CREATE SCHEMA` и
 переменную `ADDRESS_TEST_DATABASE_URL`. Они работают в отдельных схемах
 и откатывают изменения. Миграции создают структуру. При запуске полного стека
-через Docker `bot_entrypoint.py` автоматически наполняет пустую таблицу `addresses`.
+в Docker seed `addresses`/`events` грузит init образа Postgres
+(`docker/postgres` → `COPY` из CSV).
 
 
 ## Загрузка адресов
@@ -125,10 +126,8 @@ python -m unittest discover -s tests -p test_address_geocoding.py -v
 docker compose up --build
 ```
 
-После миграций контейнер бота проверяет `addresses` через `SELECT ... LIMIT 1`.
-Если таблица пустая, автоматически загружается
-`src/address/data/moscow.jsonl.gz`. Если в таблице уже есть хотя бы одна запись,
-повторный импорт при старте не выполняется.
+На первом initdb Postgres накатывает `db/migrations` и `COPY` seed CSV.
+Повторный старт с тем же volume seed не перезатирает.
 
 Локальный файл JSONL (один объект на строку), также поддерживается `.jsonl.gz`:
 

@@ -10,6 +10,7 @@
 		hasMore: boolean;
 		onnearend: () => void;
 		onrequestcity?: () => void;
+		onrequestnearby?: () => void;
 		/** Вызывается при свайпе/скролле на следующую карточку вниз. */
 		ondownswipe?: () => void;
 	};
@@ -22,6 +23,7 @@
 		hasMore,
 		onnearend,
 		onrequestcity,
+		onrequestnearby,
 		ondownswipe
 	}: Props = $props();
 
@@ -41,6 +43,21 @@
 		return Math.abs(index - activeIndex) <= WINDOW;
 	}
 
+	function maybeLoadMore() {
+		if (!scroller || !hasMore || loading || items.length === 0) return;
+		const idx = currentSlideIndex();
+		// Догружаем, когда до конца осталось ≤3 карточки.
+		const remainingSlides = items.length - idx - 1;
+		if (remainingSlides <= 3) {
+			onnearend();
+			return;
+		}
+		const remainingPx = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+		if (remainingPx < scroller.clientHeight * 3) {
+			onnearend();
+		}
+	}
+
 	function onScroll() {
 		if (!scroller) return;
 
@@ -52,13 +69,18 @@
 			ondownswipe?.();
 		}
 		lastSlideIndex = idx;
-
-		if (!hasMore || loading) return;
-		const remaining = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
-		if (remaining < scroller.clientHeight * 1.5) {
-			onnearend();
-		}
+		maybeLoadMore();
 	}
+
+	// После append страницы scroll-событие не приходит — догружаем, если всё ещё у края.
+	$effect(() => {
+		void items.length;
+		void loading;
+		void hasMore;
+		if (!scroller || loading || !hasMore) return;
+		const id = requestAnimationFrame(() => maybeLoadMore());
+		return () => cancelAnimationFrame(id);
+	});
 </script>
 
 <div class="scroller" bind:this={scroller} onscroll={onScroll} data-scope={scope}>
@@ -74,15 +96,21 @@
 	{:else if !loading && items.length === 0}
 		<div class="state">
 			{#if scope === 'nearby'}
-				<p>Новости рядом закончились</p>
+				<p>Рядом с вашей улицей пока тихо</p>
 				{#if onrequestcity}
 					<button type="button" class="cta" onclick={onrequestcity}>
 						К новостям города →
 					</button>
-					<p class="sub">Или смахните вправо</p>
+					<p class="sub">Подключите чат соседей в боте или смахните вправо</p>
 				{/if}
 			{:else}
-				<p>Новостей города пока нет</p>
+				<p>Новости города закончились</p>
+				{#if onrequestnearby}
+					<button type="button" class="cta" onclick={onrequestnearby}>
+						← К новостям рядом
+					</button>
+					<p class="sub">Или смахните влево</p>
+				{/if}
 			{/if}
 		</div>
 	{:else}
@@ -94,15 +122,25 @@
 			</section>
 		{/each}
 
-		{#if scope === 'nearby' && !hasMore && items.length > 0}
+		{#if !hasMore && items.length > 0}
 			<section class="slide end-slide">
 				<div class="state">
-					<p>Новости рядом закончились</p>
-					{#if onrequestcity}
-						<button type="button" class="cta" onclick={onrequestcity}>
-							К новостям города →
-						</button>
-						<p class="sub">Или смахните вправо</p>
+					{#if scope === 'nearby'}
+						<p>Новости рядом закончились</p>
+						{#if onrequestcity}
+							<button type="button" class="cta" onclick={onrequestcity}>
+								К новостям города →
+							</button>
+							<p class="sub">Или смахните вправо</p>
+						{/if}
+					{:else}
+						<p>Новости города закончились</p>
+						{#if onrequestnearby}
+							<button type="button" class="cta" onclick={onrequestnearby}>
+								← К новостям рядом
+							</button>
+							<p class="sub">Или смахните влево</p>
+						{/if}
 					{/if}
 				</div>
 			</section>

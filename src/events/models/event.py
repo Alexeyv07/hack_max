@@ -21,7 +21,7 @@ class EventSource(StrEnum):
 class EventCreate:
     """Данные для создания события (уже финальные поля, не draft парсера)."""
 
-    title: str
+    title: str | None
     body: str
     importance: int
     source: EventSource | str
@@ -65,7 +65,7 @@ class Event:
     """Событие на уровне приложения."""
 
     id: int
-    title: str
+    title: str | None
     body: str
     importance: int
     source: str
@@ -86,3 +86,7 @@ class Event:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     distance_m: float | None = None
+    # Только nearby-персонализация (иначе None / False).
+    proximity: str | None = None
+    same_street: bool = False
+    is_active_now: bool | None = None

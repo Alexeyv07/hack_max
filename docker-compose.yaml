@@ -1,6 +1,9 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+    image: hack_max_postgres:local
     container_name: hack_max_postgres
     environment:
       POSTGRES_DB: hack_max
@@ -15,6 +18,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 120s
 
   bot:
     build:
@@ -37,8 +41,6 @@ services:
     volumes:
       - ./src:/app/src
       - ./conf:/app/conf
-      - ./alembic:/app/alembic
-      - ./alembic.ini:/app/alembic.ini
       - ./ml/classify/rules.yaml:/app/ml/classify/rules.yaml:ro
       - ./ml/classify/artifacts:/app/ml/classify/artifacts:ro
       - ./ml/time/artifacts:/app/ml/time/artifacts:ro
@@ -67,6 +69,9 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
+  # https://cloudpub.ru/docs/docker
+  # Sticky URL: agent_id в entrypoint + volume ./docker/cloudpub (не CLOUDPUB_AGENT_ID).
+  # Не ставить HTTP=: иначе пустой register → новый hostname.
   cloudpub:
     image: cloudpub/cloudpub:latest
     container_name: hack_max_cloudpub
@@ -74,14 +79,14 @@ services:
     network_mode: "service:webapp"
     environment:
       TOKEN: ${CLOUDPUB_TOKEN:-}
-      HTTP: localhost:5173
-    command: ["run"]
+      HOME: /home/cloudpub
+    entrypoint: ["/bin/sh", "/cloudpub-entrypoint.sh"]
     volumes:
-      - cloudpub_config:/home/cloudpub
+      - ./docker/cloudpub-entrypoint.sh:/cloudpub-entrypoint.sh:ro
+      - ./docker/cloudpub:/home/cloudpub
     depends_on:
       - webapp
 
 volumes:
   postgres_data:
   webapp_node_modules:
-  cloudpub_config:
