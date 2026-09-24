@@ -316,3 +316,102 @@ def test_same_courtyard_chat_has_separate_home_feeds(client) -> None:
     assert one.status_code == two.status_code == 200
     assert [item["title"] for item in one.json()["items"]] == ["Работы в первом доме"]
     assert [item["title"] for item in two.json()["items"]] == ["Работы во втором доме"]
+
+
+def test_personal_address_nearby_without_group(client) -> None:
+    """Старый личный адрес v5 не открывает nearby без подтверждённого чата."""
+    from auth.handlers.residence import set_personal_address
+
+    test_client, factory = client
+    with factory() as session:
+        authorize_user(session, MaxUserPayload(max_user_id=4242, name="Resident"))
+        authorize_user(session, MaxUserPayload(max_user_id=5555, name="Another"))
+        home = _add_address(
+            session, text="Москва, улица Мира, д. 1", lat=55.75, lon=37.62, street="Мира"
+        )
+        second = _add_address(
+            session, text="Москва, далеко, д. 2", lat=55.94, lon=37.82, street="Далёкая"
+        )
+        crud.create_event(
+            session,
+            EventCreate(
+                title="Рядом с домом",
+                body="Ремонт",
+                importance=2,
+                source="news",
+                address_id=home.id,
+                geo_by="street",
+            ),
+        )
+        crud.create_event(
+            session,
+            EventCreate(
+                title="Чужой дом",
+                body="Детали",
+                importance=2,
+                source="news",
+                address_id=second.id,
+                geo_by="home",
+            ),
+        )
+        set_personal_address(session, max_user_id=4242, address_id=home.id)
+        session.commit()
+    nearby = test_client.get("/events/feed", params={"scope": "nearby"}, headers=USER_HEADERS)
+    assert nearby.status_code == 200
+    payload = nearby.json()
+    assert payload["items"] == []
+    assert payload["origin"] is None
+    own = test_client.get("/chat-link/residence", headers=USER_HEADERS)
+    assert own.status_code == 200 and own.json()["address"] is None
+    another = test_client.get("/chat-link/residence", headers={"X-Max-User-Id": "5555"})
+    assert another.status_code == 200 and another.json()["address"] is None
+    no_origin = test_client.get(
+        "/events/feed", params={"scope": "nearby"}, headers={"X-Max-User-Id": "5555"}
+    )
+    assert no_origin.status_code == 200 and no_origin.json()["origin"] is None
+
+
+def test_unconfirmed_personal_location_falls_back_to_linked_group(client) -> None:
+    """Дом, добавленный к группе, не должен менять личную точку для новостей."""
+    from auth.handlers.residence import set_personal_address
+
+    test_client, factory = client
+    with factory() as session:
+        authorize_user(session, MaxUserPayload(max_user_id=4242))
+        own = _add_address(
+            session, text="Москва, личный дом", lat=55.75, lon=37.62, street="Личная"
+        )
+        group = _add_address(
+            session, text="Москва, групповая улица", lat=55.94, lon=37.82, street="Групповая"
+        )
+        create_chat(session, ChatCreate(chat_id=900_001, address_id=group.id))
+        add_user_to_chat(session, 900_001, max_user_id=4242)
+        set_member_address(session, 900_001, max_user_id=4242, address_id=group.id)
+        set_personal_address(session, max_user_id=4242, address_id=own.id)
+        crud.create_event(
+            session,
+            EventCreate(
+                title="Около личного",
+                body="Текст",
+                importance=2,
+                source="news",
+                address_id=own.id,
+                geo_by="street",
+            ),
+        )
+        crud.create_event(
+            session,
+            EventCreate(
+                title="Около группового",
+                body="Текст",
+                importance=2,
+                source="news",
+                address_id=group.id,
+                geo_by="street",
+            ),
+        )
+        session.commit()
+    response = test_client.get("/events/feed", params={"scope": "nearby"}, headers=USER_HEADERS)
+    assert response.status_code == 200
+    assert [item["title"] for item in response.json()["items"]] == ["Около группового"]
+    assert response.json()["origin"]["chat_count"] == 1

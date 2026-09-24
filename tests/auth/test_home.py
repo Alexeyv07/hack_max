@@ -75,7 +75,7 @@ def test_home_sends_image_and_keyboard_together(db_session) -> None:
     bot.send_message.assert_awaited_once()
     sent = bot.send_message.await_args.kwargs
     assert sent["chat_id"] == 1000
-    assert "Ваши привязанные адреса" in sent["text"]
+    assert "Ваши адреса 🏠" in sent["text"]
     assert "—" in sent["text"]
     assert len(sent["attachments"]) == 2
     assert sent["attachments"][0].type == "image"
@@ -93,3 +93,18 @@ def test_home_falls_back_to_text_when_upload_fails(db_session) -> None:
     asyncio.run(send_home(bot, db_session, 42))
     assert bot.send_message.await_count == 2
     assert len(bot.send_message.await_args.kwargs["attachments"]) == 1
+
+
+def test_home_does_not_show_old_personal_address_without_chat(db_session) -> None:
+    from auth.handlers.residence import set_personal_address
+
+    home = AddressRow(
+        address_text="Москва, новый дом",
+        latitude=Decimal("55.7500000"),
+        longitude=Decimal("37.6100000"),
+    )
+    db_session.add_all([home, UserRow(max_user_id=1001)])
+    db_session.flush()
+    set_personal_address(db_session, max_user_id=1001, address_id=home.id)
+    assert linked_addresses(db_session, 1001) == []
+    assert home.address_text not in build_home_text(linked_addresses(db_session, 1001))

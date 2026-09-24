@@ -314,7 +314,9 @@
 	async function copyAdminLink() {
 		if (!result?.admin_link) return;
 		try {
-			await navigator.clipboard.writeText(result.admin_link);
+			await navigator.clipboard.writeText(
+                `Здравствуйте! Помогите подключить домовой чат по адресу ${result.address.address_text} к боту «КасаетсяМеня»: ${result.admin_link}`
+            );
 			linkCopied = true;
 		} catch {
 			error = 'Не удалось скопировать ссылку. Попробуйте открыть выбор адреса из бота ещё раз.';
@@ -454,8 +456,8 @@
 				<p>✅ Домовой чат успешно привязан к этому адресу. Можно вернуться в групповой чат.</p>
 			{:else if result.mode === 'already_member'}
 				<p>✅ Вы состоите в этом домовом чате. Чат привязан к вашему профилю.</p>
-			{:else if result.mode === 'resident_address'}
-				<p>✅ Ваш адрес сохранён. Теперь события рядом с вашим домом доступны в мини-приложении.</p>
+			{:else if result.mode === 'resident_address' || result.mode === 'personal_address'}
+				<p>✅ Ваш адрес сохранён. Новости рядом доступны.</p>
 			{:else if showAdminHelp}
 				<p>
 					Добавьте бота в нужный групповой чат и назначьте его администратором с правом
@@ -472,7 +474,7 @@
 				</p>
 				{#if result.admin_link}
 					<button class="primary" type="button" onclick={copyAdminLink}>
-						{linkCopied ? 'Ссылка скопирована' : 'Скопировать ссылку для администратора'}
+						{linkCopied ? 'Ссылка скопирована' : 'Скопировать пригласительное сообщение'}
 					</button>
 				{/if}
 				<button class="secondary" type="button" onclick={() => (showAdminHelp = true)}>
@@ -481,7 +483,7 @@
 			{/if}
 			{#if result.mode === 'group_connected'}
 				<button class="secondary" type="button" onclick={startAnother}>Добавить ещё дом к чату</button>
-			{:else if result.mode === 'resident_address'}
+			{:else if result.mode === 'resident_address' || result.mode === 'personal_address'}
 				<button class="secondary" type="button" onclick={startAnother}>Изменить свой адрес</button>
 			{:else}
 				<button class="secondary" type="button" onclick={startAnother}>Выбрать другой адрес</button>

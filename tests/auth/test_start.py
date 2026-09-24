@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import auth.commands.start as start
-from project.config import get_settings
 
 
 class FakeContext:
@@ -60,13 +59,12 @@ def _user(name="Алексей", username="alexey", *, is_new=False):
     return SimpleNamespace(name=name, username=username, max_user_id=42, is_new=is_new)
 
 
-def test_welcome_text_contains_product_description_and_docs() -> None:
+def test_first_welcome_matches_product_copy() -> None:
     text = start.build_welcome_text("Алексей")
-    assert text.startswith("Привет, Алексей!")
-    assert "важными событиями" in text
-    assert "рядом с вашим домом" in text
-    assert get_settings().docs.url in text
-    assert "Подробнее о проекте" in text
+    assert text.startswith("Здравствуйте, Алексей!")
+    assert "Это сервис «КасаетсяМеня»" in text
+    assert "что произойдёт, когда и касается ли это вашего дома и корпуса" in text
+    assert "Укажите свой адрес" in text
 
 
 def test_admin_deep_link_explains_automatic_group_connection() -> None:
@@ -79,13 +77,14 @@ def test_admin_deep_link_explains_automatic_group_connection() -> None:
 def test_welcome_keyboard_hides_events_without_membership() -> None:
     markup = start.build_welcome_keyboard(_bot(), show_events=False)
     buttons = markup.payload.buttons
-    assert [button.text for button in buttons[0]] == ["Добавить чат"]
+    assert [button.text for button in buttons[0]] == ["Указать свой адрес"]
+    assert start.build_welcome_keyboard(_bot(), show_events=False, can_choose_address=False) is None
 
 
 def test_welcome_keyboard_shows_events_after_membership() -> None:
     markup = start.build_welcome_keyboard(_bot(), show_events=True)
     buttons = markup.payload.buttons
-    assert [button.text for button in buttons[0]] == ["Добавить чат", "Смотреть события"]
+    assert [button.text for button in buttons[0]] == ["Указать свой адрес", "Смотреть события"]
     assert buttons[0][0].payload == start.CHAT_LINK_START_PAYLOAD
     assert buttons[0][1].web_app == "smart_city_bot"
     assert buttons[0][1].contact_id == 777
@@ -94,8 +93,9 @@ def test_welcome_keyboard_shows_events_after_membership() -> None:
 def test_bot_started_sends_welcome(monkeypatch) -> None:
     dp = FakeDispatcher()
     bot = _bot()
-    monkeypatch.setattr(start, "authorize_from_event", lambda event: _user())
+    monkeypatch.setattr(start, "authorize_from_event", lambda event: _user(is_new=True))
     monkeypatch.setattr(start, "_show_events", lambda max_user_id: False)
+    monkeypatch.setattr(start, "_can_choose_address", lambda max_user_id: True)
     start.register_auth_commands(dp, bot)
 
     context = FakeContext()
@@ -109,11 +109,12 @@ def test_bot_started_sends_welcome(monkeypatch) -> None:
     assert context.data["flow_mid"] == "welcome-mid"
 
 
-def test_start_sends_new_welcome_instead_of_editing_previous(monkeypatch) -> None:
+def test_repeat_start_opens_home_after_address_selected(monkeypatch) -> None:
     dp = FakeDispatcher()
     bot = _bot()
-    monkeypatch.setattr(start, "authorize_from_event", lambda event: _user(name=None))
+    monkeypatch.setattr(start, "authorize_from_event", lambda event: _user(name=None, is_new=False))
     monkeypatch.setattr(start, "_show_events", lambda max_user_id: True)
+    monkeypatch.setattr(start, "_can_choose_address", lambda max_user_id: True)
 
     @contextmanager
     def fake_session_scope():
@@ -148,6 +149,7 @@ def test_group_bind_deep_link_keeps_target_chat_in_context(monkeypatch) -> None:
     bot = _bot()
     monkeypatch.setattr(start, "authorize_from_event", lambda event: _user())
     monkeypatch.setattr(start, "_show_events", lambda max_user_id: False)
+    monkeypatch.setattr(start, "_can_choose_address", lambda max_user_id: True)
 
     @contextmanager
     def fake_session_scope():
@@ -173,6 +175,7 @@ def test_plain_start_delivered_as_two_update_types_sends_one_welcome(monkeypatch
     bot = _bot()
     monkeypatch.setattr(start, "authorize_from_event", lambda event: _user())
     monkeypatch.setattr(start, "_show_events", lambda max_user_id: False)
+    monkeypatch.setattr(start, "_can_choose_address", lambda max_user_id: True)
     start.register_auth_commands(dp, bot)
 
     context = FakeContext()
@@ -189,6 +192,7 @@ def test_two_explicit_starts_both_create_new_messages(monkeypatch) -> None:
     bot = _bot()
     monkeypatch.setattr(start, "authorize_from_event", lambda event: _user())
     monkeypatch.setattr(start, "_show_events", lambda max_user_id: False)
+    monkeypatch.setattr(start, "_can_choose_address", lambda max_user_id: True)
     start.register_auth_commands(dp, bot)
 
     context = FakeContext({"flow_mid": "old-mid"})
@@ -203,6 +207,7 @@ def test_two_explicit_starts_both_create_new_messages(monkeypatch) -> None:
 def test_welcome_explicit_recipient_for_notify_callback(monkeypatch) -> None:
     bot = _bot()
     monkeypatch.setattr(start, "_show_events", lambda max_user_id: False)
+    monkeypatch.setattr(start, "_can_choose_address", lambda max_user_id: True)
     context = FakeContext({"flow_mid": "previous-message"})
     message = SimpleNamespace(answer=AsyncMock())
     event = SimpleNamespace(message=message)
@@ -210,7 +215,7 @@ def test_welcome_explicit_recipient_for_notify_callback(monkeypatch) -> None:
     asyncio.run(start._render_welcome(bot, event, context, _user(), recipient_chat_id=54321))
 
     assert bot.send_message.await_args.kwargs["chat_id"] == 54321
-    assert "Привет, Алексей!" in bot.send_message.await_args.kwargs["text"]
+    assert bot.send_message.await_args.kwargs["text"] == start.ADDRESS_PICKER_TEXT
     assert context.data == {"flow_mid": "welcome-mid"}
     message.answer.assert_not_awaited()
     bot.edit_message.assert_not_awaited()
@@ -238,6 +243,7 @@ def test_first_start_uses_first_image_only_once(monkeypatch) -> None:
 
     monkeypatch.setattr(start, "authorize_from_event", authorize)
     monkeypatch.setattr(start, "_show_events", lambda max_user_id: False)
+    monkeypatch.setattr(start, "_can_choose_address", lambda max_user_id: True)
     start.register_auth_commands(dp, bot)
     event = SimpleNamespace(chat_id=123)
     asyncio.run(dp.handlers["message_created"](event, FakeContext()))
@@ -247,3 +253,60 @@ def test_first_start_uses_first_image_only_once(monkeypatch) -> None:
     second = bot.send_message.await_args.kwargs["attachments"]
     assert not any(getattr(item, "path", None) == str(FIRST_START_IMAGE_PATH) for item in second)
     assert bot.send_message.await_count == 2
+
+
+def test_outsider_can_start_address_selection_but_not_open_news(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = _bot()
+    monkeypatch.setattr(start, "authorize_from_event", lambda _event: _user(is_new=True))
+    monkeypatch.setattr(start, "_show_events", lambda _max_id: False)
+    monkeypatch.setattr(start, "_can_choose_address", lambda _max_id: True)
+    monkeypatch.setattr(start, "send_home", AsyncMock())
+    start.register_auth_commands(dp, bot)
+
+    asyncio.run(dp.handlers["message_created"](SimpleNamespace(chat_id=123), FakeContext()))
+
+    sent = bot.send_message.await_args.kwargs
+    assert "Здравствуйте, Алексей!" in sent["text"]
+    assert sent["attachments"][1].payload.buttons[0][0].text == "Указать свой адрес"
+    assert all(
+        button.text != "Смотреть события"
+        for row in sent["attachments"][1].payload.buttons
+        for button in row
+    )
+    start.send_home.assert_not_awaited()
+
+
+def test_saved_address_needs_linked_chat_before_home(db_session, monkeypatch) -> None:
+    from decimal import Decimal
+
+    from address.db import AddressRow
+    from auth.db import UserRow
+    from auth.handlers.residence import set_personal_address
+    from user_chat.handlers import add_user_to_chat, create_chat
+    from user_chat.models import ChatCreate
+
+    home = AddressRow(
+        address_text="Москва, дом 1",
+        latitude=Decimal("55.7500000"),
+        longitude=Decimal("37.6100000"),
+    )
+    db_session.add_all([home, UserRow(max_user_id=42)])
+    db_session.flush()
+    set_personal_address(db_session, max_user_id=42, address_id=home.id)
+
+    @contextmanager
+    def same_session():
+        yield db_session
+
+    monkeypatch.setattr(start, "session_scope", same_session)
+    assert start._can_choose_address(42)
+    assert not start._show_events(42)
+
+    chat = create_chat(db_session, ChatCreate(chat_id=-101, address_id=home.id))
+    add_user_to_chat(db_session, chat.chat_id, max_user_id=42)
+    from user_chat.handlers import set_member_address
+
+    set_member_address(db_session, chat.chat_id, max_user_id=42, address_id=home.id)
+    assert start._can_choose_address(42)
+    assert start._show_events(42)

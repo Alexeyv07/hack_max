@@ -17,7 +17,7 @@ export type ChatOption = {
 
 export type SelectResult = {
 	address: AddressOption;
-	mode: 'connect_group' | 'group_connected' | 'already_member' | 'resident_address';
+	mode: 'connect_group' | 'group_connected' | 'already_member' | 'resident_address' | 'personal_address' | 'not_member' | 'no_chat';
 	token?: string | null;
 	admin_link?: string | null;
 	chats: ChatOption[];

@@ -12,6 +12,7 @@ from chat_link.handlers.group import (
     connected_group_keyboard,
     existing_group_chats,
     join_existing_chat,
+    select_linked_member_residence,
 )
 from chat_link.handlers.links import (
     claim_admin_request,
@@ -44,4 +45,5 @@ __all__ = [
     "join_existing_chat",
     "mark_joined",
     "pending_for_actor",
+    "select_linked_member_residence",
 ]

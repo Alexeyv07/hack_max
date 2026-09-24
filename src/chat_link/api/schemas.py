@@ -19,6 +19,10 @@ class PostalAddressSearchResponse(AddressSearchResponse):
     total: int
 
 
+class PersonalResidenceResponse(BaseModel):
+    address: AddressOption | None = None
+
+
 class AddressSelectRequest(BaseModel):
     address_id: int
     chat_id: int | None = None

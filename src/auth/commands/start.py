@@ -15,14 +15,21 @@ from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
 from auth.commands.home import MANAGE_ADDRESSES_PAYLOAD, send_home
 from auth.handlers.authorize import authorize_from_event
+from auth.handlers.residence import get_personal_address
 from chat_link.handlers import bind_referral_member, claim_admin_request
 from project.bot_media import first_start_image
-from project.config import get_settings
 from project.database import session_scope
-from user_chat.handlers import has_connected_chat
+from user_chat.handlers import has_connected_chat, linked_group_ids
 
 CHAT_LINK_START_PAYLOAD = "chat_link:start"
 CHAT_BIND_PREFIX = "chat_bind_"
+
+ADDRESS_PICKER_TEXT = (
+    "Давайте найдём ваш дом 🏠\n\n"
+    "Выберите удобный способ: найти адрес в списке, показать дом на карте "
+    "или написать адрес.\n\n"
+    "Если помните почтовый индекс, можно начать с него — затем выбрать свой дом:"
+)
 
 
 def build_welcome_text(
@@ -32,13 +39,21 @@ def build_welcome_text(
     notice: str | None = None,
     binding_group: bool = False,
     choosing_residence: bool = False,
+    can_choose_address: bool = True,
 ) -> str:
     safe_name = escape(name)
-    docs_url = get_settings().docs.url
     text = (
-        f"Привет, {safe_name}! Я помогу следить за важными событиями "
-        "рядом с вашим домом и в районе.\n\n"
-        f'🔗 <a href="{docs_url}"><b>Подробнее о проекте</b></a>'
+        f"Здравствуйте, {safe_name}!\n\n"
+        "Это сервис «КасаетсяМеня» 🕊️\n\n"
+        "- Помогаем не пропустить важное о вашем доме: когда отключат воду, "
+        "где идут работы и что изменилось 👷‍♂️\n\n"
+        "- Вам не нужно перечитывать весь чат соседей 🙋\n\n"
+        "- Мы собираем сообщения об одном событии в понятную карточку: "
+        "<b>что произойдёт, когда и касается ли это вашего дома и корпуса.</b> 🚀\n\n"
+        "- Если сроки изменятся — обновим информацию 📣\n\n"
+        "Также кроме новостей вашего двора и округи мы собираем для вас "
+        "подборку актуальных новостей вашего города. Не упустите то, что вас касается ❗\n\n"
+        "Укажите свой адрес, чтобы подключить сервис к чату вашего дома:"
     )
     if notice:
         text += f"\n\n{escape(notice)}"
@@ -67,32 +82,38 @@ def build_welcome_keyboard(
     show_events: bool,
     binding_group: bool = False,
     choosing_residence: bool = False,
+    can_choose_address: bool = True,
 ) -> Any:
     me = getattr(bot, "me", None)
     username = getattr(me, "username", None)
     user_id = getattr(me, "user_id", None)
     keyboard = InlineKeyboardBuilder()
-    add_text = (
-        "Указать свой адрес"
-        if choosing_residence
-        else "Добавить адрес чата"
-        if binding_group
-        else "Добавить чат"
-    )
-    buttons: list[Any] = [CallbackButton(text=add_text, payload=CHAT_LINK_START_PAYLOAD)]
+    buttons: list[Any] = []
+    if binding_group or can_choose_address:
+        add_text = "Добавить адрес чата" if binding_group else "Указать свой адрес"
+        buttons.append(CallbackButton(text=add_text, payload=CHAT_LINK_START_PAYLOAD))
     if show_events:
         buttons.append(OpenAppButton(text="Смотреть события", web_app=username, contact_id=user_id))
-    keyboard.row(*buttons)
-    return keyboard.as_markup()
+    if buttons:
+        keyboard.row(*buttons)
+    return keyboard.as_markup() if buttons else None
 
 
 def _display_name(user: Any) -> str:
     return user.name or user.username or "друг"
 
 
+def _can_choose_address(max_user_id: int) -> bool:
+    return True  # Адрес может выбрать любой; право на ленту проверим после выбора дома.
+
+
 def _show_events(max_user_id: int) -> bool:
     with session_scope() as session:
-        return has_connected_chat(session, max_user_id)
+        personal = get_personal_address(session, max_user_id)
+        return (
+            personal is not None
+            and bool(linked_group_ids(session, max_user_id, address_id=personal.id))
+        ) or has_connected_chat(session, max_user_id)
 
 
 def _claim_admin(*, token: str, max_user_id: int) -> None:
@@ -119,22 +140,27 @@ async def _render_welcome(
     resident_chat_id: int | None = None,
     recipient_chat_id: int | None = None,
 ) -> None:
+    can_choose_address = await asyncio.to_thread(_can_choose_address, user.max_user_id)
+    can_choose_address = (
+        can_choose_address or target_chat_id is not None or resident_chat_id is not None
+    )
     text = build_welcome_text(
         _display_name(user),
         admin_token=admin_token,
         notice=notice,
         binding_group=target_chat_id is not None,
         choosing_residence=resident_chat_id is not None,
+        can_choose_address=can_choose_address,
     )
     show_events = await asyncio.to_thread(_show_events, user.max_user_id)
-    attachments = [
-        build_welcome_keyboard(
-            bot,
-            show_events=show_events,
-            binding_group=target_chat_id is not None,
-            choosing_residence=resident_chat_id is not None,
-        )
-    ]
+    keyboard = build_welcome_keyboard(
+        bot,
+        show_events=show_events,
+        binding_group=target_chat_id is not None,
+        choosing_residence=resident_chat_id is not None,
+        can_choose_address=can_choose_address,
+    )
+    attachments = [keyboard] if keyboard is not None else []
     await context.clear()
     if target_chat_id is not None:
         await context.update_data(target_chat_id=target_chat_id)
@@ -149,30 +175,40 @@ async def _render_welcome(
         recipient = getattr(message, "recipient", None)
         chat_id = getattr(recipient, "chat_id", None)
     is_new = getattr(user, "is_new", False)
-    if (
+    render_home = (
         show_events
         and not is_new
         and not any((admin_token, notice, target_chat_id, resident_chat_id))
-    ):
+    )
+    if render_home:
         with session_scope() as session:
             result = await send_home(bot, session, user.max_user_id, recipient_chat_id=chat_id)
-    elif chat_id is not None:
-        result = await bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            attachments=[first_start_image(), *attachments] if is_new else attachments,
-            format=Format.HTML,
-        )
     else:
-        result = await event.message.answer(
-            text=text,
-            attachments=[first_start_image(), *attachments] if is_new else attachments,
-            format=Format.HTML,
+        # Полная презентация сервиса и её обложка — только при первом входе.
+        # При повторном /start без адреса сразу предлагаем выбор дома.
+        screen_text = (
+            text
+            if is_new or any((admin_token, notice, target_chat_id, resident_chat_id))
+            else ADDRESS_PICKER_TEXT
         )
+        screen_attachments = [first_start_image(), *attachments] if is_new else attachments
+        if chat_id is not None:
+            result = await bot.send_message(
+                chat_id=chat_id,
+                text=screen_text,
+                attachments=screen_attachments,
+                format=Format.HTML,
+            )
+        else:
+            result = await event.message.answer(
+                text=screen_text,
+                attachments=screen_attachments,
+                format=Format.HTML,
+            )
     mid = _sent_mid(result)
     if mid:
         await context.update_data(flow_mid=mid)
-        if is_new:
+        if is_new and not render_home:
             await context.update_data(first_welcome_mid=mid)
 
 

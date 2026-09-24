@@ -1,3 +1,5 @@
+import pytest
+
 from address.components import clean_city_label, clean_district_label, parse_address_text
 from address.street_catalog import CatalogAddress, StreetCatalog, normalize_ui_text
 from chat_link.commands.keyboards import list_keyboard, prefix_groups
@@ -310,3 +312,38 @@ def test_obvious_compound_house_suffix_is_removed_even_if_house_field_is_dirty()
 def test_numeric_street_name_is_not_removed_by_fallback_cleanup() -> None:
     parsed = parse_address_text("Москва, улица 1905 года, д. 4")
     assert parsed.street == "улица 1905 года"
+
+
+def test_webapp_cannot_store_address_without_connected_chat(db_session, monkeypatch) -> None:
+    import asyncio
+    from decimal import Decimal
+
+    from fastapi import HTTPException
+
+    from address.db.address import AddressRow
+    from auth.db.user import UserRow
+    from auth.handlers.residence import get_personal_address
+    from chat_link.api import routes
+
+    home = AddressRow(
+        address_text="Москва, улица Личная, д. 1",
+        city="Москва",
+        street="Личная",
+        house="1",
+        latitude=Decimal("55.7500000"),
+        longitude=Decimal("37.6100000"),
+    )
+    db_session.add_all([home, UserRow(max_user_id=123)])
+    db_session.flush()
+    monkeypatch.setattr(
+        routes,
+        "get_address_catalog",
+        lambda: type("Catalog", (), {"get": lambda self, _id: home if _id == home.id else None})(),
+    )
+    monkeypatch.setattr(routes, "get_max_bot", lambda: None)
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(
+            routes.select_address(routes.AddressSelectRequest(address_id=home.id), db_session, 123)
+        )
+    assert error.value.status_code == 503
+    assert get_personal_address(db_session, 123) is None

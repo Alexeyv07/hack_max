@@ -12,6 +12,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from address.db.address import AddressRow
+from auth.db.user import UserRow
 from events.cursor import (
     FeedCursor,
     decode_feed_cursor,
@@ -34,7 +35,11 @@ from events.weight import (
 )
 from project.config import get_settings
 from project.logging_setup import get_logger
-from user_chat.handlers.membership import list_memberships_for_user
+from user_chat.handlers.membership import (
+    has_linked_group,
+    linked_group_ids,
+    list_memberships_for_user,
+)
 from user_chat.models.membership import ChatMembership
 
 logger = get_logger(__name__)
@@ -50,12 +55,12 @@ class EventScope(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class FeedOrigin:
-    """Точка «дома» пользователя для nearby (первая улица чата + радиус)."""
+    """Точка выбранного дома для nearby; чат необязателен."""
 
     lat: float
     lon: float
     radius_m: float
-    chat_count: int
+    chat_count: int  # Фактические чаты: для личного адреса без чатов — 0.
 
 
 @dataclass(slots=True)
@@ -184,7 +189,7 @@ def _same_street_for_origins(
 
 
 def _bbox_predicate(origins: Sequence[ChatMembership], radius_m: float):
-    """OR по bbox вокруг каждой улицы чата (грубый prefilter до haversine)."""
+    """OR по bbox вокруг точек выбранных домов (грубый prefilter до haversine)."""
     clauses = []
     for origin in origins:
         d_lat, d_lon = bbox_delta_degrees(lat=origin.lat, radius_m=radius_m)
@@ -203,7 +208,7 @@ def _feed_origin(memberships: Sequence[ChatMembership], radius_m: float) -> Feed
         lat=first.lat,
         lon=first.lon,
         radius_m=radius_m,
-        chat_count=len(memberships),
+        chat_count=sum(origin.chat_id != 0 for origin in memberships),
     )
 
 
@@ -577,7 +582,7 @@ def list_feed(
     - keyset cursor по weight DESC, id DESC.
 
     Nearby (персонально по выбранному дому):
-    - нужны memberships с address_id; иначе пустая страница;
+    - личный адрес users.address_id; если не выбран, legacy fallback на membership;
     - geo_by street|home (home — только свой address_id);
     - отсев дальше ``events.nearby_radius_m`` (~6 км);
     - вес с distance_m + same_street / ml_time (просроченные active_to скрыты).
@@ -595,9 +600,30 @@ def list_feed(
     if max_user_id is None:
         return FeedPage(items=[], next_cursor=None, scope=EventScope.NEARBY, origin=None)
 
-    memberships = list_memberships_for_user(session, max_user_id)
+    user = session.scalar(select(UserRow).where(UserRow.max_user_id == max_user_id))
+    if not has_linked_group(session, max_user_id):
+        return FeedPage(items=[], next_cursor=None, scope=EventScope.NEARBY, origin=None)
+    personal = session.get(AddressRow, user.address_id) if user and user.address_id else None
+    if personal is not None and not linked_group_ids(session, max_user_id, address_id=personal.id):
+        personal = None
+    if personal is not None:
+        settings = get_settings()
+        memberships = [
+            ChatMembership(
+                chat_id=0,  # Личный адрес не является групповым чатом.
+                address_id=personal.id,
+                title="Личный адрес",
+                lat=float(personal.latitude),
+                lon=float(personal.longitude),
+                nearby_radius_m=settings.events.nearby_radius_m,
+                city_radius_m=settings.events.city_radius_m,
+                street=personal.street,
+                house=personal.house,
+            )
+        ]
+    else:
+        memberships = list_memberships_for_user(session, max_user_id)
     if not memberships:
-        # Без выбранного дома «рядом» нечего ранжировать — городская лента отдельно.
         return FeedPage(items=[], next_cursor=None, scope=EventScope.NEARBY, origin=None)
 
     return _list_nearby_feed(

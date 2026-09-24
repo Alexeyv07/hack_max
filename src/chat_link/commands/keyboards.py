@@ -149,12 +149,16 @@ def prefix_groups(values: list[str], *, base_prefix: str = "") -> list[str]:
     return sorted({value[: start + 1] for value in compact if value.startswith(base_prefix)})
 
 
-def setup_keyboard(admin_link: str | None):
+def setup_keyboard(admin_link: str | None, address_text: str = ""):
     """Экран обычного жителя после выбора дома."""
     builder = InlineKeyboardBuilder()
     if admin_link:
-        builder.row(ClipboardButton(text="Скопировать ссылку для админа", payload=admin_link))
-    builder.row(CallbackButton(text="Я администратор чата", payload="cl:admin:help"))
+        invitation = (
+            f"Здравствуйте! Помогите подключить домовой чат по адресу {address_text} "
+            f"к боту «КасаетсяМеня»: {admin_link}"
+        )
+        builder.row(ClipboardButton(text="Скопировать ссылку", payload=invitation))
+    builder.row(CallbackButton(text="Я администратор", payload="cl:admin:help"))
     builder.row(CallbackButton(text="← Выбрать другой адрес", payload="cl:method:native"))
     return builder.as_markup()
 

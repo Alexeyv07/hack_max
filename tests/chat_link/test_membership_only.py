@@ -21,6 +21,7 @@ from chat_link.models import ChatLinkStatus
 from user_chat.db import ChatRow, chat_addresses
 from user_chat.handlers import (
     add_chat_address,
+    add_user_to_chat,
     list_chat_members,
     list_memberships_for_user,
 )
@@ -67,9 +68,13 @@ def _configure(monkeypatch, session, bot):
     monkeypatch.setattr(routes, "get_max_bot", lambda: bot)
 
 
-def _select(session, address_id, max_user_id):
+def _select(session, address_id, max_user_id, *, resident_chat_id=None):
     return asyncio.run(
-        routes.select_address(AddressSelectRequest(address_id=address_id), session, max_user_id)
+        routes.select_address(
+            AddressSelectRequest(address_id=address_id, resident_chat_id=resident_chat_id),
+            session,
+            max_user_id,
+        )
     )
 
 
@@ -81,9 +86,9 @@ def test_existing_member_or_admin_binds_without_request(db_session, monkeypatch,
     _configure(monkeypatch, db_session, SimpleNamespace(get_chat_member=lookup))
     before = db_session.scalars(select(ChatLinkRow.id)).all()
 
-    result = _select(db_session, address.id, actor.max_user_id)
+    result = _select(db_session, address.id, actor.max_user_id, resident_chat_id=chat.chat_id)
 
-    assert result.mode == "already_member"
+    assert result.mode == "resident_address"
     assert result.token is None and result.admin_link is None and result.chats == []
     assert db_session.scalars(select(ChatLinkRow.id)).all() == before
     assert actor.max_user_id in [
@@ -99,10 +104,10 @@ def test_non_member_is_denied_without_new_request_or_invite(db_session, monkeypa
     before = db_session.scalars(select(ChatLinkRow.id)).all()
 
     with pytest.raises(HTTPException) as exc:
-        _select(db_session, address.id, resident.max_user_id)
+        _select(db_session, address.id, resident.max_user_id, resident_chat_id=chat.chat_id)
 
     assert exc.value.status_code == 403
-    assert "не состоите" in exc.value.detail
+    assert "вступите" in exc.value.detail
     assert db_session.scalars(select(ChatLinkRow.id)).all() == before
     assert list_chat_members(db_session, chat.chat_id) == []
     lookup.assert_awaited_once_with(chat.chat_id, resident.max_user_id)
@@ -112,18 +117,18 @@ def test_max_unavailable_or_failed_fails_closed(db_session, monkeypatch):
     address, _admin, resident, chat = _seed(db_session)
     _configure(monkeypatch, db_session, None)
     with pytest.raises(HTTPException) as missing:
-        _select(db_session, address.id, resident.max_user_id)
+        _select(db_session, address.id, resident.max_user_id, resident_chat_id=chat.chat_id)
     assert missing.value.status_code == 503
 
     lookup = AsyncMock(side_effect=RuntimeError("MAX unavailable"))
     _configure(monkeypatch, db_session, SimpleNamespace(get_chat_member=lookup))
     with pytest.raises(HTTPException) as failed:
-        _select(db_session, address.id, resident.max_user_id)
+        _select(db_session, address.id, resident.max_user_id, resident_chat_id=chat.chat_id)
     assert failed.value.status_code == 503
     assert list_chat_members(db_session, chat.chat_id) == []
 
 
-def test_multiple_chats_only_binds_verified_members(db_session, monkeypatch):
+def test_explicit_group_binds_only_selected_verified_member(db_session, monkeypatch):
     address, _admin, resident, chat = _seed(db_session)
     other = ChatRow(chat_id=-7002, address_id=address.id, title="Другой чат", chat_type="chat")
     db_session.add(other)
@@ -136,41 +141,60 @@ def test_multiple_chats_only_binds_verified_members(db_session, monkeypatch):
     )
     _configure(monkeypatch, db_session, SimpleNamespace(get_chat_member=lookup))
 
-    result = _select(db_session, address.id, resident.max_user_id)
+    result = _select(db_session, address.id, resident.max_user_id, resident_chat_id=other.chat_id)
 
-    assert result.mode == "already_member"
+    assert result.mode == "resident_address"
     assert list_chat_members(db_session, chat.chat_id) == []
     assert [m.max_user_id for m in list_chat_members(db_session, other.chat_id)] == [
         resident.max_user_id
     ]
-    assert lookup.await_count == 2
+    lookup.assert_awaited_once_with(other.chat_id, resident.max_user_id)
 
 
-def test_without_group_keeps_initial_admin_setup(db_session, monkeypatch):
-    address, _admin, resident, _chat = _seed(db_session)
-    second = AddressRow(
-        address_text="Москва, Тестовая улица, д. 2",
-        city="Москва",
-        district="Тестовый район",
-        street="Тестовая улица",
-        house="2",
+def test_plain_selection_checks_selected_address_chat(db_session, monkeypatch):
+    address, _admin, resident, chat = _seed(db_session)
+    another = AddressRow(
+        address_text="Москва, Без чата, д. 2",
         latitude=Decimal("55.7500000"),
         longitude=Decimal("37.6100000"),
     )
-    db_session.add(second)
+    db_session.add(another)
     db_session.flush()
-    lookup = AsyncMock()
-    _configure(monkeypatch, db_session, SimpleNamespace(get_chat_member=lookup, me=None))
-
-    result = _select(db_session, second.id, resident.max_user_id)
-
-    assert result.mode == "connect_group"
-    assert result.token is not None
-    stored_status = db_session.scalar(
-        select(ChatLinkRow.status).where(ChatLinkRow.token == result.token)
+    lookup = AsyncMock(return_value=SimpleNamespace(is_admin=False))
+    _configure(
+        monkeypatch,
+        db_session,
+        SimpleNamespace(
+            get_chat_member=lookup,
+            me=SimpleNamespace(username="smart_city_bot"),
+            send_message=AsyncMock(),
+        ),
     )
-    assert stored_status == "waiting_group"
-    lookup.assert_not_awaited()
+
+    # Даже посторонний вправе выбрать адрес, а MAX подтверждает членство.
+    selected = _select(db_session, address.id, resident.max_user_id)
+    assert selected.mode == "personal_address"
+    assert db_session.get(UserRow, resident.id).address_id == address.id
+    lookup.assert_awaited_once_with(chat.chat_id, resident.max_user_id)
+
+    # Другой адрес без подключённого чата не открывает персональную ленту.
+    other = _select(db_session, another.id, resident.max_user_id)
+    assert other.mode == "no_chat" and other.token and other.admin_link
+    assert db_session.get(UserRow, resident.id).address_id == address.id
+    lookup.assert_awaited_once()
+
+
+def test_plain_selection_shows_join_advice_for_non_member(db_session, monkeypatch):
+    address, _admin, resident, chat = _seed(db_session)
+    add_user_to_chat(db_session, chat.chat_id, max_user_id=resident.max_user_id)
+    bot = SimpleNamespace(get_chat_member=AsyncMock(return_value=None), send_message=AsyncMock())
+    _configure(monkeypatch, db_session, bot)
+    result = _select(db_session, address.id, resident.max_user_id)
+    assert result.mode == "not_member"
+    assert db_session.get(UserRow, resident.id).address_id is None
+    assert list_chat_members(db_session, chat.chat_id) == []
+    assert "Госуслуги Дом" in bot.send_message.await_args.kwargs["text"]
+    bot.get_chat_member.assert_awaited_once_with(chat.chat_id, resident.max_user_id)
 
 
 def test_migration_closes_old_admin_approvals(db_session):
