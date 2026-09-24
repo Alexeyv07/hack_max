@@ -270,13 +270,13 @@
 	function scheduleSearch(value: string) {
 		query = value;
 		selected = null;
+		options = [];
+		loading = false;
 		error = '';
 		searchSeq += 1;
 		if (searchTimer !== null) window.clearTimeout(searchTimer);
 		saveDraft();
 		if (value.trim().length < 3) {
-			loading = false;
-			options = [];
 			return;
 		}
 		searchTimer = window.setTimeout(() => {
@@ -314,7 +314,9 @@
 	async function copyAdminLink() {
 		if (!result?.admin_link) return;
 		try {
-			await navigator.clipboard.writeText(result.admin_link);
+			await navigator.clipboard.writeText(
+                `Здравствуйте! Помогите подключить домовой чат по адресу ${result.address.address_text} к боту «КасаетсяМеня»: ${result.admin_link}`
+            );
 			linkCopied = true;
 		} catch {
 			error = 'Не удалось скопировать ссылку. Попробуйте открыть выбор адреса из бота ещё раз.';
@@ -328,12 +330,10 @@
 		error = '';
 		linkCopied = false;
 		showAdminHelp = false;
+		query = '';
 		clearDraft();
 		saveActiveChatLinkMode(activeMode);
-		if (mode === 'text') {
-			query = '';
-			return;
-		}
+		if (mode === 'text') return;
 		mapLoadError = '';
 		await tick();
 		void initYandexMap(null);
@@ -407,6 +407,7 @@
 		{:else}
 			<div class="search-box">
 				<input
+					aria-label="Адрес дома"
 					value={query}
 					oninput={(event) => scheduleSearch(event.currentTarget.value)}
 					placeholder="Например: улица, дом, район"
@@ -455,8 +456,8 @@
 				<p>✅ Домовой чат успешно привязан к этому адресу. Можно вернуться в групповой чат.</p>
 			{:else if result.mode === 'already_member'}
 				<p>✅ Вы состоите в этом домовом чате. Чат привязан к вашему профилю.</p>
-			{:else if result.mode === 'resident_address'}
-				<p>✅ Ваш адрес сохранён. Теперь события рядом с вашим домом доступны в мини-приложении.</p>
+			{:else if result.mode === 'resident_address' || result.mode === 'personal_address'}
+				<p>✅ Ваш адрес сохранён. Новости рядом доступны.</p>
 			{:else if showAdminHelp}
 				<p>
 					Добавьте бота в нужный групповой чат и назначьте его администратором с правом
@@ -473,7 +474,7 @@
 				</p>
 				{#if result.admin_link}
 					<button class="primary" type="button" onclick={copyAdminLink}>
-						{linkCopied ? 'Ссылка скопирована' : 'Скопировать ссылку для администратора'}
+						{linkCopied ? 'Ссылка скопирована' : 'Скопировать пригласительное сообщение'}
 					</button>
 				{/if}
 				<button class="secondary" type="button" onclick={() => (showAdminHelp = true)}>
@@ -482,7 +483,7 @@
 			{/if}
 			{#if result.mode === 'group_connected'}
 				<button class="secondary" type="button" onclick={startAnother}>Добавить ещё дом к чату</button>
-			{:else if result.mode === 'resident_address'}
+			{:else if result.mode === 'resident_address' || result.mode === 'personal_address'}
 				<button class="secondary" type="button" onclick={startAnother}>Изменить свой адрес</button>
 			{:else}
 				<button class="secondary" type="button" onclick={startAnother}>Выбрать другой адрес</button>
@@ -602,7 +603,7 @@
 	.choice { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-weight: 800; color: #52b7ff; }
 	.address-label { min-width: 0; line-height: 1.3; }
 	.selection-status { margin: 0 0 8px; line-height: 1.35; font-size: 13px; }
-	.hint-text { margin: 8px 2px 0; color: #8fa0aa; font-size: 13px; }
+	.hint-text { margin: 8px 2px 14px; color: #8fa0aa; font-size: 13px; }
 	.search-box { width: 100%; }
 	input {
 		box-sizing: border-box;
@@ -622,7 +623,6 @@
 		padding-bottom: max(2px, env(safe-area-inset-bottom));
 	}
 	.confirm-wrap .primary { margin-top: 0; }
-	.link { display: block; box-sizing: border-box; text-align: center; text-decoration: none; }
 	.secondary { background: #263740; }
 	.done { display: grid; gap: 12px; }
 	.muted { color: #aebbc3; }

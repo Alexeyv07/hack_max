@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, String, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from project.database import Base
@@ -20,6 +20,10 @@ class UserRow(Base):
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     username: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Географический центр персональной ленты, не зависит от домового чата.
+    address_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("addresses.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     # Постоянный отказ MAX: не ретраим ни старые, ни новые доставки до нового /start.
     notify_blocked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

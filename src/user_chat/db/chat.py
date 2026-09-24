@@ -53,6 +53,7 @@ class ChatRow(Base):
     chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     invite_link: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    welcome_mid: Mapped[str | None] = mapped_column(String, nullable=True)
     # NULL — legacy-запись до реальной group integration KAN-7. Такие записи
     # нельзя считать домовыми группами: раньше сюда временно писали DIALOG chat_id.
     chat_type: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)

@@ -121,3 +121,30 @@ def add_chat_address(session: Session, chat_id: int, address_id: int) -> bool:
     chat.addresses.append(address)
     session.flush()
     return True
+
+
+def remove_chat_address(session: Session, chat_id: int, address_id: int) -> bool:
+    """Удалить дополнительный адрес; последний дом нельзя удалить без отключения чата."""
+    chat = session.get(ChatRow, chat_id)
+    if chat is None or chat.chat_type != "chat":
+        raise ValueError("Групповой чат не подключён")
+    addresses = list_chat_addresses(session, chat_id)
+    if not any(address.id == address_id for address in addresses):
+        return False
+    if len(addresses) == 1:
+        raise ValueError("Нельзя удалить последний адрес чата: сначала отключите бота от группы")
+    session.execute(
+        delete(chat_addresses).where(
+            chat_addresses.c.chat_id == chat_id, chat_addresses.c.address_id == address_id
+        )
+    )
+    if chat.address_id == address_id:
+        chat.address_id = next(address.id for address in addresses if address.id != address_id)
+    session.execute(
+        users_chat.update()
+        .where(users_chat.c.chat_id == chat_id, users_chat.c.address_id == address_id)
+        .values(address_id=None)
+    )
+    session.expire(chat, ["addresses"])
+    session.flush()
+    return True

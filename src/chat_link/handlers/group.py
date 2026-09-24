@@ -4,7 +4,7 @@ from typing import Any
 
 from maxapi.enums import ChatType
 from maxapi.exceptions.max import MaxApiError
-from maxapi.types import LinkButton
+from maxapi.types import CallbackButton, LinkButton
 from maxapi.utils.deep_linking import create_start_link
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 from sqlalchemy.orm import Session
@@ -17,6 +17,9 @@ from chat_link.handlers.links import (
     pending_for_actor,
 )
 from chat_link.models import ConnectOutcome, JoinOutcome
+from project.bot_media import first_start_image
+from project.database import session_scope
+from user_chat.db import ChatRow
 from user_chat.handlers import (
     add_chat_address,
     bind_known_chat_member,
@@ -57,6 +60,18 @@ async def bind_existing_chat_member(
         return False
     bind_known_chat_member(session, chat_id, max_user_id=max_user_id)
     return True
+
+
+async def select_linked_member_residence(
+    bot: Any, session: Session, *, max_user_id: int, address_id: int
+) -> bool:
+    """Совместимость старого вызова; проверяет чат именно выбранного адреса."""
+    from chat_link.handlers.residence_selection import resolve_residence
+
+    selection = await resolve_residence(
+        bot, session, max_user_id=max_user_id, address_id=address_id
+    )
+    return selection.mode == "personal_address"
 
 
 async def bind_referral_member(
@@ -333,43 +348,62 @@ async def announce_connected_group(
     chat_id: int,
     *,
     requester_added: bool = True,
-    address_text: str,
+    address_text: str = "",
     additional: bool = False,
 ) -> None:
-    """Объявить в группе точный адрес привязки и дать соседям referral-кнопку."""
+    """Одно закреплённое по смыслу сообщение: обновляем список при изменениях."""
     username = getattr(getattr(bot, "me", None), "username", None)
     referral = create_start_link(username, f"chat_{chat_id}") if username else None
     bind_link = create_start_link(username, f"chat_bind_{chat_id}") if username else None
-    prefix = (
-        f"✅ К чату добавлен адрес:\n{address_text}\n\n"
-        if additional
-        else f"✅ Чат привязан к адресу:\n{address_text}\n\n"
-    )
-    text = (
-        prefix + "Проверьте, что адрес указан верно. Если заметили ошибку, "
-        "сообщите администратору чата.\n\n"
-        "Чат может объединять несколько домов. Каждый житель должен указать свой адрес, "
-        "чтобы видеть события рядом с ним."
-    )
-    if referral:
-        text += "\n\nСоседи могут указать дом кнопкой ниже после вступления в чат."
-    if not requester_added:
-        text += "\n\nИнициатору нужно вступить в этот чат и нажать «Указать свой адрес» ниже."
-    keyboard = _connected_group_keyboard(referral, bind_link)
-    await bot.send_message(
-        chat_id=chat_id,
-        text=text,
-        attachments=[keyboard] if keyboard is not None else None,
-    )
+    with session_scope() as session:
+        chat = session.get(ChatRow, chat_id)
+        if chat is None or chat.chat_type != "chat":
+            return
+        addresses = [address.address_text for address in list_chat_addresses(session, chat_id)]
+        address_block = "\n".join(f"• {address}" for address in addresses)
+        text = (
+            "✅ Домовой чат подключён к адресам:\n"
+            f"{address_block}\n\n"
+            "Проверьте, что адреса указаны верно. Если заметили ошибку, "
+            "сообщите администратору чата.\n\n"
+            "Чат может объединять несколько домов. Каждый житель должен указать свой адрес, "
+            "чтобы видеть события рядом с ним."
+        )
+        if referral:
+            text += "\n\nСоседи могут указать дом кнопкой ниже после вступления в чат."
+        if not requester_added:
+            text += "\n\nИнициатору нужно вступить в этот чат и нажать «Указать свой адрес» ниже."
+        keyboard = _connected_group_keyboard(referral, bind_link, chat_id=chat_id)
+        attachments = [first_start_image(), *([keyboard] if keyboard is not None else [])]
+        if chat.welcome_mid:
+            try:
+                await bot.edit_message(
+                    chat.welcome_mid, text=text, attachments=attachments, notify=False
+                )
+                return
+            except MaxApiError as exc:
+                if exc.code not in {400, 404}:
+                    raise
+                # Сообщение удалено в MAX: создадим новое и запомним его id.
+        result = await bot.send_message(chat_id=chat_id, text=text, attachments=attachments)
+        body = getattr(getattr(result, "message", None), "body", None)
+        mid = getattr(body, "mid", None)
+        if mid:
+            chat.welcome_mid = str(mid)
 
 
-def _connected_group_keyboard(referral: str | None, bind_link: str | None) -> Any | None:
+def _connected_group_keyboard(
+    referral: str | None, bind_link: str | None, *, chat_id: int
+) -> Any | None:
     builder = InlineKeyboardBuilder()
     if referral:
         builder.row(LinkButton(text="Указать свой адрес", url=referral))
     if bind_link:
         builder.row(LinkButton(text="Добавить адрес чата (админ)", url=bind_link))
-    return builder.as_markup() if referral or bind_link else None
+    builder.row(
+        CallbackButton(text="Удалить адрес чата (админ)", payload=f"cl:group:remove:{chat_id}")
+    )
+    return builder.as_markup()
 
 
 def connected_group_keyboard(bot: Any, chat_id: int) -> Any | None:
@@ -379,4 +413,4 @@ def connected_group_keyboard(bot: Any, chat_id: int) -> Any | None:
         return None
     referral = create_start_link(username, f"chat_{chat_id}")
     bind_link = create_start_link(username, f"chat_bind_{chat_id}")
-    return _connected_group_keyboard(referral, bind_link)
+    return _connected_group_keyboard(referral, bind_link, chat_id=chat_id)

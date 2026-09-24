@@ -61,3 +61,4 @@ class User:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     last_seen_at: datetime | None = None
+    is_new: bool = False  # Только первый insert пользователя, без дополнительной миграции.

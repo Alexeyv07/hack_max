@@ -1,3 +1,5 @@
+import pytest
+
 from address.components import clean_city_label, clean_district_label, parse_address_text
 from address.street_catalog import CatalogAddress, StreetCatalog, normalize_ui_text
 from chat_link.commands.keyboards import list_keyboard, prefix_groups
@@ -61,6 +63,57 @@ def test_picker_hierarchy_uses_prebuilt_indexes(monkeypatch) -> None:
         "17",
     ]
     assert index.postal_streets("129226") == ["Сельскохозяйственная улица"]
+
+
+def test_webapp_postal_lookup_filters_and_paginates_in_memory() -> None:
+    index = catalog(
+        [
+            row(1, "Ростокино", "Сельскохозяйственная улица", "15 к1", "129226"),
+            row(2, "Ростокино", "Сельскохозяйственная улица", "17", "129226"),
+            row(3, "Останкинский", "улица Академика Королёва", "1", "129226"),
+            row(4, "Ростокино", "Сельскохозяйственная улица", "19", "129128"),
+        ]
+    )
+    first, total = index.postal_addresses("129226", limit=2)
+    second, another_total = index.postal_addresses("129226", offset=2, limit=2)
+    assert total == another_total == 3
+    assert {item.id for item in first + second} == {1, 2, 3}
+    filtered, count = index.postal_addresses("129226", query="сельск 15")
+    assert count == 1
+    assert [item.id for item in filtered] == [1]
+    assert index.postal_addresses("000000") == ([], 0)
+    assert index.postal_addresses("129128", query="королева") == ([], 0)
+
+
+def test_webapp_postal_endpoint_returns_total(monkeypatch) -> None:
+    from chat_link.api import routes
+
+    index = catalog([row(1, "Ростокино", "Сельскохозяйственная улица", "15", "129226")])
+    monkeypatch.setattr(routes, "get_address_catalog", lambda: index)
+    result = routes.search_postal_addresses("129226", q="сельск", offset=0, limit=12)
+    assert result.total == 1
+    assert [item.id for item in result.items] == [1]
+
+
+def test_webapp_postal_endpoint_validates_code_and_page(monkeypatch) -> None:
+    from fastapi.testclient import TestClient
+
+    from chat_link.api import routes
+    from events.api.app import create_app
+
+    index = catalog([row(1, "Ростокино", "Сельскохозяйственная улица", "15", "129226")])
+    monkeypatch.setattr(routes, "get_address_catalog", lambda: index)
+    client = TestClient(create_app())
+    valid = client.get("/chat-link/addresses/postal", params={"code": "129226"})
+    assert valid.status_code == 200
+    assert valid.json()["total"] == 1
+    for params in (
+        {"code": "12922"},
+        {"code": "12922а"},
+        {"code": "129226", "offset": -1},
+        {"code": "129226", "limit": 31},
+    ):
+        assert client.get("/chat-link/addresses/postal", params=params).status_code == 422
 
 
 def test_locality_labels_hide_source_noise() -> None:
@@ -259,3 +312,38 @@ def test_obvious_compound_house_suffix_is_removed_even_if_house_field_is_dirty()
 def test_numeric_street_name_is_not_removed_by_fallback_cleanup() -> None:
     parsed = parse_address_text("Москва, улица 1905 года, д. 4")
     assert parsed.street == "улица 1905 года"
+
+
+def test_webapp_cannot_store_address_without_connected_chat(db_session, monkeypatch) -> None:
+    import asyncio
+    from decimal import Decimal
+
+    from fastapi import HTTPException
+
+    from address.db.address import AddressRow
+    from auth.db.user import UserRow
+    from auth.handlers.residence import get_personal_address
+    from chat_link.api import routes
+
+    home = AddressRow(
+        address_text="Москва, улица Личная, д. 1",
+        city="Москва",
+        street="Личная",
+        house="1",
+        latitude=Decimal("55.7500000"),
+        longitude=Decimal("37.6100000"),
+    )
+    db_session.add_all([home, UserRow(max_user_id=123)])
+    db_session.flush()
+    monkeypatch.setattr(
+        routes,
+        "get_address_catalog",
+        lambda: type("Catalog", (), {"get": lambda self, _id: home if _id == home.id else None})(),
+    )
+    monkeypatch.setattr(routes, "get_max_bot", lambda: None)
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(
+            routes.select_address(routes.AddressSelectRequest(address_id=home.id), db_session, 123)
+        )
+    assert error.value.status_code == 503
+    assert get_personal_address(db_session, 123) is None

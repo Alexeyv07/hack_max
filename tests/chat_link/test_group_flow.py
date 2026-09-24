@@ -428,17 +428,58 @@ def test_referral_binds_only_after_max_membership(db_session) -> None:
     assert [member.max_user_id for member in list_chat_members(db_session, -9005)] == [101]
 
 
-def test_group_announcement_contains_full_address() -> None:
+def test_group_announcement_edits_same_message_after_address_added(db_session, monkeypatch) -> None:
+    from contextlib import contextmanager
+
+    import chat_link.handlers.group as group
+    from project.bot_media import FIRST_START_IMAGE_PATH
+    from user_chat.db import ChatRow
+    from user_chat.handlers import add_chat_address, remove_chat_address
+
+    @contextmanager
+    def same_session():
+        yield db_session
+
+    monkeypatch.setattr(group, "session_scope", same_session)
+    first = _address(db_session)
+    create_chat(db_session, ChatCreate(chat_id=-9001, address_id=first.id, chat_type="chat"))
+    sent = SimpleNamespace(message=SimpleNamespace(body=SimpleNamespace(mid="group-mid")))
     bot = SimpleNamespace(
         me=SimpleNamespace(username=None),
-        send_message=AsyncMock(),
+        send_message=AsyncMock(return_value=sent),
+        edit_message=AsyncMock(),
     )
-    address = "Москва, район Тестовый, улица Соседская, д. 1"
-    asyncio.run(announce_connected_group(bot, -9001, address_text=address))
+    asyncio.run(announce_connected_group(bot, -9001, address_text=first.address_text))
     kwargs = bot.send_message.await_args.kwargs
-    assert kwargs["chat_id"] == -9001
-    assert address in kwargs["text"]
-    assert "сообщите администратору" in kwargs["text"]
+    assert first.address_text in kwargs["text"]
+    assert kwargs["attachments"][0].path == str(FIRST_START_IMAGE_PATH)
+    assert db_session.get(ChatRow, -9001).welcome_mid == "group-mid"
+
+    second = AddressRow(
+        address_text="Москва, другой дом, д. 2",
+        city="Москва",
+        district="район Тестовый",
+        street="другая улица",
+        house="2",
+        latitude=Decimal("55.7502000"),
+        longitude=Decimal("37.6102000"),
+    )
+    db_session.add(second)
+    db_session.flush()
+    add_chat_address(db_session, -9001, second.id)
+    asyncio.run(
+        announce_connected_group(bot, -9001, address_text=second.address_text, additional=True)
+    )
+    bot.send_message.assert_awaited_once()
+    bot.edit_message.assert_awaited_once()
+    assert bot.edit_message.await_args.args[0] == "group-mid"
+    edited = bot.edit_message.await_args.kwargs["text"]
+    assert first.address_text in edited and second.address_text in edited
+    assert remove_chat_address(db_session, -9001, second.id)
+    asyncio.run(announce_connected_group(bot, -9001))
+    assert bot.edit_message.await_count == 2
+    after_removal = bot.edit_message.await_args.kwargs["text"]
+    assert first.address_text in after_removal and second.address_text not in after_removal
 
 
 def test_group_address_lookup_shows_only_connected_group(db_session) -> None:

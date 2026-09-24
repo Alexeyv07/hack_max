@@ -35,6 +35,9 @@ class FakeDispatcher:
     def user_added(self, *args, **kwargs):
         return self._decorator("user_added")
 
+    def user_removed(self, *args, **kwargs):
+        return self._decorator("user_removed")
+
 
 def test_bot_added_uses_user_who_added_bot(monkeypatch) -> None:
     dp = FakeDispatcher()
@@ -217,5 +220,6 @@ def test_address_command_reads_saved_group_address(monkeypatch) -> None:
     assert [row[0].text for row in buttons] == [
         "Указать свой адрес",
         "Добавить адрес чата (админ)",
+        "Удалить адрес чата (админ)",
     ]
     assert "chat_bind_-100500" in buttons[1][0].url

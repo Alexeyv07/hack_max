@@ -18,6 +18,8 @@ from user_chat.handlers import (
     create_chat,
     detach_chat,
     has_connected_chat,
+    has_linked_group,
+    linked_group_ids,
     list_chat_members,
     list_memberships_for_user,
     remove_user_from_chat,
@@ -188,3 +190,18 @@ def test_courtyard_chat_members_select_separate_addresses(db_session, chat, addr
     set_member_address(db_session, chat.chat_id, max_user_id=user.max_user_id, address_id=second.id)
     assert list_memberships_for_user(db_session, user.max_user_id)[0].address_id == second.id
     assert list_memberships_for_user(db_session, second_user.max_user_id)[0].address_id == second.id
+
+
+def test_linked_group_is_available_before_personal_home_selection(
+    db_session, chat, user, address
+) -> None:
+    # Только реальная связь users_chat + chat_addresses; выбранный дом ещё NULL.
+    assert not has_linked_group(db_session, user.max_user_id)
+    add_user_to_chat(db_session, chat.chat_id, max_user_id=user.max_user_id)
+    assert has_linked_group(db_session, user.max_user_id)
+    assert not has_connected_chat(db_session, user.max_user_id)
+    assert linked_group_ids(db_session, user.max_user_id) == [chat.chat_id]
+    assert linked_group_ids(db_session, user.max_user_id, address_id=address.id) == [chat.chat_id]
+    assert linked_group_ids(db_session, user.max_user_id, address_id=10**9) == []
+    detach_chat(db_session, chat.chat_id)
+    assert not has_linked_group(db_session, user.max_user_id)

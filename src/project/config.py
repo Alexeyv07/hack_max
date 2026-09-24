@@ -161,7 +161,7 @@ class ApiConfig:
 
 @dataclass(frozen=True, slots=True)
 class EventsConfig:
-    # Отсев «рядом» (haversine от улицы чата), ~5–6 км.
+    # Отсев «рядом» (haversine от личного адреса), ~5–6 км.
     nearby_radius_m: float = 6_000.0
     city_radius_m: float = 30_000.0
 

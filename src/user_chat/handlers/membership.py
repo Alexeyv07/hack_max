@@ -131,6 +131,32 @@ def list_memberships_for_user(session: Session, max_user_id: int) -> list[ChatMe
     ]
 
 
+def linked_group_ids(
+    session: Session, max_user_id: int, *, address_id: int | None = None
+) -> list[int]:
+    """Подтверждённые в БД участники групп, к которым привязан хотя бы один дом.
+
+    Личный адрес ещё может быть не выбран: users_chat.address_id тогда NULL.
+    """
+    stmt = (
+        select(ChatRow.chat_id)
+        .join(users_chat, users_chat.c.chat_id == ChatRow.chat_id)
+        .join(UserRow, UserRow.id == users_chat.c.user_id)
+        .join(chat_addresses, chat_addresses.c.chat_id == ChatRow.chat_id)
+        .where(UserRow.max_user_id == max_user_id, ChatRow.chat_type == "chat")
+        .distinct()
+        .order_by(ChatRow.chat_id)
+    )
+    if address_id is not None:
+        stmt = stmt.where(chat_addresses.c.address_id == address_id)
+    return list(session.scalars(stmt))
+
+
+def has_linked_group(session: Session, max_user_id: int) -> bool:
+    """Член группы с адресами, даже если собственный дом ещё не выбран."""
+    return bool(linked_group_ids(session, max_user_id))
+
+
 def has_connected_chat(session: Session, max_user_id: int) -> bool:
     """Есть ли у пользователя хотя бы один подключённый домовой чат."""
     user_id = session.scalar(select(UserRow.id).where(UserRow.max_user_id == max_user_id))

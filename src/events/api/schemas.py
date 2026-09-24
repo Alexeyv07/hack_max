@@ -50,7 +50,7 @@ class FeedItemResponse(BaseModel):
     updated_at: datetime | None = None
     distance_m: float | None = Field(
         default=None,
-        description="Haversine до ближайшей улицы чата пользователя (только nearby)",
+        description="Haversine до выбранного дома пользователя (только nearby)",
     )
     proximity: Literal["home", "block", "street", "district"] | None = Field(
         default=None,
@@ -58,7 +58,7 @@ class FeedItemResponse(BaseModel):
     )
     same_street: bool = Field(
         default=False,
-        description="Улица события совпадает с улицей чата пользователя",
+        description="Улица события совпадает с улицей выбранного дома пользователя",
     )
     is_active_now: bool | None = Field(
         default=None,
@@ -70,7 +70,7 @@ class FeedOriginResponse(BaseModel):
     lat: float
     lon: float
     radius_m: float = Field(description="Откидываем события дальше этого радиуса (м)")
-    chat_count: int = Field(description="Сколько домовых чатов учтено при min-distance")
+    chat_count: int = Field(description="Сколько чатов участвует в поиске: 0 для личного адреса")
 
 
 class FeedResponse(BaseModel):
@@ -80,7 +80,7 @@ class FeedResponse(BaseModel):
     count: int
     origin: FeedOriginResponse | None = Field(
         default=None,
-        description="Точка дома для nearby; null если нет чата или scope=city",
+        description="Точка дома для nearby; null если адрес не выбран или scope=city",
     )
 
 
