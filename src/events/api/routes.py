@@ -104,11 +104,12 @@ def get_map(
     session: DbSession,
     max_user_id: Annotated[int, Depends(get_max_user_id)],
     limit: Annotated[int, Query(ge=1, le=1000)] = 500,
+    after_id: Annotated[int, Query(ge=0)] = 0,
 ) -> MapResponse:
     """Точки карты: все события с адресом (правила importance/map)."""
     _ = max_user_id
     try:
-        points = crud.list_map_points(session, limit=limit)
+        points, next_after_id = crud.list_map_page(session, limit=limit, after_id=after_id)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -132,4 +133,5 @@ def get_map(
             for point in points
         ],
         count=len(points),
+        next_after_id=next_after_id,
     )

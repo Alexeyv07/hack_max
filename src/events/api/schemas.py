@@ -102,3 +102,4 @@ class MapPointResponse(BaseModel):
 class MapResponse(BaseModel):
     items: list[MapPointResponse]
     count: int
+    next_after_id: int | None = None
