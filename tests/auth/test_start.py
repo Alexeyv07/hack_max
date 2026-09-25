@@ -221,12 +221,10 @@ def test_welcome_explicit_recipient_for_notify_callback(monkeypatch) -> None:
     bot.edit_message.assert_not_awaited()
 
 
-def test_manage_addresses_is_a_mock_callback() -> None:
+def test_manage_addresses_callback_is_registered() -> None:
     dp = FakeDispatcher()
     start.register_auth_commands(dp, _bot())
-    event = SimpleNamespace(ack=AsyncMock())
-    asyncio.run(dp.handlers["message_callback"](event))
-    event.ack.assert_awaited_once_with(notification="Управление адресами скоро появится")
+    assert dp.handlers["message_callback"].__name__ == "on_manage_addresses_callback"
 
 
 def test_first_start_uses_first_image_only_once(monkeypatch) -> None:

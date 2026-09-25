@@ -7,13 +7,13 @@ from html import escape
 from time import monotonic
 from typing import Any
 
-from maxapi import F
 from maxapi.enums.format import Format
 from maxapi.filters.command import CommandStart
 from maxapi.types import CallbackButton, OpenAppButton
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
-from auth.commands.home import MANAGE_ADDRESSES_PAYLOAD, send_home
+from auth.commands.home import send_home
+from auth.commands.manage_addresses import register_manage_addresses
 from auth.handlers.authorize import authorize_from_event
 from auth.handlers.residence import get_personal_address
 from chat_link.handlers import bind_referral_member, claim_admin_request
@@ -213,9 +213,7 @@ async def _render_welcome(
 
 
 def register_auth_commands(dp: Any, bot: Any) -> None:
-    @dp.message_callback(F.callback.payload == MANAGE_ADDRESSES_PAYLOAD)
-    async def on_manage_addresses(event: Any) -> None:
-        await event.ack(notification="Управление адресами скоро появится")
+    register_manage_addresses(dp, bot)
 
     recent_starts: dict[int, tuple[str, float]] = {}
 

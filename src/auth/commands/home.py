@@ -12,13 +12,10 @@ from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from address.db.address import AddressRow
 from auth.db.user import UserRow
-from auth.handlers.residence import get_personal_address
+from auth.handlers.managed_addresses import list_managed_addresses
 from project.config import get_settings
 from project.logging_setup import get_logger
-from user_chat.db import ChatRow, users_chat
-from user_chat.handlers.membership import has_linked_group, linked_group_ids
 
 logger = get_logger(__name__)
 MANAGE_ADDRESSES_PAYLOAD = "home:manage"
@@ -26,22 +23,8 @@ HOME_IMAGE_PATH = Path(__file__).resolve().parents[1] / "assets" / "home.jpg"
 
 
 def linked_addresses(session: Session, max_user_id: int) -> list[str]:
-    """Личный адрес плюс фактически выбранные дома из чатов (без повторов)."""
-    if not has_linked_group(session, max_user_id):
-        return []
-    personal = get_personal_address(session, max_user_id)
-    if personal and not linked_group_ids(session, max_user_id, address_id=personal.id):
-        personal = None
-    rows = session.scalars(
-        select(AddressRow.address_text)
-        .join(users_chat, users_chat.c.address_id == AddressRow.id)
-        .join(UserRow, UserRow.id == users_chat.c.user_id)
-        .join(ChatRow, ChatRow.chat_id == users_chat.c.chat_id)
-        .where(UserRow.max_user_id == max_user_id, ChatRow.chat_type == "chat")
-        .distinct()
-        .order_by(AddressRow.address_text)
-    )
-    return list(dict.fromkeys(([personal.address_text] if personal else []) + list(rows)))
+    """Выбранные пользователем адреса, а не все дома его групп."""
+    return [address.text for address in list_managed_addresses(session, max_user_id)]
 
 
 def build_home_text(addresses: list[str], *, notice: str | None = None) -> str:
