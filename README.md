@@ -1,118 +1,118 @@
-# Проект «Умный город» — бот и WebApp для мессенджера Max
+# Касается Меня
 
-## Contributing flow
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+![WebApp](https://img.shields.io/badge/WebApp-✓-FF6F00?style=for-the-badge&logo=googlechrome&logoColor=white)
+![Swagger](https://img.shields.io/badge/Swagger-API-85EA2D?style=for-the-badge&logo=swagger&logoColor=black)
+![ML](https://img.shields.io/badge/Machine%20Learning-✓-FF6F61?style=for-the-badge&logo=scikitlearn&logoColor=white)
 
-1. Ветка от `main`: `git checkout -b your-feature-name`
-2. Коммиты: `FEAT:` / `FIX:` / `REFACTOR:` / `DOCS:` / `TEST:` + краткое описание на русском
-3. `git push origin your-feature-name` → PR в `main`
-4. После merge: `git checkout main && git pull origin main`
+## Назначение решения 
 
-## Структура
+Каждый житель хочет получать информацию о том, что происходит вокруг, 1 раз, но не потерять никакую. Для этого мы \
+представляем решение в виде Уведомлений, Суммаризатора чатов, Информационной ленты. Более 500тысяч чатов уже создано \
+и в каждый можно внедрить эти технологии. 
 
-```
-conf/                  # local.yaml / prod.yaml (+ ml_dedup, ml_enrich)
-db/migrations/         # SQL up/down (вместо Alembic)
-docker/postgres/       # образ Postgres: migrate + COPY seed
-src/
-  project/             # config, logging, database, sql_migrate
-  auth/                # пользователи Max
-  address/             # addresses + StreetCatalog + GeoMatcher (+ district)
-  events/              # CRUD + feed/map API (KAN-14)
-  user_chat/           # чаты соседей (KAN-5)
-  chat_link/           # onboarding чата (KAN-7)
-  parse_news/          # KAN-11: RSS/HTML СМИ → Candidate
-  parse_mc/            # KAN-28: сайты УК/ЖЭК → Candidate
-  parser_common/       # KAN-13: normalize (classify, time, place) + ingest
-  ml_dedup/            # KAN-19: NEW | DUPLICATE | UPDATE
-  max.py / main.py     # bot + API + парсеры в одном процессе
-ml/                    # обучение (НЕ импортируется из src)
-  classify/            # importance 1|2|3 → ONNX
-  time/                # active_from / active_to → ONNX
-  dedup/               # embeddings + пороги cosine
-  TRAIN.md             # команды обучения после разметки
-webapp/                # SvelteKit mini-app
-docs/                  # схемы пайплайна
-tests/ scripts/
+## Запуск решения
+
+| Контейнер | Порты  | Описание                                                                                      |
+|-----------|--------|-----------------------------------------------------------------------------------------------|
+| postgres  | `5432` | База данных, хранящая адреса, бизнесс сущности, курсоры для парсеров.                         |
+| bot       | `8000` | Бот, `API`, парсеры, воркеры уведомлений в одном процессе OS, но в разных потоках.            |
+| webapp    | `5173` | Web приложение для бота, содержащие только пользовательский интерфейс.                        |
+| cloudpub  |        | Тунель для возможности обращения `domain -> localhsot`, т.е `Локальный Web -> Web для макса`. |
+
+Для запуска решения требуется `.env` файл со следующим содержанием ([.env.example](./.env.example)):
+
+```dotenv
+APP_ENVIRONMENT=prod
+# Секреты и локальные переопределения конфигурации.
+MAX_BOT_TOKEN=...
+CLOUDPUB_TOKEN=...
+AITUNNEL_API_KEY=...
 ```
 
-## Скрипты (`scripts/`)
+Для запуска достаточно выполнить команду (решение атомарно для любого типа остановки и перезапуска):
 
-| скрипт                    | зачем                                                               |
-|---------------------------|---------------------------------------------------------------------|
-| `bot_entrypoint.py`       | Docker bot: ML-check → `main` (схема/seed — в образе Postgres) |
-| `migrate.py`              | `up` / `down` / `status` / `stamp` для `db/migrations` |
-| `build_pg_seed_dumps.py`  | jsonl → `docker/postgres/seed/*.csv.gz` |
-| `classify_try.py`         | REPL importance (ONNX → rules)                                      |
-| `smoke_parser_collect.py` | live smoke news/mc collect                                          |
-
-```bash
-set PYTHONPATH=src
-python scripts/classify_try.py
-python scripts/smoke_parser_collect.py --parser news --outlet m24
-python -m parser_common.seed dump
+```commandline
+...Указать команду после KAN-22
 ```
 
-## ML: обучение
 
-Подробно: [`ml/TRAIN.md`](./ml/TRAIN.md).
+При запуске решения будут использованы следующие зависимости:
 
-```bash
-pip install torch --index-url https://download.pytorch.org/whl/cu124
-pip install -e ".[ml]"
-python -m spacy download ru_core_news_md
+- [pyproject.toml](./pyproject.toml) — зависимости Python
+  Где основными являются: `fastapi`, `sqlalchemy`, `onnxruntime`
+- [package-lock.json](./webapp/package-lock.json) — зависимости Node.js
+  Где основным является: `sveltekit`, `tailwindcss`, `typescript`
 
-# importance (опционально — артефакты уже могут быть)
-python ml/classify/train_torch.py --config ml/classify/config_torch.yaml
+## Тестовые данные и Ограничения
 
-# active_from / active_to (нужна разметка ml/time/data/train.jsonl)
-python ml/time/bootstrap_data.py
-python ml/time/train_torch.py --config ml/time/config_torch.yaml
+<table>
+<tr>
+<td width="20%" valign="top" align="center">
+  <img src="media/qr-link-chat.png" alt="QR-код чата MAX" height="260">
+  <br>
+  <sub><a href="https://max.ru/join/UO3tG6zt7eEQvjqZ5xbAU1ofQTL3bzvzqObFIzFmC_U">Или по ссылке →</a></sub>
+</td>
+<td width="80%" valign="top">
 
-# пороги dedup (пары ml/dedup/data/pairs.jsonl)
-python ml/dedup/bootstrap_pairs.py
-python ml/dedup/eval_threshold.py --config ml/dedup/config.yaml
-```
+Все тестовые данные после запуска контейнеров уже используются. Для тестирования решения были заготовлены:
 
-Артефакты → `ml/*/artifacts/` (в git не коммитим тяжёлые `.onnx`; монтируются в Docker).
+- Адреса _для Москвы и её области_ для `postgres` в [addresses.csv.gz](docker/postgres/seed/addresses.csv.gz)
+- События, заранее залитые и пропущенные через ML-модели, для `postgres` в [events.jsonl.gz](docker/postgres/seed/events.csv.gz).
+  Все события были получены **НЕ РУЧНЫМ трудом**, а через программный код парсеров, запускаемых вместе с ботом MAX.
+  Выгрузка за небольшой промежуток времени, из-за чего лента _может казаться скудной_,
+  но из-за богатства источников в настоящем runtime будет появляться много событий.
+- Чат соседей _с имитацией общения_ в [`MAX`](https://max.ru/join/UO3tG6zt7eEQvjqZ5xbAU1ofQTL3bzvzqObFIzFmC_U).
+  Присоединитесь к чату, например, по QR-коду слева.
 
-## Запуск
+</td>
+</tr>
+</table>
 
-Нужен `.env` из `.env.example` (`MAX_BOT_TOKEN`, `CLOUDPUB_TOKEN`).
+## Пользовательские сценарии
 
-```bash
-# Всё в Docker (postgres + bot + webapp + cloudpub):
-docker compose up -d --build
-docker compose logs -f cloudpub   # https://….cloudpub.ru → в Max
+...О сценариях: добавления в чат (+ просмотр суммаризации), просмотр новостей, просмотр уведомлений (по командам)
+...Изображение во всю ширину с вертикальными скринами
+...Изображение вертикальное с видео сценария, справа текст описывающий сценарий
 
-# Бот на хосте — не поднимайте сервис bot:
-docker compose up -d postgres webapp cloudpub
-python -m main
-```
+## Архитектура
 
-## Миграции (SQL)
+![arch.png](media/arch.png)
 
-См. [`db/README.md`](./db/README.md).
+- Для ML моделей была выбрана легкая языковая модель `RuBERT-tiny2`, которую мы fine-tunel. \
+  В реальных проектах следует использовать кастомные или более сложные LLM.
+- Сейчас работа с большими данными от парсеров и работа по обогащению новостей проводится in-memory, в продовых \
+  условиях следует использовать `Kafka` очередь, ведь мы не хотим терять новости и хотим держать высокий rps.
+- Для geo определения выбран `spaCy` из-за простой натсройки. Канечно для настоящих ML инженеров натренеровать \
+  графовую модель более чем возможно, но не в рамках 14 дней.
+- Для хранения используется `postgres`, его на реальных данных и rps может не хватить, как графовой базы данных.
 
-```bash
-set PYTHONPATH=src
-python scripts/migrate.py status
-python scripts/migrate.py up
-python scripts/migrate.py down          # на 1 шаг
-python scripts/migrate.py down --steps 3
-```
+## OpenAPI
 
-## Конфиг
+Посмотреть текущее UI для Swagger можно пу пути [`/docs`](http://localhost:8000/docs) или в файле \
+[`openapi.json`](http://localhost:8000/openapi.json). API используется только для передачи информации от \
+бота к `webapp`. 
 
-- `APP_ENVIRONMENT=local|prod` → `conf/local.yaml` | `prod.yaml`
-- `ml_dedup.active_days: 21`, пороги cosine, `ml_enrich.spacy_model`
-- Env перекрывает YAML (`DATABASE_*`, `MAX_BOT_TOKEN`, `ML_DEDUP_ENABLED`, …)
-- Секреты только в `.env`
+Для примера предлагаем следующие запросы, которые можно выполнить через Swagger UI:
 
-## Линтеры
+<div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap;">
 
-```bash
-pip install -e ".[dev]"
-pre-commit install
-ruff format src tests
-ruff check src tests
-```
+<div style="flex:1 1 60%; min-width:200px; overflow-x:auto;">
+
+| # | Метод и путь                                                                                                         | Зачем дергать           | Ожидание                                                |
+|---|----------------------------------------------------------------------------------------------------------------------|-------------------------|---------------------------------------------------------|
+| 1 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/health`                                  | Процесс API жив         | `{"status":"ok"}`                                       |
+| 2 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/events/feed?scope=city&limit=5`          | Городская лента из seed | `200`, `scope=city`, в `items` есть карточки            |
+| 3 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/events/map?limit=50`                     | Точки карты             | `200`, `count` > 0, у точек есть `lat`/`lon`/`category` |
+| 4 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/chat-link/addresses/search?q=Варшавское` | Каталог адресов         | `200`, непустой `items` с `address_text`                |
+
+</div>
+
+<div style="flex:1 1 35%; max-width:280px;">
+
+<img src="media/openapi.webp" alt="openapi demo" style="width:100%; border-radius:12px; display:block;">
+
+</div>
+
+</div>
