@@ -28,6 +28,8 @@ type YandexMapsApi = {
 	}
 ) => YandexMapInstance;
 	YMapDefaultSchemeLayer: new (props?: Record<string, unknown>) => unknown;
+	YMapDefaultFeaturesLayer: new (props?: Record<string, unknown>) => unknown;
+	YMapMarker: new (props: { coordinates: [number, number] }, element: HTMLElement) => unknown;
 	YMapListener: new (props: {
 		onUpdate?: (event: { location: YandexLocation }) => void;
 		onActionEnd?: (event: { location: YandexLocation }) => void;

@@ -1,15 +1,15 @@
 <script lang="ts">
 	import type { FeedItem } from '$lib/types/event';
+	import EventMapPreview from '$lib/components/EventMapPreview.svelte';
 
 	type Props = {
 		event: FeedItem;
 		/** Активный слайд — меряем overflow «ещё» (карточка монтируется только в окне ±1). */
 		active?: boolean;
+		onopenmap: (event: FeedItem) => void;
 	};
 
-	let { event, active = false }: Props = $props();
-
-	let imageExpanded = $state(false);
+	let { event, active = false, onopenmap }: Props = $props();
 	let bodyExpanded = $state(false);
 	let needsMore = $state(false);
 	let descriptionEl: HTMLParagraphElement | undefined = $state();
@@ -121,32 +121,21 @@
 		needsMore = false;
 	}
 
-	function closeLightbox() {
-		imageExpanded = false;
-	}
-
-	function onKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && imageExpanded) {
-			closeLightbox();
-		}
-	}
 </script>
 
-<svelte:window onkeydown={onKeydown} />
 
 <article class="card" style:--importance-color={importanceColor}>
 	<button
 		type="button"
 		class="media"
 		class:placeholder={!event.image_url}
-		aria-label={event.image_url ? 'Открыть изображение' : 'Нет изображения'}
-		onclick={() => {
-			if (event.image_url) imageExpanded = true;
-		}}
-		disabled={!event.image_url}
+		aria-label={`Открыть карту: ${displayTitle}`}
+		onclick={() => onopenmap(event)}
 	>
 		{#if event.image_url}
 			<img src={event.image_url} alt="" loading="lazy" decoding="async" />
+		{:else}
+			<EventMapPreview {event} />
 		{/if}
 	</button>
 
@@ -204,22 +193,6 @@
 	</div>
 </article>
 
-{#if imageExpanded && event.image_url}
-	<div class="lightbox" role="dialog" aria-modal="true" aria-label="Изображение">
-		<button type="button" class="lightbox-backdrop" aria-label="Закрыть" onclick={closeLightbox}
-		></button>
-		<img src={event.image_url} alt={event.title} class="lightbox-img" decoding="async" />
-		<button type="button" class="lightbox-close" aria-label="Закрыть" onclick={closeLightbox}>
-			<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
-				<path
-					fill="currentColor"
-					d="M18.3 5.71 12 12.01l-6.3-6.3-1.4 1.42 6.29 6.29-6.3 6.3 1.42 1.4 6.29-6.29 6.3 6.3 1.4-1.42-6.29-6.29 6.3-6.3z"
-				/>
-			</svg>
-		</button>
-	</div>
-{/if}
-
 <style>
 	.card {
 		height: 100%;
@@ -239,17 +212,13 @@
 		padding: 0;
 		border: 0;
 		background: #000;
-		cursor: zoom-in;
+		cursor: pointer;
 		overflow: hidden;
 		flex-shrink: 0;
 	}
 
-	.media:disabled {
-		cursor: default;
-	}
-
 	.media.placeholder {
-		background: #000;
+		background: #122e34;
 	}
 
 	.media img {
@@ -365,45 +334,4 @@
 		color: #9fd0c0;
 	}
 
-	.lightbox {
-		position: fixed;
-		inset: 0;
-		z-index: 1000;
-		display: grid;
-		place-items: center;
-		padding: 1.5rem;
-	}
-
-	.lightbox-backdrop {
-		position: absolute;
-		inset: 0;
-		border: 0;
-		background: rgba(0, 0, 0, 0.92);
-		cursor: pointer;
-	}
-
-	.lightbox-img {
-		position: relative;
-		z-index: 1;
-		max-width: min(96vw, 900px);
-		max-height: 88vh;
-		object-fit: contain;
-		border-radius: 4px;
-	}
-
-	.lightbox-close {
-		position: absolute;
-		top: max(0.75rem, env(safe-area-inset-top));
-		right: max(0.75rem, env(safe-area-inset-right));
-		z-index: 2;
-		width: 44px;
-		height: 44px;
-		border: 0;
-		border-radius: 999px;
-		background: rgba(30, 30, 30, 0.85);
-		color: #fff;
-		display: grid;
-		place-items: center;
-		cursor: pointer;
-	}
 </style>

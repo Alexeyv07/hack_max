@@ -44,3 +44,19 @@ export type FeedResponse = {
 	count: number;
 	origin?: FeedOrigin | null;
 };
+
+/** Ответ GET /events/map. */
+export type MapPoint = {
+	id: number;
+	title: string | null;
+	body: string | null;
+	lat: number;
+	lon: number;
+	importance: number;
+	category: 'catastrophe' | 'important';
+	disaster_flag: boolean;
+	geo_by: string | null;
+	location: string | null;
+};
+
+export type MapResponse = { items: MapPoint[]; count: number };

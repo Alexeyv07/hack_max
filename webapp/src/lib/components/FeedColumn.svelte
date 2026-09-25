@@ -13,6 +13,7 @@
 		onrequestnearby?: () => void;
 		/** Вызывается при свайпе/скролле на следующую карточку вниз. */
 		ondownswipe?: () => void;
+		onopenmap: (event: FeedItem) => void;
 	};
 
 	let {
@@ -24,7 +25,8 @@
 		onnearend,
 		onrequestcity,
 		onrequestnearby,
-		ondownswipe
+		ondownswipe,
+		onopenmap
 	}: Props = $props();
 
 	let scroller: HTMLElement | undefined = $state();
@@ -117,7 +119,7 @@
 		{#each items as event, index (event.id)}
 			<section class="slide" class:offscreen={!isInWindow(index)}>
 				{#if isInWindow(index)}
-					<EventCard {event} active={index === activeIndex} />
+					<EventCard {event} active={index === activeIndex} {onopenmap} />
 				{/if}
 			</section>
 		{/each}

@@ -17,7 +17,8 @@ from notify.db import NotifyCursorRow, NotifyDeliveryRow
 from user_chat.db import ChatRow, users_chat
 
 PRIORITY_CURSOR = "priority"
-_PRIORITY_IMPORTANCE = (1, 2)
+# Только высшая категория: обычные события (2 и 3) остаются в ленте.
+_PRIORITY_IMPORTANCE = (1,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +134,9 @@ def delivery_is_due(
     """Повторная проверка прямо перед send, чтобы ack не гонялся с scheduler."""
     row = session.get(NotifyDeliveryRow, delivery_id)
     if row is None or row.acked_at is not None:
+        return False
+    event = session.get(EventRow, row.event_id)
+    if event is None or event.importance not in _PRIORITY_IMPORTANCE:
         return False
     user = session.get(UserRow, row.user_id)
     if user is None or user.notify_blocked_at is not None:

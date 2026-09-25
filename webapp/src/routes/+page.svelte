@@ -18,6 +18,7 @@
 		saveActiveChatLinkMode
 	} from '$lib/chatLinkSession';
 	import AddressPicker from '$lib/components/AddressPicker.svelte';
+	import FullEventMap from '$lib/components/FullEventMap.svelte';
 	import type { FeedItem, FeedScope } from '$lib/types/event';
 
 	type FeedState = {
@@ -43,6 +44,7 @@
 	let bridgeReady = $state(cachedChatLinkMode !== null);
 	let pickerStart = $derived(parseChatLinkMode(startParam));
 	let scope = $state<FeedScope>('nearby');
+	let mapEvent = $state<FeedItem | null>(null);
 	/** Nearby стартует в loading — до ответа API не показываем «новостей нет». */
 	let nearby = $state<FeedState>(emptyState(true));
 	let city = $state<FeedState>(emptyState());
@@ -265,6 +267,7 @@
 				onnearend={() => loadMore('nearby')}
 				onrequestcity={() => setScope('city')}
 				ondownswipe={onDownSwipe}
+				onopenmap={(event) => (mapEvent = event)}
 			/>
 		</div>
 		<div class="pane">
@@ -277,9 +280,13 @@
 				onnearend={() => loadMore('city')}
 				onrequestnearby={() => setScope('nearby')}
 				ondownswipe={onDownSwipe}
+				onopenmap={(event) => (mapEvent = event)}
 			/>
 		</div>
 	</div>
+	{#if mapEvent}
+		<FullEventMap event={mapEvent} onclose={() => (mapEvent = null)} />
+	{/if}
 </div>
 
 {/if}
