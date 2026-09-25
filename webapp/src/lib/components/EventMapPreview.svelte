@@ -82,8 +82,8 @@
 	.note {
 		position: absolute;
 		left: 0.75rem;
-		bottom: 0.75rem;
-		max-width: calc(100% - 1.5rem);
+		bottom: 4.3rem;
+		max-width: calc(100% - 5rem);
 		padding: 0.35rem 0.6rem;
 		border-radius: 8px;
 		background: rgba(11, 25, 31, 0.77);

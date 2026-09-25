@@ -44,14 +44,20 @@ button {
 }
 .event-map-marker[data-precision='street'] {
 	/* Street-only geocoding: an approximate position, not an exact house. */
-	box-shadow: 0 0 0 9px rgba(255, 255, 255, 0.13), 0 3px 12px rgba(0, 0, 0, 0.38);
+	box-shadow:
+		0 0 0 9px rgba(255, 255, 255, 0.13),
+		0 3px 12px rgba(0, 0, 0, 0.38);
 }
 .event-map-marker[data-selected='true'] {
-	box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.25), 0 5px 18px rgba(0, 0, 0, 0.5);
+	box-shadow:
+		0 0 0 5px rgba(255, 255, 255, 0.25),
+		0 5px 18px rgba(0, 0, 0, 0.5);
 	z-index: 2;
 }
 .event-map-marker[data-selected='true'][data-precision='street'] {
-	box-shadow: 0 0 0 12px rgba(255, 255, 255, 0.17), 0 5px 18px rgba(0, 0, 0, 0.5);
+	box-shadow:
+		0 0 0 12px rgba(255, 255, 255, 0.17),
+		0 5px 18px rgba(0, 0, 0, 0.5);
 }
 .event-map-marker:focus-visible {
 	outline: 3px solid #fff;
@@ -62,4 +68,37 @@ button {
 	font-size: 22px;
 	font-weight: 900;
 	line-height: 1;
+}
+
+/* KAN-26: change this variable to experiment with the home pin colour. */
+:root {
+	--home-marker-color: #000000;
+}
+.home-map-marker {
+	width: 42px;
+	height: 42px;
+	display: grid;
+	place-items: center;
+	transform: translate(-50%, -100%) rotate(-45deg);
+	background: var(--home-marker-color);
+	color: #fff;
+	border: 3px solid #fff;
+	border-radius: 50% 50% 50% 5px;
+	box-shadow: 0 3px 12px #0008;
+}
+.home-map-marker > span {
+	transform: rotate(45deg);
+	display: flex;
+}
+.event-map-street-label {
+	width: auto;
+	min-width: 36px;
+	height: 30px;
+	border-radius: 15px;
+	transform: translate(-50%, -50%);
+	border-width: 2px;
+}
+.event-map-street-label > span {
+	transform: none;
+	font-size: 12px;
 }
