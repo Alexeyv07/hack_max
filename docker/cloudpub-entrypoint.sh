@@ -1,8 +1,6 @@
 #!/bin/sh
-# Стабильный CloudPub URL без CLOUDPUB_AGENT_ID в .env:
-# agent_id зашит ниже (не секрет) + bind-mount ./docker/cloudpub.
-# Сервер привязывает публикации к agent_id; run поднимает уже существующие.
-# Не задавать HTTP= в compose — иначе register создаст новый hostname.
+# Stable CloudPub URL: fixed AGENT_ID + TOKEN; clo run reuses publications.
+# Do not set HTTP= in compose (register would mint a new hostname).
 set -eu
 
 CLO=/clo
@@ -10,12 +8,11 @@ export HOME=/home/cloudpub
 CONFIG_DIR="$HOME/.config/cloudpub"
 CONFIG="$CONFIG_DIR/client.toml"
 
-# Общий агент команды → https://incompletely-immortal-ling.cloudpub.ru
-# Смена id = новый hostname на cloudpub.ru (и ручной re-publish).
+# Team agent -> https://incompletely-immortal-ling.cloudpub.ru
 AGENT_ID="cc9d4150-d529-48e0-93c2-ff8ba5c56fd8"
 
 if [ -z "${TOKEN:-}" ]; then
-  echo "CLOUDPUB_TOKEN/TOKEN не задан" >&2
+  echo "CLOUDPUB_TOKEN/TOKEN not set" >&2
   exit 1
 fi
 
@@ -28,7 +25,6 @@ if [ ! -f "$CONFIG" ]; then
     >"$CONFIG"
 fi
 
-# Всегда один и тот же agent_id (не зависит от машины / wipe volume).
 if grep -q '^agent_id[[:space:]]*=' "$CONFIG"; then
   sed -i "s/^agent_id[[:space:]]*=.*/agent_id = \"${AGENT_ID}\"/" "$CONFIG"
 else
@@ -37,5 +33,5 @@ fi
 
 "$CLO" set token "$TOKEN"
 
-echo "cloudpub: agent_id=${AGENT_ID} → run (sticky publications)"
+echo "cloudpub: agent_id=${AGENT_ID} -> run (sticky publications)"
 exec "$CLO" run
