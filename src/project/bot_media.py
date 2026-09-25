@@ -7,22 +7,36 @@ from typing import Any
 
 from maxapi.types import InputMedia
 
-ASSETS_DIR = Path(__file__).resolve().parents[1] / "auth" / "assets"
+# Корень репозитория: src/project/bot_media.py → parents[2]
+ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
 FIRST_START_IMAGE_PATH = ASSETS_DIR / "first_start.jpg"
 OTHER_MESSAGES_IMAGE_PATH = ASSETS_DIR / "other_messages.jpg"
+HOME_IMAGE_PATH = ASSETS_DIR / "home.jpg"
 
 
 def first_start_image() -> InputMedia:
     return InputMedia(str(FIRST_START_IMAGE_PATH), type="image")
 
 
+def home_image() -> InputMedia:
+    return InputMedia(str(HOME_IMAGE_PATH), type="image")
+
+
 def _has_image(attachments: Any) -> bool:
     return any(str(getattr(item, "type", "")).lower() == "image" for item in (attachments or []))
 
 
+def _is_priority_notify_text(text: str | None) -> bool:
+    """Личные priority-пуши начинаются маркером важности — без брендовой обложки."""
+    if not text:
+        return False
+    stripped = text.lstrip()
+    return stripped.startswith(("🔴", "🟠"))
+
+
 def _other_image(attachments: Any, text: str | None) -> list[Any] | None:
     """Оставить тематическое изображение, если оно уже задано явно."""
-    if text is None or text.startswith("<b>Главная</b>"):
+    if text is None or text.startswith("<b>Главная</b>") or _is_priority_notify_text(text):
         return attachments
     if _has_image(attachments):
         return attachments
@@ -34,6 +48,8 @@ def install_bot_images(bot: Any) -> None:
 
     Не меняем сами callback-уведомления (ack), если там нет сообщения.
     Повторный вызов не добавляет обёртки повторно.
+    Передайте brand_image=False, чтобы не вставлять other_messages.jpg
+    (например, для notify-пушей и дайджестов).
     """
     if getattr(bot, "_brand_images_installed", False):
         return
@@ -42,12 +58,14 @@ def install_bot_images(bot: Any) -> None:
     original_send_callback = bot.send_callback
 
     async def send_message(*args: Any, **kwargs: Any) -> Any:
-        if "text" in kwargs:
+        brand = kwargs.pop("brand_image", True)
+        if brand and "text" in kwargs:
             kwargs["attachments"] = _other_image(kwargs.get("attachments"), kwargs["text"])
         return await original_send_message(*args, **kwargs)
 
     async def edit_message(*args: Any, **kwargs: Any) -> Any:
-        if "text" in kwargs:
+        brand = kwargs.pop("brand_image", True)
+        if brand and "text" in kwargs:
             kwargs["attachments"] = _other_image(kwargs.get("attachments"), kwargs["text"])
         return await original_edit_message(*args, **kwargs)
 

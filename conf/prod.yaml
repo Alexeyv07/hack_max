@@ -68,9 +68,9 @@ notify:
 runtime:
   enable_bot: true
   enable_api: true
-  enable_news_parser: true
+  enable_news_parser: false
   enable_mc_parser: true
-  enable_chat_parser: true
+  enable_chat_parser: false
 
 chat_parser:
   enabled: true

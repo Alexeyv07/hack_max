@@ -8,7 +8,7 @@ from time import monotonic
 from typing import Any
 
 from maxapi.enums.format import Format
-from maxapi.filters.command import CommandStart
+from maxapi.filters.command import Command, CommandStart
 from maxapi.types import CallbackButton, OpenAppButton
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
@@ -19,8 +19,11 @@ from auth.handlers.residence import get_personal_address
 from chat_link.handlers import bind_referral_member, claim_admin_request
 from project.bot_media import first_start_image
 from project.database import session_scope
+from project.docs_links import docs_html
+from project.logging_setup import get_logger
 from user_chat.handlers import has_connected_chat, linked_group_ids
 
+logger = get_logger(__name__)
 CHAT_LINK_START_PAYLOAD = "chat_link:start"
 CHAT_BIND_PREFIX = "chat_bind_"
 
@@ -28,7 +31,8 @@ ADDRESS_PICKER_TEXT = (
     "Давайте найдём ваш дом 🏠\n\n"
     "Выберите удобный способ: найти адрес в списке, показать дом на карте "
     "или написать адрес.\n\n"
-    "Если помните почтовый индекс, можно начать с него — затем выбрать свой дом:"
+    "Если помните почтовый индекс, можно начать с него — затем выбрать свой дом.\n\n"
+    f"Если что-то непонятно: {docs_html('как выбрать адрес', page='chat-link')}."
 )
 
 
@@ -53,6 +57,7 @@ def build_welcome_text(
         "- Если сроки изменятся — обновим информацию 📣\n\n"
         "Также кроме новостей вашего двора и округи мы собираем для вас "
         "подборку актуальных новостей вашего города. Не упустите то, что вас касается ❗\n\n"
+        f"Кратко о сервисе: {docs_html('справка', page='overview')}.\n\n"
         "Укажите свой адрес, чтобы подключить сервис к чату вашего дома:"
     )
     if notice:
@@ -231,6 +236,15 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
         recent_starts[user_id] = (source, now)
         return False
 
+    async def _delete_user_command(event: Any) -> None:
+        mid = getattr(getattr(getattr(event, "message", None), "body", None), "mid", None)
+        if not mid:
+            return
+        try:
+            await bot.delete_message(str(mid))
+        except Exception:
+            logger.debug("Не удалось удалить команду пользователя mid=%s", mid, exc_info=True)
+
     @dp.bot_started()
     async def on_bot_started(event: Any, context: Any) -> None:
         user = await asyncio.to_thread(authorize_from_event, event)
@@ -299,3 +313,20 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
         if user is None or duplicate_start(user.max_user_id, "message_created"):
             return
         await _render_welcome(bot, event, context, user)
+
+    @dp.message_created(Command("home"))
+    async def on_home(event: Any) -> None:
+        """Показать главную; сообщение с командой убрать из истории."""
+        user = await asyncio.to_thread(authorize_from_event, event)
+        await _delete_user_command(event)
+        if user is None:
+            return
+        chat_id = getattr(event, "chat_id", None)
+        if chat_id is None:
+            recipient = getattr(getattr(event, "message", None), "recipient", None)
+            chat_id = getattr(recipient, "chat_id", None)
+        try:
+            with session_scope() as session:
+                await send_home(bot, session, user.max_user_id, recipient_chat_id=chat_id)
+        except Exception:
+            logger.exception("Не удалось отправить /home")

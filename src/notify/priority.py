@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -180,6 +181,7 @@ def mark_delivery_sent(
     *,
     delivery_id: int,
     sent_at: datetime,
+    message_mid: str | None = None,
 ) -> bool:
     """Зафиксировать только успешную отправку."""
     row = session.get(NotifyDeliveryRow, delivery_id)
@@ -190,8 +192,19 @@ def mark_delivery_sent(
         row.first_sent_at = current
     row.last_sent_at = current
     row.attempts += 1
+    if message_mid:
+        row.last_message_mid = message_mid
     session.flush()
     return True
+
+
+def delivery_last_message_mid(session: Session, *, delivery_id: int) -> str | None:
+    """mid предыдущего сообщения в MAX для этой доставки (если уже слали)."""
+    row = session.get(NotifyDeliveryRow, delivery_id)
+    if row is None:
+        return None
+    mid = row.last_message_mid
+    return str(mid) if mid else None
 
 
 def acknowledge_delivery(
@@ -218,22 +231,63 @@ def acknowledge_delivery(
     return True
 
 
-def build_priority_text(delivery: PriorityDelivery) -> str:
-    """Без LLM: только текст Event и визуальный уровень важности."""
+def has_expandable_body(delivery: PriorityDelivery) -> bool:
+    """Есть отдельный текст body, который имеет смысл скрывать под «Подробнее»."""
+    title = _compact(delivery.title, limit=240)
+    body = _compact(delivery.body, limit=3000)
+    return bool(body) and body.casefold() != title.casefold()
+
+
+def build_priority_text(
+    delivery: PriorityDelivery,
+    *,
+    expanded: bool = False,
+    docs_url: str | None = None,
+) -> str:
+    """Заголовок всегда виден; body по умолчанию скрыт (в MAX нет native spoiler).
+
+    Раскрытие — через callback «Подробнее» / «Свернуть» (edit того же сообщения).
+    """
     marker = "🔴" if delivery.importance == 1 else "🟠"
     title = _compact(delivery.title, limit=240)
     body = _compact(delivery.body, limit=3000)
-    if not body or body.casefold() == title.casefold():
-        return f"{marker} {title}"
-    return f"{marker} {title}\n\n{body}"
+    text = f"{marker} {title}"
+    if has_expandable_body(delivery):
+        if expanded:
+            text = f"{text}\n\n{body}"
+        else:
+            text = f"{text}\n\n_Подробности скрыты — нажмите «Подробнее»._"
+    if docs_url:
+        # Markdown inline-ссылка, не кнопка клавиатуры.
+        text = f"{text}\n\n[Как устроены уведомления?]({docs_url})"
+    return text
 
 
 def ack_payload(delivery_id: int) -> str:
     return f"notify:ack:{delivery_id}"
 
 
+def expand_payload(delivery_id: int) -> str:
+    return f"notify:expand:{delivery_id}"
+
+
+def collapse_payload(delivery_id: int) -> str:
+    return f"notify:collapse:{delivery_id}"
+
+
 def parse_ack_payload(payload: str) -> int | None:
-    prefix = "notify:ack:"
+    return _parse_notify_id_payload(payload, "notify:ack:")
+
+
+def parse_expand_payload(payload: str) -> int | None:
+    return _parse_notify_id_payload(payload, "notify:expand:")
+
+
+def parse_collapse_payload(payload: str) -> int | None:
+    return _parse_notify_id_payload(payload, "notify:collapse:")
+
+
+def _parse_notify_id_payload(payload: str, prefix: str) -> int | None:
     if not payload.startswith(prefix):
         return None
     raw = payload.removeprefix(prefix)
@@ -241,6 +295,25 @@ def parse_ack_payload(payload: str) -> int | None:
         return None
     delivery_id = int(raw)
     return delivery_id if delivery_id > 0 else None
+
+
+def build_priority_keyboard(delivery: PriorityDelivery, *, expanded: bool = False) -> Any:
+    """«Подробнее»/«Свернуть» + «Увидел». Docs — только в тексте сообщения."""
+    from maxapi.types import CallbackButton
+    from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
+
+    builder = InlineKeyboardBuilder()
+    if has_expandable_body(delivery):
+        if expanded:
+            builder.row(
+                CallbackButton(text="Свернуть", payload=collapse_payload(delivery.delivery_id))
+            )
+        else:
+            builder.row(
+                CallbackButton(text="Подробнее", payload=expand_payload(delivery.delivery_id))
+            )
+    builder.row(CallbackButton(text="Увидел", payload=ack_payload(delivery.delivery_id)))
+    return builder.as_markup()
 
 
 def _priority_recipient_user_ids(session: Session, event: EventRow) -> list[int]:

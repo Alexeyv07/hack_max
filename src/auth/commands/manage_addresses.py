@@ -18,6 +18,7 @@ from auth.handlers.managed_addresses import (
     remove_managed_address,
 )
 from project.database import session_scope
+from project.docs_links import docs_html
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -37,9 +38,15 @@ def _list_view(
     addresses: list[ManagedAddress], page: int, *, notice: str | None = None
 ) -> tuple[str, Any]:
     page, pages = _page(page, len(addresses))
-    text = "<b>Ваши адреса 🏠</b>\n\nВыберите адрес, чтобы посмотреть его или удалить."
+    text = (
+        "<b>Ваши адреса 🏠</b>\n\nВыберите адрес, чтобы посмотреть его или удалить.\n\n"
+        f"Подсказка: {docs_html('как управлять адресами', page='addresses')}."
+    )
     if not addresses:
-        text = "<b>Ваши адреса 🏠</b>\n\nПока нет сохранённых адресов."
+        text = (
+            "<b>Ваши адреса 🏠</b>\n\nПока нет сохранённых адресов.\n\n"
+            f"Подсказка: {docs_html('как управлять адресами', page='addresses')}."
+        )
     if notice:
         text += f"\n\n{escape(notice)}"
     builder = InlineKeyboardBuilder()
@@ -75,7 +82,8 @@ def _detail_view(address: ManagedAddress, page: int) -> tuple[str, Any]:
     text = (
         f"<b>{escape(address.text)}</b>\n\n"
         "Вы можете удалить этот адрес из своего списка. "
-        "Привязка дома к групповому чату при этом сохранится."
+        "Привязка дома к групповому чату при этом сохранится.\n\n"
+        f"Подробнее: {docs_html('управление адресами', page='addresses')}."
     )
     return text, builder.as_markup()
 

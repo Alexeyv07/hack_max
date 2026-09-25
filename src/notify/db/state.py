@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    String,
     UniqueConstraint,
     func,
 )
@@ -39,6 +40,8 @@ class NotifyDeliveryRow(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     first_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # mid последнего сообщения в MAX — чтобы при повторе удалить предыдущее.
+    last_message_mid: Mapped[str | None] = mapped_column(String(255), nullable=True)
     acked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

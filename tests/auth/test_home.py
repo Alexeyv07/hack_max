@@ -45,8 +45,10 @@ def test_home_lists_only_member_selected_addresses(db_session) -> None:
     assert linked_addresses(db_session, 42) == [selected.address_text]
     assert linked_addresses(db_session, 43) == []
     text = build_home_text(linked_addresses(db_session, 42))
+    assert text.startswith("<b>Главная</b>")
     assert "&lt;Мира&gt;" in text
     assert unselected.address_text not in text
+    assert "Посмотреть новости рядом" in text or "новости" in text.casefold()
 
 
 def test_home_keyboard_matches_mockup() -> None:
@@ -56,10 +58,11 @@ def test_home_keyboard_matches_mockup() -> None:
     assert [row[0].text for row in buttons] == [
         "Посмотреть новости рядом",
         "Управлять адресами",
-        "Помощь и обратная связь",
     ]
     assert buttons[1][0].payload == "home:manage"
     assert buttons[0][0].web_app == "bot"
+    assert "справка о сервисе" in build_home_text([])
+    assert "<a href=" in build_home_text([])
 
 
 def test_home_sends_image_and_keyboard_together(db_session) -> None:
@@ -76,6 +79,7 @@ def test_home_sends_image_and_keyboard_together(db_session) -> None:
     sent = bot.send_message.await_args.kwargs
     assert sent["chat_id"] == 1000
     assert "Ваши адреса 🏠" in sent["text"]
+    assert sent["text"].startswith("<b>Главная</b>")
     assert "—" in sent["text"]
     assert len(sent["attachments"]) == 2
     assert sent["attachments"][0].type == "image"

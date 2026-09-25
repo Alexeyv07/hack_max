@@ -40,6 +40,7 @@ from chat_link.handlers import (
 )
 from chat_link.handlers.residence_selection import resolve_residence
 from project.database import session_scope
+from project.docs_links import docs_html
 from project.logging_setup import get_logger
 from user_chat.handlers import (
     bind_known_chat_member,
@@ -184,12 +185,18 @@ async def _show_methods(event: Any, context: Any, bot: Any) -> None:
         if target_chat_id is not None
         else ADDRESS_PICKER_TEXT
     )
+    if target_chat_id is not None:
+        text = (
+            f"{text}\n\n"
+            f"Подсказка: {docs_html('как выбрать адрес и подключить чат', page='chat-link')}."
+        )
     kwargs = {
         "text": text,
         "attachments": [
             method_keyboard(bot, target_chat_id=target_chat_id, resident_chat_id=resident_chat_id)
         ],
         "notify": False,
+        "format": Format.HTML,
     }
     if mid and mid == data.get("first_welcome_mid"):
         # Первую обложку не перезаписываем: следующие экраны открываются новым сообщением.
@@ -212,9 +219,13 @@ async def _show_bot_methods(event: Any, context: Any) -> None:
     if mid:
         await context.update_data(flow_mid=mid)
     await event.edit(
-        text="Выберите способ в боте. Индекс сузит список, затем нужно выбрать конкретный дом.",
+        text=(
+            "Выберите способ в боте. Индекс сузит список, затем нужно выбрать конкретный дом.\n\n"
+            f"Подсказка: {docs_html('как выбрать адрес', page='chat-link')}."
+        ),
         attachments=[bot_method_keyboard()],
         notify=False,
+        format=Format.HTML,
     )
 
 
@@ -475,7 +486,8 @@ async def _show_resident_setup(event: Any, context: Any, bot: Any) -> None:
         f"Адрес: {address.address_text}\n\n"
         "Для этого дома пока нет подключённого чата.\n\n"
         "Скопируйте пригласительное сообщение и отправьте его администратору "
-        "вашего домового чата. Если вы сами администратор, нажмите кнопку ниже."
+        "вашего домового чата. Если вы сами администратор, нажмите кнопку ниже.\n\n"
+        f"Пошагово: {docs_html('как подключить домовой чат', page='chat-link')}."
     )
     if not admin_link:
         text += "\n\nСейчас ссылку для администратора создать не удалось. Попробуйте ещё раз позже."
@@ -483,6 +495,7 @@ async def _show_resident_setup(event: Any, context: Any, bot: Any) -> None:
         text=text,
         attachments=[setup_keyboard(admin_link, address.address_text)],
         notify=False,
+        format=Format.HTML,
     )
 
 
@@ -501,14 +514,16 @@ async def _show_admin_setup(event: Any, context: Any, bot: Any) -> None:
     await event.edit(
         text=(
             f"Адрес: {address.address_text}\n\n"
-            "Если бот уже есть в вашем чате, повторно добавлять его не нужно: "
-            "отправьте в группу /address и нажмите «Добавить адрес чата (админ)». "
-            "Затем выберите этот дом в личном диалоге с ботом.\n\n"
-            "Если бота ещё нет в чате, добавьте его и назначьте администратором "
-            "с правом «Читать все сообщения». После этого можно выбрать первый адрес."
+            "Если бот уже есть в вашем чате соседей — повторно добавлять его не нужно. "
+            "Напишите в группу команду /address и нажмите "
+            "«Добавить адрес чата (админ)». Потом выберите этот дом в личных сообщениях с ботом.\n\n"
+            "Если бота в чате ещё нет: добавьте его в группу и сделайте администратором "
+            "с правом «Читать все сообщения». После этого можно выбрать первый адрес.\n\n"
+            f"Подробная инструкция: {docs_html('подключение чата', page='chat-link')}."
         ),
         attachments=[admin_setup_keyboard()],
         notify=False,
+        format=Format.HTML,
     )
 
 
@@ -653,7 +668,11 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                     with session_scope() as session:
                         addresses = list_chat_addresses(session, chat_id)
                     if len(addresses) <= 1:
-                        await event.ack(notification="Последний адрес чата удалить нельзя")
+                        await event.ack(
+                            notification=(
+                                "Это единственный адрес. Чтобы убрать его, удалите бота из чата."
+                            )
+                        )
                         return
                     keyboard = InlineKeyboardBuilder()
                     for address in addresses:
@@ -666,14 +685,14 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                     await _ack_callback(event)
                     await bot.send_message(
                         chat_id=chat_id,
-                        text="Администратор: выберите адрес, который нужно отвязать от чата.",
+                        text="Какой адрес убрать из этого чата? Нажмите на нужный.",
                         attachments=[keyboard.as_markup()],
                     )
                     return
                 with session_scope() as session:
                     removed = remove_chat_address(session, chat_id, address_id)
                 if not removed:
-                    await event.ack(notification="Адрес уже удалён")
+                    await event.ack(notification="Этот адрес уже убран")
                     return
                 await _ack_callback(event)
                 await announce_connected_group(bot, chat_id)
@@ -681,12 +700,18 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                 if mid:
                     await bot.edit_message(
                         mid,
-                        text="✅ Адрес удалён из чата. Список в сообщении выше обновлён.",
+                        text=(
+                            "Готово: этот адрес больше не привязан к чату. "
+                            "Список адресов выше обновлён."
+                        ),
                         attachments=[],
                         notify=False,
                     )
                 else:
-                    await bot.send_message(chat_id=chat_id, text="✅ Адрес удалён из чата.")
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text="Готово: адрес убран из чата.",
+                    )
             except ValueError as exc:
                 await event.ack(notification=str(exc))
             except Exception:
@@ -724,9 +749,13 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             if mid:
                 await context.update_data(flow_mid=mid)
             await event.edit(
-                text="Введите шестизначный почтовый индекс. Он только сузит список адресов.",
+                text=(
+                    "Введите шестизначный почтовый индекс. Он только сузит список адресов.\n\n"
+                    f"Если не знаете индекс: {docs_html('как выбрать адрес', page='chat-link')}."
+                ),
                 attachments=[postal_input_keyboard()],
                 notify=False,
+                format=Format.HTML,
             )
             return
 
@@ -846,8 +875,13 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             if mid:
                 await bot.edit_message(
                     mid,
-                    text="❗ Ошибка ❗\n\nИндекс должен состоять ровно из 6 цифр. Введите индекс ещё раз.",
+                    text=(
+                        "❗ Ошибка ❗\n\nИндекс должен состоять ровно из 6 цифр. "
+                        "Введите индекс ещё раз.\n\n"
+                        f"Подсказка: {docs_html('как выбрать адрес', page='chat-link')}."
+                    ),
                     attachments=[postal_input_keyboard()],
+                    format=Format.HTML,
                 )
             return
 
@@ -859,8 +893,13 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             if mid:
                 await bot.edit_message(
                     mid,
-                    text="❗ Ошибка ❗\n\nТакого индекса нет в справочнике. Введите другой шестизначный индекс.",
+                    text=(
+                        "❗ Ошибка ❗\n\nТакого индекса нет в справочнике. "
+                        "Введите другой шестизначный индекс.\n\n"
+                        f"Подсказка: {docs_html('как выбрать адрес', page='chat-link')}."
+                    ),
                     attachments=[postal_input_keyboard()],
+                    format=Format.HTML,
                 )
             return
 

@@ -70,6 +70,24 @@ def test_callback_ack_does_not_upload_photo_but_screen_edit_does() -> None:
     assert old.attachments == []
 
 
+def test_priority_notify_text_is_not_decorated() -> None:
+    bot = _bot()
+    raw_send = bot.send_message
+    install_bot_images(bot)
+    asyncio.run(bot.send_message(chat_id=10, text="🔴 Отключение воды", attachments=["keyboard"]))
+    assert raw_send.await_args.kwargs["attachments"] == ["keyboard"]
+    asyncio.run(
+        bot.send_message(
+            chat_id=10,
+            text="Дайджест чата",
+            attachments=["keyboard"],
+            brand_image=False,
+        )
+    )
+    assert raw_send.await_args.kwargs["attachments"] == ["keyboard"]
+    assert "brand_image" not in raw_send.await_args.kwargs
+
+
 def test_edit_and_install_twice_do_not_double_attach() -> None:
     bot = _bot()
     raw_edit = bot.edit_message

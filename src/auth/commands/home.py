@@ -3,23 +3,22 @@
 from __future__ import annotations
 
 from html import escape
-from pathlib import Path
 from typing import Any
 
 from maxapi.enums.format import Format
-from maxapi.types import CallbackButton, InputMedia, LinkButton, OpenAppButton
+from maxapi.types import CallbackButton, OpenAppButton
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from auth.db.user import UserRow
 from auth.handlers.managed_addresses import list_managed_addresses
-from project.config import get_settings
+from project.bot_media import HOME_IMAGE_PATH, home_image
+from project.docs_links import docs_html
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
 MANAGE_ADDRESSES_PAYLOAD = "home:manage"
-HOME_IMAGE_PATH = Path(__file__).resolve().parents[1] / "assets" / "home.jpg"
 
 
 def linked_addresses(session: Session, max_user_id: int) -> list[str]:
@@ -28,7 +27,7 @@ def linked_addresses(session: Session, max_user_id: int) -> list[str]:
 
 
 def build_home_text(addresses: list[str], *, notice: str | None = None) -> str:
-    """Строка '-' означает, что адрес ещё не привязан, а не потерян при рендеринге."""
+    """Главная после онбординга: дома пользователя и следующий шаг — новости."""
     if addresses:
         lines = [f"• {escape(address)}" for address in addresses[:12]]
         if len(addresses) > 12:
@@ -36,11 +35,16 @@ def build_home_text(addresses: list[str], *, notice: str | None = None) -> str:
         address_block = "\n".join(lines)
     else:
         address_block = "—"
+    help_link = docs_html("справка о сервисе", page="overview")
     text = (
-        f"<b>Ваши адреса 🏠</b>\n\n{address_block}\n\n"
-        "Смотрите, что происходит рядом с вашими домами и в городе: "
+        "<b>Главная</b>\n\n"
+        f"<b>Ваши адреса 🏠</b>\n{address_block}\n\n"
+        "Здесь собрано то, что касается вашего дома и города: "
         "отключения воды, ремонт, перекрытия и другие события.\n\n"
-        "Нажмите кнопку ниже, чтобы открыть новости 🕊"
+        "Нажмите «Посмотреть новости рядом», чтобы открыть ленту. "
+        f"Если нужно добавить или убрать дом — «Управлять адресами».\n\n"
+        "Команды: /home — эта страница · /get_notify — получить тестовое оповещение \n\n"
+        f"Документация: {help_link}"
     )
     if notice:
         text += f"\n\n{escape(notice)}"
@@ -58,7 +62,6 @@ def build_home_keyboard(bot: Any) -> Any:
         )
     )
     builder.row(CallbackButton(text="Управлять адресами", payload=MANAGE_ADDRESSES_PAYLOAD))
-    builder.row(LinkButton(text="Помощь и обратная связь", url=get_settings().docs.url))
     return builder.as_markup()
 
 
@@ -84,7 +87,7 @@ async def send_home(
         return await bot.send_message(
             **recipient,
             text=text,
-            attachments=[InputMedia(str(HOME_IMAGE_PATH), type="image"), keyboard],
+            attachments=[home_image(), keyboard],
             format=Format.HTML,
         )
     except Exception:
@@ -96,3 +99,14 @@ async def send_home(
             attachments=[keyboard],
             format=Format.HTML,
         )
+
+
+# Обратная совместимость для тестов, которые импортируют путь напрямую.
+__all__ = [
+    "HOME_IMAGE_PATH",
+    "MANAGE_ADDRESSES_PAYLOAD",
+    "build_home_keyboard",
+    "build_home_text",
+    "linked_addresses",
+    "send_home",
+]

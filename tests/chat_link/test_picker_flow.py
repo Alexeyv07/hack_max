@@ -191,6 +191,7 @@ def test_invalid_postal_format_shows_error_and_keeps_back_button(monkeypatch) ->
     buttons = kwargs["attachments"][0].payload.buttons
     assert buttons[0][0].text == "← Назад"
     assert buttons[0][0].payload == "cl:back:root"
+    assert "как выбрать адрес" in kwargs["text"]
 
 
 def test_unknown_postal_keeps_back_button(monkeypatch) -> None:
@@ -213,6 +214,7 @@ def test_unknown_postal_keeps_back_button(monkeypatch) -> None:
     buttons = kwargs["attachments"][0].payload.buttons
     assert buttons[0][0].text == "← Назад"
     assert buttons[0][0].payload == "cl:back:root"
+    assert "как выбрать адрес" in kwargs["text"]
 
 
 def test_postal_street_callback_goes_to_houses(monkeypatch) -> None:
@@ -277,6 +279,8 @@ def test_admin_instructions_are_shown_only_after_admin_button(monkeypatch) -> No
     assert "Читать все сообщения" in kwargs["text"]
     buttons = kwargs["attachments"][0].payload.buttons
     assert buttons[0][0].text == "← Я не администратор"
+    assert "подключение чата" in kwargs["text"]
+    assert "<a href=" in kwargs["text"]
 
 
 def test_return_from_admin_help_shows_resident_text(monkeypatch) -> None:
@@ -547,6 +551,7 @@ def test_group_admin_removes_address_and_updates_announcement(db_session, monkey
     )
     asyncio.run(dp.handlers["message_callback"](event, FakeContext()))
     buttons = bot.send_message.await_args.kwargs["attachments"][0].payload.buttons
+    assert "Какой адрес убрать" in bot.send_message.await_args.kwargs["text"]
     assert len(buttons) == 2
     assert buttons[1][0].payload == f"cl:group:pick:-8123:{second.id}"
     event.callback.payload = buttons[1][0].payload
@@ -555,6 +560,7 @@ def test_group_admin_removes_address_and_updates_announcement(db_session, monkey
     announce.assert_awaited_once_with(bot, -8123)
     bot.edit_message.assert_awaited_once()
     assert bot.edit_message.await_args.args == ("delete-choice",)
+    assert "больше не привязан" in bot.edit_message.await_args.kwargs["text"]
 
 
 def test_non_admin_cannot_remove_group_address(monkeypatch) -> None:
