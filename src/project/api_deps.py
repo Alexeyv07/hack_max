@@ -32,14 +32,21 @@ def get_max_user_id(
         int | None,
         Header(
             alias="X-Max-User-Id",
-            description="ID пользователя Max (webapp и бот знают одного и того же user)",
+            description=(
+                "ID пользователя Max. WebApp берёт его из Bridge "
+                "`initDataUnsafe.user.id` и передаёт в каждом запросе к API. "
+                "Локально без Bridge можно подставить тестовый id "
+                "(например `159064979`). Один и тот же id используют бот и webapp."
+            ),
+            examples=[159064979],
         ),
     ] = None,
 ) -> int:
     """
     Идентификация пользователя для webapp.
 
-    Фронт берёт id из Max Bridge (initDataUnsafe.user.id) и шлёт в заголовке.
+    Фронт берёт id из Max Bridge (`initDataUnsafe.user.id`) и шлёт в заголовке
+    `X-Max-User-Id`. Без заголовка — 401.
     """
     if x_max_user_id is None:
         raise HTTPException(

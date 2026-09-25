@@ -82,5 +82,9 @@ AITUNNEL_API_KEY=...
 
 ## OpenAPI
 
+Посмотреть текущее UI для Swagger можно пу пути [`/docs`](http://localhost:8000/docs) или в файле \
+[`openapi.json`](http://localhost:8000/openapi.json). API используется только для передачи информации от \
+бота к `webapp`. 
+
 ...Вытащить openapi из свагера и приложить его
 ...Таблица того что можно подергать.

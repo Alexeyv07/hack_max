@@ -1,8 +1,10 @@
+"""HTTP-роуты онбординга адреса и домового чата."""
+
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from maxapi.utils.deep_linking import create_start_link
 
 from auth.commands.home import send_home
@@ -12,6 +14,8 @@ from chat_link.api.schemas import (
     AddressSearchResponse,
     AddressSelectRequest,
     AddressSelectResponse,
+    ApiError,
+    GroupAddressRemovedResponse,
     PersonalResidenceResponse,
     PostalAddressSearchResponse,
 )
@@ -28,9 +32,16 @@ from project.logging_setup import get_logger
 from project.max_runtime import get_max_bot
 from user_chat.handlers import get_chat, linked_group_ids, remove_chat_address, set_member_address
 
-router = APIRouter(prefix="/chat-link", tags=["chat-link"])
+router = APIRouter(prefix="/chat-link", tags=["ChatLink"])
 MaxUserId = Annotated[int, Depends(get_max_user_id)]
 logger = get_logger(__name__)
+
+_AUTH_ERRORS = {
+    status.HTTP_401_UNAUTHORIZED: {
+        "description": "Нет заголовка `X-Max-User-Id`.",
+        "model": ApiError,
+    },
+}
 
 
 async def _send_selected_home(bot, session, max_user_id: int, *, notice: str | None = None) -> None:
@@ -54,48 +65,199 @@ def _option(row, score: float | None = None) -> AddressOption:
     )
 
 
-@router.get("/addresses/search", response_model=AddressSearchResponse)
+@router.get(
+    "/addresses/search",
+    response_model=AddressSearchResponse,
+    summary="Поиск адреса по тексту",
+    response_description="До 12 лучших совпадений с score",
+    responses={
+        status.HTTP_200_OK: {"model": AddressSearchResponse},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "description": "`q` короче 3 символов или длиннее 300.",
+            "model": ApiError,
+        },
+    },
+)
 def search_addresses(
-    q: Annotated[str, Query(min_length=3, max_length=300)],
+    q: Annotated[
+        str,
+        Query(
+            min_length=3,
+            max_length=300,
+            description=(
+                "Свободный текстовый запрос: улица, дом, район. "
+                "Минимум 3 символа. Fuzzy + stem по каталогу Москвы."
+            ),
+            examples=["Варшавское 28", "Нагатинская наб"],
+        ),
+    ],
 ) -> AddressSearchResponse:
+    """
+    Текстовый поиск дома в адресном каталоге (один из 4 способов ввода адреса).
+
+    **Без** `X-Max-User-Id` — публичный lookup для пикера webapp.
+    """
     items = [_option(row, score) for row, score in get_address_catalog().search(q, limit=12)]
     return AddressSearchResponse(items=items)
 
 
-@router.get("/addresses/postal", response_model=PostalAddressSearchResponse)
+@router.get(
+    "/addresses/postal",
+    response_model=PostalAddressSearchResponse,
+    summary="Адреса по почтовому индексу",
+    response_description="Страница домов индекса + total",
+    responses={
+        status.HTTP_200_OK: {"model": PostalAddressSearchResponse},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "description": "`code` не ровно 6 цифр.",
+            "model": ApiError,
+        },
+    },
+)
 def search_postal_addresses(
-    code: Annotated[str, Query(pattern=r"^\d{6}$")],
-    q: Annotated[str, Query(max_length=120)] = "",
-    offset: Annotated[int, Query(ge=0)] = 0,
-    limit: Annotated[int, Query(ge=1, le=30)] = 12,
+    code: Annotated[
+        str,
+        Query(
+            pattern=r"^\d{6}$",
+            description="Почтовый индекс РФ, ровно 6 цифр (например `117405`).",
+            examples=["117405"],
+        ),
+    ],
+    q: Annotated[
+        str,
+        Query(
+            max_length=120,
+            description="Опциональный текстовый фильтр внутри индекса (улица / дом).",
+            examples=["Варшавское"],
+        ),
+    ] = "",
+    offset: Annotated[
+        int,
+        Query(ge=0, description="Смещение для пагинации списка домов.", examples=[0]),
+    ] = 0,
+    limit: Annotated[
+        int,
+        Query(ge=1, le=30, description="Размер страницы (1–30).", examples=[12]),
+    ] = 12,
 ) -> PostalAddressSearchResponse:
+    """
+    Список домов по почтовому индексу (второй способ ввода адреса).
+
+    `total` — полное число совпадений; листай через `offset` / `limit`.
+    """
     rows, total = get_address_catalog().postal_addresses(code, query=q, offset=offset, limit=limit)
     return PostalAddressSearchResponse(items=[_option(row) for row in rows], total=total)
 
 
-@router.get("/addresses/nearest", response_model=AddressSearchResponse)
+@router.get(
+    "/addresses/nearest",
+    response_model=AddressSearchResponse,
+    summary="Ближайшие адреса к точке на карте",
+    response_description="До 5 ближайших домов",
+    responses={
+        status.HTTP_200_OK: {"model": AddressSearchResponse},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "description": "lat/lon вне допустимого диапазона.",
+            "model": ApiError,
+        },
+    },
+)
 def nearest_addresses(
-    lat: Annotated[float, Query(ge=-90, le=90)],
-    lon: Annotated[float, Query(ge=-180, le=180)],
+    lat: Annotated[
+        float,
+        Query(ge=-90, le=90, description="Широта точки с карты (Yandex).", examples=[55.65012]),
+    ],
+    lon: Annotated[
+        float,
+        Query(
+            ge=-180,
+            le=180,
+            description="Долгота точки с карты (Yandex).",
+            examples=[37.61890],
+        ),
+    ],
 ) -> AddressSearchResponse:
+    """
+    Nearest-lookup для пикера на карте (третий способ ввода адреса).
+
+    Клиент ставит метку → шлёт lat/lon → показывает ближайшие дома каталога.
+    """
     items = [_option(row) for row in get_address_catalog().nearest(lat, lon, limit=5)]
     return AddressSearchResponse(items=items)
 
 
-@router.get("/residence", response_model=PersonalResidenceResponse)
+@router.get(
+    "/residence",
+    response_model=PersonalResidenceResponse,
+    summary="Текущий выбранный дом пользователя",
+    response_description="Адрес или null",
+    responses={
+        status.HTTP_200_OK: {"model": PersonalResidenceResponse},
+        **_AUTH_ERRORS,
+    },
+)
 def get_residence(session: DbSession, max_user_id: MaxUserId) -> PersonalResidenceResponse:
+    """
+    Вернуть личный адрес жителя, если он выбран **и** по нему есть linked MAX-чат.
+
+    Иначе `address=null` (nearby-лента будет пустой, пока пользователь не пройдёт онбординг).
+    """
     address = get_personal_address(session, max_user_id)
     if address is not None and not linked_group_ids(session, max_user_id, address_id=address.id):
         address = None
     return PersonalResidenceResponse(address=_option(address) if address is not None else None)
 
 
-@router.post("/select", response_model=AddressSelectResponse)
+@router.post(
+    "/select",
+    response_model=AddressSelectResponse,
+    summary="Выбрать адрес / привязать домовой чат",
+    response_description="Исход онбординга (`mode`) + опциональный admin deep-link",
+    responses={
+        status.HTTP_200_OK: {"model": AddressSelectResponse},
+        status.HTTP_403_FORBIDDEN: {
+            "description": "Пользователь не состоит в указанном чате.",
+            "model": ApiError,
+        },
+        status.HTTP_404_NOT_FOUND: {
+            "description": "`address_id` нет в каталоге.",
+            "model": ApiError,
+        },
+        status.HTTP_409_CONFLICT: {
+            "description": "Конфликт привязки / бизнес-правило (см. `detail`).",
+            "model": ApiError,
+        },
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "description": "Переданы и `chat_id`, и `resident_chat_id`.",
+            "model": ApiError,
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "description": "MAX-бот недоступен или не удалось проверить членство.",
+            "model": ApiError,
+        },
+        **_AUTH_ERRORS,
+    },
+)
 async def select_address(
     payload: AddressSelectRequest,
     session: DbSession,
     max_user_id: MaxUserId,
 ) -> AddressSelectResponse:
+    """
+    Центральная ручка онбординга webapp после выбора дома.
+
+    ### Режимы тела запроса
+    | Поля | Поведение |
+    |------|-----------|
+    | только `address_id` | `resolve_residence`: сохранить дом / проверить чат / предложить админу |
+    | `address_id` + `chat_id` | админ привязывает только что добавленную группу к адресу |
+    | `address_id` + `resident_chat_id` | житель подтверждает членство в уже существующем чате |
+
+    `chat_id` и `resident_chat_id` **взаимоисключающие**.
+
+    При успехе бот может отправить пользователю экран «главная» / notice в Max.
+    Требует живой процесс бота (`runtime.enable_bot`) для проверок членства.
+    """
     address = get_address_catalog().get(payload.address_id)
     if address is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Адрес не найден")
@@ -210,11 +372,44 @@ async def select_address(
     )
 
 
-@router.delete("/groups/{chat_id}/addresses/{address_id}")
+@router.delete(
+    "/groups/{chat_id}/addresses/{address_id}",
+    response_model=GroupAddressRemovedResponse,
+    summary="Снять адрес с домового чата (только админ)",
+    response_description="Флаг, был ли адрес удалён",
+    responses={
+        status.HTTP_200_OK: {"model": GroupAddressRemovedResponse},
+        status.HTTP_403_FORBIDDEN: {
+            "description": "Вызывающий не админ/владелец чата.",
+            "model": ApiError,
+        },
+        status.HTTP_404_NOT_FOUND: {
+            "description": "Чат не найден или это не group chat.",
+            "model": ApiError,
+        },
+        status.HTTP_409_CONFLICT: {
+            "description": "Боту нужно право «Читать все сообщения» / иное бизнес-ограничение.",
+            "model": ApiError,
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "description": "MAX-бот недоступен.",
+            "model": ApiError,
+        },
+        **_AUTH_ERRORS,
+    },
+)
 async def delete_group_address(
-    chat_id: int, address_id: int, session: DbSession, max_user_id: MaxUserId
-) -> dict[str, bool]:
-    """Удалить адрес группы может только администратор MAX-чата."""
+    chat_id: Annotated[int, Path(description="ID MAX group chat.", examples=[123456789], ge=1)],
+    address_id: Annotated[int, Path(description="ID адреса для отвязки.", examples=[881], ge=1)],
+    session: DbSession,
+    max_user_id: MaxUserId,
+) -> GroupAddressRemovedResponse:
+    """
+    Удалить привязку адреса у домовой группы.
+
+    Разрешено **только** администратору / владельцу MAX-чата.
+    Бот должен иметь право читать все сообщения группы.
+    """
     chat = get_chat(session, chat_id)
     if chat is None or chat.chat_type != "chat":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Домовой чат не найден")
@@ -248,4 +443,4 @@ async def delete_group_address(
             await announce_connected_group(bot, chat_id)
         except Exception:
             logger.exception("Не удалось обновить сообщение после удаления адреса чата")
-    return {"removed": removed}
+    return GroupAddressRemovedResponse(removed=removed)

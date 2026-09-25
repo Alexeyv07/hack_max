@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from events.api.deps import DbSession, get_max_user_id
 from events.api.schemas import (
+    ApiError,
     FeedItemResponse,
     FeedOriginResponse,
     FeedResponse,
@@ -17,7 +18,48 @@ from events.api.schemas import (
 from events.handlers import crud
 from events.models.event import Event
 
-router = APIRouter(prefix="/events", tags=["events"])
+router = APIRouter(prefix="/events", tags=["Events"])
+
+_FEED_RESPONSES = {
+    status.HTTP_200_OK: {
+        "description": (
+            "Страница ленты. Пустой `items` — валидный ответ "
+            "(нет адреса, нет чата, нет событий в радиусе / по городу)."
+        ),
+        "model": FeedResponse,
+    },
+    status.HTTP_400_BAD_REQUEST: {
+        "description": "Некорректные query-параметры (например, битый `cursor` или `limit`).",
+        "model": ApiError,
+    },
+    status.HTTP_401_UNAUTHORIZED: {
+        "description": "Не передан обязательный заголовок `X-Max-User-Id`.",
+        "model": ApiError,
+    },
+    status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        "description": "Ошибка валидации FastAPI/Pydantic (неверный тип `scope`, `limit` вне диапазона).",
+        "model": ApiError,
+    },
+}
+
+_MAP_RESPONSES = {
+    status.HTTP_200_OK: {
+        "description": "Набор точек для полноэкранной карты webapp.",
+        "model": MapResponse,
+    },
+    status.HTTP_400_BAD_REQUEST: {
+        "description": "Некорректный `limit`.",
+        "model": ApiError,
+    },
+    status.HTTP_401_UNAUTHORIZED: {
+        "description": "Не передан обязательный заголовок `X-Max-User-Id`.",
+        "model": ApiError,
+    },
+    status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        "description": "Ошибка валидации query-параметров.",
+        "model": ApiError,
+    },
+}
 
 
 def _to_feed_item(event: Event) -> FeedItemResponse:
@@ -50,22 +92,84 @@ def _to_feed_item(event: Event) -> FeedItemResponse:
     )
 
 
-@router.get("/feed", response_model=FeedResponse)
+@router.get(
+    "/feed",
+    response_model=FeedResponse,
+    summary="TikTok-лента событий (nearby | city)",
+    response_description="Страница карточек, отсортированная по весу",
+    responses=_FEED_RESPONSES,
+)
 def get_feed(
-    scope: Annotated[crud.EventScope, Query()],
+    scope: Annotated[
+        crud.EventScope,
+        Query(
+            description=(
+                "**Режим ленты**\n\n"
+                "- `nearby` — персональная лента вокруг выбранного дома пользователя "
+                "(нужны `X-Max-User-Id`, личный адрес или membership в домовом чате, "
+                "и привязанный MAX-чат). Радиус ~6 км (`events.nearby_radius_m`). "
+                "Только `geo_by` ∈ {`street`, `home`}; `home` — только свой адрес. "
+                "В ответе заполняются `distance_m`, `proximity`, `same_street`, `origin`.\n\n"
+                "- `city` — общая городская лента: все события с `Address.city = Москва` "
+                "(любой `geo_by`). Поля расстояния / `origin` пустые.\n\n"
+                "**Общие фильтры обоих режимов:** только события с `address_id` и "
+                "непустым `Address.address_text`; `importance` ∈ {1, 2}; "
+                "просроченные по `active_to` скрыты; дубликаты сливаются."
+            ),
+            examples=["nearby", "city"],
+        ),
+    ],
     session: DbSession,
     max_user_id: Annotated[int, Depends(get_max_user_id)],
-    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    limit: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=50,
+            description=("Размер страницы (1–50). Типичное значение для snap-ленты webapp — `20`."),
+            examples=[20],
+        ),
+    ] = 20,
     cursor: Annotated[
         str | None,
-        Query(description="Opaque cursor с предыдущей страницы (не offset)"),
+        Query(
+            description=(
+                "Непрозрачный **keyset-курсор** с предыдущей страницы "
+                "(`FeedResponse.next_cursor`). Это **не** offset и не page number: "
+                "курсор кодирует пару `(weight, id)` и продолжает выдачу строго после неё. "
+                "Не смешивай курсоры разных `scope`. "
+                "Пропусти или передай `null` для первой страницы."
+            ),
+            examples=["eyJ3ZWlnaHQiOjAuODEyLCJldmVudF9pZCI6MTA0Mn0"],
+        ),
     ] = None,
 ) -> FeedResponse:
     """
-    TikTok-лента nearby|city.
+    Вертикальная лента webapp «Умный город» (канва TikTok).
 
-    Nearby — по выбранному дому, city — общая выдача.
-    X-Max-User-Id обязателен.
+    ### Идентификация
+    Обязателен заголовок **`X-Max-User-Id`**: ID пользователя Max
+    (`initDataUnsafe.user.id` из Bridge; локально для отладки — фиксированный id).
+
+    ### Nearby (`scope=nearby`)
+    1. Берётся личный адрес пользователя (`users.address_id`), если он привязан
+       к реальному домовому чату; иначе — legacy memberships.
+    2. Без выбранного адреса / без linked group → пустой `items`, `origin=null`.
+    3. Кандидаты в bbox + haversine ≤ `nearby_radius_m` (~6000 м).
+    4. Ранжирование: вес события + бусты `same_street` / активного окна времени.
+    5. В ответе — `origin` с координатами дома и радиусом.
+
+    ### City (`scope=city`)
+    Общая выдача по Москве; персонализация по дому не применяется.
+    Заголовок `X-Max-User-Id` всё равно обязателен (контракт webapp).
+
+    ### Пагинация
+    Передавай `next_cursor` как `cursor` со **тем же** `scope` и желательно тем же `limit`,
+    пока `next_cursor` не станет `null`.
+
+    ### Запись
+    HTTP API **только читает**. Создание/обновление событий — in-process handlers
+    парсеров и бота, не через эти ручки.
     """
     try:
         page = crud.list_feed(
@@ -99,13 +203,52 @@ def get_feed(
     )
 
 
-@router.get("/map", response_model=MapResponse)
+@router.get(
+    "/map",
+    response_model=MapResponse,
+    summary="Точки событий для карты",
+    response_description="Маркеры с категорией иконки для Yandex Maps",
+    responses=_MAP_RESPONSES,
+)
 def get_map(
     session: DbSession,
     max_user_id: Annotated[int, Depends(get_max_user_id)],
-    limit: Annotated[int, Query(ge=1, le=1000)] = 500,
+    limit: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=1000,
+            description=(
+                "Максимум точек в ответе (1–1000). "
+                "По умолчанию `500` — комфортно для одного viewport Москвы."
+            ),
+            examples=[500],
+        ),
+    ] = 500,
 ) -> MapResponse:
-    """Точки карты: все события с адресом (правила importance/map)."""
+    """
+    Полный набор точек для экрана карты webapp (кнопка «Карт» на карточке ленты).
+
+    ### Что попадает на карту
+    - События с адресом и непустым `address_text`;
+    - `importance` ∈ {1, 2} (бытовуха `3` отсекается);
+    - `geo_by` ∈ {`street`, `home`};
+    - не просроченные по `active_to`;
+    - дополнительно фильтр `allowed_on_map` (катастрофы / важное).
+
+    ### Иконки
+    Поле `category`:
+    - `catastrophe` — ЧС (`disaster_flag`) или высокий приоритет (`importance=1`);
+    - `important` — обычное важное (`importance=2`).
+
+    ### Персонализация
+    Выдача **общая для всех** пользователей (не зависит от дома).
+    `X-Max-User-Id` обязателен по контракту webapp, но на выборку не влияет.
+
+    ### Координаты
+    Для `geo_by=street` lat/lon — **центр улицы** (среднее по домам каталога),
+    а не случайный номер дома.
+    """
     _ = max_user_id
     try:
         points = crud.list_map_points(session, limit=limit)
