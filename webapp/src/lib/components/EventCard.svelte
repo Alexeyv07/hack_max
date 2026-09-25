@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { HIDE_YANDEX_ATTRIBUTION } from '$lib/mapAppearance';
 	import type { FeedItem } from '$lib/types/event';
 	import mapSearchIcon from '$lib/assets/map-search.svg';
 	import EventMapPreview from '$lib/components/EventMapPreview.svelte';
@@ -133,6 +134,7 @@
 	<button
 		type="button"
 		class="media"
+		class:clean-preview={HIDE_YANDEX_ATTRIBUTION}
 		class:placeholder={!event.image_url}
 		aria-label={`Открыть карту: ${displayTitle}`}
 		onclick={() => onopenmap(event)}
@@ -235,6 +237,9 @@
 	}
 	.media.placeholder .map-shortcut {
 		bottom: 4.2rem;
+	}
+	.media.placeholder.clean-preview .map-shortcut {
+		bottom: 0.75rem;
 	}
 	.map-shortcut img {
 		width: 27px;

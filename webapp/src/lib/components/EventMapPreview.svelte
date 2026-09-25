@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { HIDE_YANDEX_ATTRIBUTION } from '$lib/mapAppearance';
 	import { onMount } from 'svelte';
 	import { addEventGeography, eventMapZoom, eventPoint, MOSCOW_CENTER } from '$lib/eventMap';
 	import type { FeedItem } from '$lib/types/event';
@@ -25,6 +26,7 @@
 					},
 					behaviors: [],
 					theme: 'dark',
+					distribution: !HIDE_YANDEX_ATTRIBUTION,
 					copyrightsPosition: 'bottom right'
 				});
 				map.addChild(new ymaps3.YMapDefaultSchemeLayer({}));
@@ -43,8 +45,8 @@
 	});
 </script>
 
-<div class="preview" aria-hidden="true">
-	<div class="map" bind:this={mapElement}></div>
+<div class="preview" class:clean-preview={HIDE_YANDEX_ATTRIBUTION} aria-hidden="true">
+	<div class="map" class:yandex-map-clean={HIDE_YANDEX_ATTRIBUTION} bind:this={mapElement}></div>
 	{#if !loaded}
 		<div class="waiting">{loadError ? 'Карта временно недоступна' : 'Загрузка карты…'}</div>
 	{/if}
@@ -78,6 +80,9 @@
 		color: #d9e8ee;
 		font-size: 0.9rem;
 		background: linear-gradient(145deg, #142c36, #213d3c);
+	}
+	.clean-preview .note {
+		bottom: 0.75rem;
 	}
 	.note {
 		position: absolute;

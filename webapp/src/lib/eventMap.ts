@@ -88,11 +88,11 @@ export function addEventGeography(
 				}
 			})
 		);
-		if (!options.onSelect) return;
 		const label = makeEventMarker(point, options);
-		label.classList.add('event-map-street-label');
+		label.classList.add('event-map-street-dot');
 		label.dataset.precision = 'street';
-		label.firstElementChild!.textContent = 'ул.';
+		label.firstElementChild!.textContent = '';
+		label.firstElementChild!.setAttribute('aria-hidden', 'true');
 		label.setAttribute(
 			'aria-label',
 			`Событие на улице: ${point.title || 'Без заголовка'}. Место приблизительное`

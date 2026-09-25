@@ -28,6 +28,7 @@ export type YandexMapsApi = {
 		location: { center: [number, number]; zoom: number };
 		behaviors?: string[];
 		theme?: 'light' | 'dark';
+		distribution?: boolean;
 		distributionPosition?: 'top left' | 'top right' | 'bottom left' | 'bottom right';
 		copyrightsPosition?: 'top left' | 'top right' | 'bottom left' | 'bottom right';
 	}
