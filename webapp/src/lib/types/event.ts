@@ -59,4 +59,8 @@ export type MapPoint = {
 	location: string | null;
 };
 
-export type MapResponse = { items: MapPoint[]; count: number };
+export type MapResponse = {
+	items: MapPoint[];
+	count: number;
+	next_after_id: number | null;
+};

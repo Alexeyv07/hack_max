@@ -1,6 +1,11 @@
 import type { FeedItem, MapPoint } from '$lib/types/event';
 import type { YandexMapInstance, YandexMapsApi, YandexPolygonGeometry } from '$lib/yandexMaps';
 
+export type MapEvent = Pick<
+	FeedItem,
+	'id' | 'title' | 'importance' | 'disaster_flag' | 'lat' | 'lon' | 'geo_by' | 'location'
+> & { body: string | null };
+
 export const MOSCOW_CENTER: [number, number] = [37.6173, 55.7558];
 
 // Условный визуальный масштаб для улицы, НЕ радиус, в пределах которого точно произошло событие.
@@ -19,7 +24,7 @@ export function hasEventLocation(event: Pick<FeedItem, 'lat' | 'lon' | 'geo_by'>
 	);
 }
 
-export function eventPoint(event: FeedItem): MapPoint | null {
+export function eventPoint(event: MapEvent): MapPoint | null {
 	if (!hasEventLocation(event)) return null;
 	return {
 		id: event.id,
@@ -60,7 +65,12 @@ export function streetContextGeometry(point: Pick<MapPoint, 'lat' | 'lon'>): Yan
 }
 
 /** Дом: точечный маркер. Улица: только условная размытая область, без ложной «точки события». */
-export function addEventGeography(map: YandexMapInstance, ymaps3: YandexMapsApi, event: FeedItem) {
+export function addEventGeography(
+	map: YandexMapInstance,
+	ymaps3: YandexMapsApi,
+	event: MapEvent,
+	options: { selected?: boolean; onSelect?: () => void } = {}
+) {
 	const point = eventPoint(event);
 	if (!point) return;
 	if (event.geo_by === 'street') {
@@ -69,25 +79,33 @@ export function addEventGeography(map: YandexMapInstance, ymaps3: YandexMapsApi,
 			new ymaps3.YMapFeature({
 				geometry: streetContextGeometry(point),
 				style: {
-					fill: event.disaster_flag || event.importance === 1
-						? 'rgba(229, 57, 53, 0.13)'
-						: 'rgba(251, 140, 0, 0.13)',
+					fill:
+						event.disaster_flag || event.importance === 1
+							? 'rgba(229, 57, 53, 0.13)'
+							: 'rgba(251, 140, 0, 0.13)',
 					stroke: [{ color, width: 2, dash: [6, 8] }],
 					simplificationRate: 0
 				}
 			})
 		);
-		return;
+		const label = makeEventMarker(point, options);
+		label.classList.add('event-map-street-dot');
+		label.dataset.precision = 'street';
+		label.firstElementChild!.textContent = '';
+		label.firstElementChild!.setAttribute('aria-hidden', 'true');
+		label.setAttribute(
+			'aria-label',
+			`Событие на улице: ${point.title || 'Без заголовка'}. Место приблизительное`
+		);
+		map.addChild(new ymaps3.YMapMarker({ coordinates: [point.lon, point.lat] }, label));
+		return label;
 	}
-	map.addChild(
-		new ymaps3.YMapMarker(
-			{ coordinates: [point.lon, point.lat] },
-			makeEventMarker(point, { selected: true })
-		)
-	);
+	const marker = makeEventMarker(point, { selected: true, ...options });
+	map.addChild(new ymaps3.YMapMarker({ coordinates: [point.lon, point.lat] }, marker));
+	return marker;
 }
 
-export function eventMapZoom(event: FeedItem): number {
+export function eventMapZoom(event: MapEvent): number {
 	if (eventPoint(event)) return event.geo_by === 'street' ? 12 : 15;
 	return event.geo_by === 'city' ? 9 : 10;
 }
@@ -96,7 +114,9 @@ export function makeEventMarker(
 	point: MapPoint,
 	options: { selected?: boolean; onSelect?: () => void } = {}
 ): HTMLElement {
-	const marker = options.onSelect ? document.createElement('button') : document.createElement('div');
+	const marker = options.onSelect
+		? document.createElement('button')
+		: document.createElement('div');
 	if (marker instanceof HTMLButtonElement) marker.type = 'button';
 	marker.className = 'event-map-marker';
 	marker.dataset.priority = point.disaster_flag || point.importance === 1 ? 'high' : 'important';
@@ -107,5 +127,17 @@ export function makeEventMarker(
 	symbol.textContent = point.disaster_flag ? '!' : '•';
 	marker.appendChild(symbol);
 	if (options.onSelect) marker.addEventListener('click', options.onSelect);
+	return marker;
+}
+
+/** Custom DOM content is supported by YMapMarker; no emoji font dependency. */
+export function makeHomeMarker(address: string): HTMLElement {
+	const marker = document.createElement('div');
+	marker.className = 'home-map-marker';
+	marker.setAttribute('role', 'img');
+	marker.setAttribute('aria-label', `Ваш дом: ${address}`);
+	marker.title = `Ваш дом: ${address}`;
+	marker.innerHTML =
+		'<span><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 3 2 11l1.5 1.8L5 11.6V21h5v-6h4v6h5v-9.4l1.5 1.2L22 11 12 3Z"/></svg></span>';
 	return marker;
 }

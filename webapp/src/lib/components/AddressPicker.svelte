@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { HIDE_YANDEX_ATTRIBUTION } from '$lib/mapAppearance';
 	import { onMount, tick } from 'svelte';
 	import {
 		nearestAddresses,
@@ -201,6 +202,7 @@
 				location: { center: [lon, lat], zoom: mapZoom },
 				behaviors: ['drag', 'pinchZoom', 'scrollZoom', 'dblClick', 'oneFingerZoom'],
 				theme: 'dark',
+				distribution: !HIDE_YANDEX_ATTRIBUTION,
 				distributionPosition: 'top left',
 				copyrightsPosition: 'bottom right'
 			});
@@ -386,7 +388,7 @@
 	{#if !result}
 		{#if mode === 'map'}
 			<div class="map-shell" role="application" aria-label="Карта выбора дома">
-				<div class="map" bind:this={mapElement}></div>
+				<div class="map" class:yandex-map-clean={HIDE_YANDEX_ATTRIBUTION} bind:this={mapElement}></div>
 				<div class="pin" aria-hidden="true">＋</div>
 				{#if mapReady}
 					<div class="zoom-controls" aria-label="Масштаб карты">

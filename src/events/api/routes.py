@@ -225,6 +225,7 @@ def get_map(
             examples=[500],
         ),
     ] = 500,
+    after_id: Annotated[int, Query(ge=0)] = 0,
 ) -> MapResponse:
     """
     Полный набор точек для экрана карты webapp (кнопка «Карт» на карточке ленты).
@@ -251,7 +252,7 @@ def get_map(
     """
     _ = max_user_id
     try:
-        points = crud.list_map_points(session, limit=limit)
+        points, next_after_id = crud.list_map_page(session, limit=limit, after_id=after_id)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -275,4 +276,5 @@ def get_map(
             for point in points
         ],
         count=len(points),
+        next_after_id=next_after_id,
     )

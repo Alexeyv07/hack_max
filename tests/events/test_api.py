@@ -493,3 +493,66 @@ def test_street_only_event_uses_approximate_street_center(client) -> None:
     assert points[street_event.id]["location"] == "Москва, улица Средняя"
     assert points[home_event.id]["lon"] == pytest.approx(37.62)
     assert city_event.id not in points
+
+
+def test_map_pagination_has_no_gaps_or_duplicates(client) -> None:
+    test_client, session_factory = client
+    _seed_user_and_events(session_factory)
+    expected = test_client.get("/events/map", headers=USER_HEADERS).json()["items"]
+    collected = []
+    after_id = 0
+    while True:
+        response = test_client.get(
+            "/events/map", params={"limit": 1, "after_id": after_id}, headers=USER_HEADERS
+        )
+        assert response.status_code == 200
+        page = response.json()
+        collected.extend(page["items"])
+        if page["next_after_id"] is None:
+            break
+        assert page["next_after_id"] > after_id
+        after_id = page["next_after_id"]
+    assert collected == expected
+    assert len({item["id"] for item in collected}) == len(collected)
+    assert (
+        test_client.get("/events/map", params={"after_id": -1}, headers=USER_HEADERS).status_code
+        == 422
+    )
+
+
+def test_map_cursor_advances_over_unlocatable_street(client) -> None:
+    test_client, session_factory = client
+    with session_factory() as session:
+        address = _add_address(session, text="Москва, без улицы", lat=55.75, lon=37.62, street=None)
+        crud.create_event(
+            session,
+            EventCreate(
+                title="Без точки",
+                body="b",
+                importance=1,
+                source="news",
+                address_id=address.id,
+                geo_by="street",
+            ),
+        )
+        located = crud.create_event(
+            session,
+            EventCreate(
+                title="Дом",
+                body="b",
+                importance=1,
+                source="news",
+                address_id=address.id,
+                geo_by="home",
+            ),
+        )
+        located_id = located.id
+        session.commit()
+    first = test_client.get("/events/map", params={"limit": 1}, headers=USER_HEADERS).json()
+    assert first["items"] == []
+    assert first["next_after_id"] is not None
+    second = test_client.get(
+        "/events/map", params={"limit": 1, "after_id": first["next_after_id"]}, headers=USER_HEADERS
+    ).json()
+    assert [item["id"] for item in second["items"]] == [located_id]
+    assert second["next_after_id"] is None

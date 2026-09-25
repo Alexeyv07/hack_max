@@ -436,6 +436,7 @@ class MapResponse(BaseModel):
                 {
                     "items": [],
                     "count": 0,
+                    "next_after_id": None,
                 }
             ]
         }
@@ -447,10 +448,19 @@ class MapResponse(BaseModel):
             "(сначала катастрофы/высокий приоритет)."
         ),
     )
+
     count: int = Field(
         description="Число точек в `items`.",
         examples=[42],
         ge=0,
+    )
+
+    next_after_id: int | None = Field(
+        default=None,
+        description=(
+            "ID последней точки текущей страницы. "
+            "Используется для keyset-пагинации карты через параметр `after_id`."
+        ),
     )
 
 

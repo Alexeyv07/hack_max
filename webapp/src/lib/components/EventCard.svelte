@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { HIDE_YANDEX_ATTRIBUTION } from '$lib/mapAppearance';
 	import type { FeedItem } from '$lib/types/event';
+	import mapSearchIcon from '$lib/assets/map-search.svg';
 	import EventMapPreview from '$lib/components/EventMapPreview.svelte';
 
 	type Props = {
@@ -28,7 +30,10 @@
 	const displayBody = $derived.by(() => {
 		const explicitTitle = (event.title ?? '').trim();
 		if (explicitTitle) return event.body;
-		const lines = event.body.split('\n').map((l) => l.trim()).filter(Boolean);
+		const lines = event.body
+			.split('\n')
+			.map((l) => l.trim())
+			.filter(Boolean);
 		if (lines.length <= 1) return '';
 		return lines.slice(1).join('\n');
 	});
@@ -43,7 +48,10 @@
 		].filter(Boolean) as string[]
 	);
 
-	function formatDistance(meters: number | null, proximity: string | null | undefined): string | null {
+	function formatDistance(
+		meters: number | null,
+		proximity: string | null | undefined
+	): string | null {
 		if (meters == null || Number.isNaN(meters)) return null;
 		if (meters < 1000) return `${Math.round(meters)} м`;
 		const km = meters / 1000;
@@ -120,14 +128,13 @@
 		bodyExpanded = true;
 		needsMore = false;
 	}
-
 </script>
-
 
 <article class="card" style:--importance-color={importanceColor}>
 	<button
 		type="button"
 		class="media"
+		class:clean-preview={HIDE_YANDEX_ATTRIBUTION}
 		class:placeholder={!event.image_url}
 		aria-label={`Открыть карту: ${displayTitle}`}
 		onclick={() => onopenmap(event)}
@@ -137,6 +144,7 @@
 		{:else}
 			<EventMapPreview {event} />
 		{/if}
+		<span class="map-shortcut" aria-hidden="true"><img src={mapSearchIcon} alt="" /></span>
 	</button>
 
 	<div class="importance-bar" aria-hidden="true"></div>
@@ -157,18 +165,14 @@
 		</h2>
 
 		{#if displayBody}
-		<div class="description-wrap">
-			<p
-				class="description"
-				class:expanded={bodyExpanded}
-				bind:this={descriptionEl}
-			>
-				{displayBody}
-			</p>
-			{#if needsMore && !bodyExpanded}
-				<button type="button" class="more" onclick={expandBody}>ещё</button>
-			{/if}
-		</div>
+			<div class="description-wrap">
+				<p class="description" class:expanded={bodyExpanded} bind:this={descriptionEl}>
+					{displayBody}
+				</p>
+				{#if needsMore && !bodyExpanded}
+					<button type="button" class="more" onclick={expandBody}>ещё</button>
+				{/if}
+			</div>
 		{/if}
 
 		<footer class="meta">
@@ -204,6 +208,7 @@
 	}
 
 	.media {
+		position: relative;
 		display: block;
 		width: 100%;
 		height: 38%;
@@ -217,11 +222,38 @@
 		flex-shrink: 0;
 	}
 
+	.map-shortcut {
+		position: absolute;
+		bottom: 0.75rem;
+		right: 0.75rem;
+		width: 44px;
+		height: 44px;
+		display: grid;
+		place-items: center;
+		border-radius: 12px;
+		background: rgba(255, 255, 255, 0.94);
+		box-shadow: 0 2px 10px #0005;
+		pointer-events: none;
+	}
+	.media.placeholder .map-shortcut {
+		bottom: 4.2rem;
+	}
+	.media.placeholder.clean-preview .map-shortcut {
+		bottom: 0.75rem;
+	}
+	.map-shortcut img {
+		width: 27px;
+		height: 27px;
+	}
+	.media:focus-visible {
+		outline: 3px solid #fff;
+		outline-offset: -3px;
+	}
 	.media.placeholder {
 		background: #122e34;
 	}
 
-	.media img {
+	.media > img {
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
@@ -333,5 +365,4 @@
 	.near-hint {
 		color: #9fd0c0;
 	}
-
 </style>

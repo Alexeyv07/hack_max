@@ -696,11 +696,17 @@ def list_feed(
     )
 
 
-def list_map_points(
+def list_map_points(session: Session, *, limit: int = 500) -> list[MapPoint]:
+    points, _ = list_map_page(session, limit=limit)
+    return points
+
+
+def list_map_page(
     session: Session,
     *,
     limit: int = 500,
-) -> list[MapPoint]:
+    after_id: int = 0,
+) -> tuple[list[MapPoint], int | None]:
     """
     Точки карты: все события с адресом.
 
@@ -709,17 +715,24 @@ def list_map_points(
     if limit < 1:
         raise ValueError("limit должен быть >= 1")
 
+    if after_id < 0:
+        raise ValueError("after_id должен быть >= 0")
+
     stmt = (
         _addressed_event_stmt()
         .where(
             EventRow.importance.in_((1, 2)),
+            EventRow.id > after_id,
             _not_expired_clause(datetime.now(UTC)),
             EventRow.geo_by.in_(("street", "home")),
         )
-        .order_by(EventRow.importance.asc(), EventRow.id.asc())
-        .limit(limit)
+        .order_by(EventRow.id.asc())
+        .limit(limit + 1)
     )
     rows = list(session.scalars(stmt).unique().all())
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    next_after_id = rows[-1].id if has_more else None
     street_centers = _street_centers(session, rows)
     points: list[MapPoint] = []
     for row in rows:
@@ -746,4 +759,4 @@ def list_map_points(
             )
         )
 
-    return points
+    return points, next_after_id

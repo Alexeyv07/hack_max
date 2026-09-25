@@ -17,7 +17,14 @@ export type ChatOption = {
 
 export type SelectResult = {
 	address: AddressOption;
-	mode: 'connect_group' | 'group_connected' | 'already_member' | 'resident_address' | 'personal_address' | 'not_member' | 'no_chat';
+	mode:
+		| 'connect_group'
+		| 'group_connected'
+		| 'already_member'
+		| 'resident_address'
+		| 'personal_address'
+		| 'not_member'
+		| 'no_chat';
 	token?: string | null;
 	admin_link?: string | null;
 	chats: ChatOption[];
@@ -39,7 +46,9 @@ async function json<T>(response: Response): Promise<T> {
 }
 
 export async function searchAddresses(q: string): Promise<AddressOption[]> {
-	const response = await fetch(`${apiUrl('/chat-link/addresses/search')}?q=${encodeURIComponent(q)}`);
+	const response = await fetch(
+		`${apiUrl('/chat-link/addresses/search')}?q=${encodeURIComponent(q)}`
+	);
 	return (await json<{ items: AddressOption[] }>(response)).items;
 }
 
@@ -54,11 +63,16 @@ export async function postalAddresses(
 	offset = 0
 ): Promise<PostalAddressPage> {
 	const params = new URLSearchParams({ code, q, offset: String(offset) });
-	const response = await fetch(`${apiUrl('/chat-link/addresses/postal')}?${params}`);
+	const response = await fetch(
+		`${apiUrl('/chat-link/addresses/postal')}?${params}`
+	);
 	return json<PostalAddressPage>(response);
 }
 
-export async function nearestAddresses(lat: number, lon: number): Promise<AddressOption[]> {
+export async function nearestAddresses(
+	lat: number,
+	lon: number
+): Promise<AddressOption[]> {
 	const response = await fetch(
 		`${apiUrl('/chat-link/addresses/nearest')}?lat=${lat}&lon=${lon}`
 	);
@@ -74,7 +88,22 @@ export async function selectAddress(
 		await fetch(apiUrl('/chat-link/select'), {
 			method: 'POST',
 			headers: await authenticatedHeaders(),
-			body: JSON.stringify({ address_id: addressId, chat_id: targetChatId, resident_chat_id: residentChatId })
+			body: JSON.stringify({
+				address_id: addressId,
+				chat_id: targetChatId,
+				resident_chat_id: residentChatId
+			})
 		})
 	);
+}
+
+/** The selected home, not the device's current geolocation. */
+export async function fetchResidence(
+	signal?: AbortSignal
+): Promise<AddressOption | null> {
+	const response = await fetch(apiUrl('/chat-link/residence'), {
+		headers: await authenticatedHeaders(),
+		signal
+	});
+	return (await json<{ address: AddressOption | null }>(response)).address;
 }
