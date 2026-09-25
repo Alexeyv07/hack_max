@@ -96,10 +96,9 @@ AITUNNEL_API_KEY=...
 
 Для примера предлагаем следующие запросы, которые можно выполнить через Swagger UI:
 
-<table>
-<tr>
+<div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap;">
 
-<td width="65%" valign="top">
+<div style="flex:1 1 60%; min-width:200px; overflow-x:auto;">
 
 | # | Метод и путь                                                                                                         | Зачем дергать           | Ожидание                                                |
 |---|----------------------------------------------------------------------------------------------------------------------|-------------------------|---------------------------------------------------------|
@@ -108,11 +107,12 @@ AITUNNEL_API_KEY=...
 | 3 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/events/map?limit=50`                     | Точки карты             | `200`, `count` > 0, у точек есть `lat`/`lon`/`category` |
 | 4 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/chat-link/addresses/search?q=Варшавское` | Каталог адресов         | `200`, непустой `items` с `address_text`                |
 
-</td>
+</div>
 
-<td width="35%" valign="top" align="center">
-  <img src="media/openapi.webp" alt="openapi demo" style="width:100%; border-radius:12px; display:block;">
-</td>
+<div style="flex:1 1 35%; max-width:280px;">
 
-</tr>
-</table>
+<img src="media/openapi.webp" alt="openapi demo" style="width:100%; border-radius:12px; display:block;">
+
+</div>
+
+</div>
