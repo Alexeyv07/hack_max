@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { eventPoint, hasEventLocation, makeEventMarker, MOSCOW_CENTER } from '$lib/eventMap';
+	import { addEventGeography, eventMapZoom, eventPoint, MOSCOW_CENTER } from '$lib/eventMap';
 	import type { FeedItem } from '$lib/types/event';
 	import { loadYandexMaps, type YandexMapInstance } from '$lib/yandexMaps';
 
@@ -11,7 +11,7 @@
 	let loaded = $state(false);
 	let error = $state('');
 	const point = $derived(eventPoint(event));
-	const located = $derived(hasEventLocation(event));
+	const located = $derived(point !== null);
 
 	function onKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
@@ -31,7 +31,7 @@
 				map = new ymaps3.YMap(mapElement, {
 					location: {
 						center: initialPoint ? [initialPoint.lon, initialPoint.lat] : MOSCOW_CENTER,
-						zoom: initialPoint ? (event.geo_by === 'street' ? 13 : 15) : 10
+						zoom: eventMapZoom(event)
 					},
 					behaviors: ['drag', 'pinchZoom', 'scrollZoom', 'dblClick', 'oneFingerZoom'],
 					theme: 'dark',
@@ -39,15 +39,8 @@
 				});
 				map.addChild(new ymaps3.YMapDefaultSchemeLayer({}));
 				map.addChild(new ymaps3.YMapDefaultFeaturesLayer({}));
-				// Карта открывается из карточки одного события: другие маркеры не подгружаем.
-				if (initialPoint) {
-					map.addChild(
-						new ymaps3.YMapMarker(
-							{ coordinates: [initialPoint.lon, initialPoint.lat] },
-							makeEventMarker(initialPoint, { selected: true })
-						)
-					);
-				}
+				// Только география выбранного события. Для улицы — условная область, не точечный маркер.
+				addEventGeography(map, ymaps3, event);
 				loaded = true;
 			} catch (cause) {
 				if (!disposed) error = cause instanceof Error ? cause.message : 'Не удалось загрузить карту';
@@ -85,7 +78,12 @@
 		<span class="toolbar-title">Карта события</span>
 	</div>
 
-	{#if !located}
+	{#if event.geo_by === 'city'}
+		<div class="no-location" role="status">
+			<span aria-hidden="true">⌖</span>
+			Известен только город{event.location ? `: ${event.location}` : ''}. Точное место события неизвестно, поэтому маркер на карте не ставим.
+		</div>
+	{:else if !located}
 		<div class="no-location" role="status">
 			<span aria-hidden="true">⌖</span>
 			К сожалению, определить местоположение этого события не удалось.
@@ -95,7 +93,7 @@
 			<div class="details-title"><span class="dot" class:important={event.importance === 2 && !event.disaster_flag}></span>{event.title || 'Событие'}</div>
 			{#if event.location}<div class="details-location">⌖ {event.location}</div>{/if}
 			{#if event.geo_by === 'street'}
-				<div class="approximate">Место указано приблизительно: известна только улица.</div>
+				<div class="approximate">Известна только улица. Подсвеченный круг — условный ориентир, не границы улицы и не точное место события.</div>
 			{/if}
 			{#if event.body}<p>{event.body}</p>{/if}
 		</div>

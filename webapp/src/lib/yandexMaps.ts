@@ -15,7 +15,12 @@ export type YandexMapInstance = {
 	destroy(): void;
 };
 
-type YandexMapsApi = {
+export type YandexPolygonGeometry = {
+	type: 'Polygon';
+	coordinates: [number, number][][];
+};
+
+export type YandexMapsApi = {
 	ready: Promise<void>;
 	YMap: new (
 	container: HTMLElement,
@@ -30,6 +35,14 @@ type YandexMapsApi = {
 	YMapDefaultSchemeLayer: new (props?: Record<string, unknown>) => unknown;
 	YMapDefaultFeaturesLayer: new (props?: Record<string, unknown>) => unknown;
 	YMapMarker: new (props: { coordinates: [number, number] }, element: HTMLElement) => unknown;
+	YMapFeature: new (props: {
+		geometry: YandexPolygonGeometry;
+		style: {
+			fill: string;
+			stroke: { color: string; width: number; dash?: number[] }[];
+			simplificationRate?: number;
+		};
+	}) => unknown;
 	YMapListener: new (props: {
 		onUpdate?: (event: { location: YandexLocation }) => void;
 		onActionEnd?: (event: { location: YandexLocation }) => void;
