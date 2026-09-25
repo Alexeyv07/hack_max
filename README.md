@@ -86,5 +86,25 @@ AITUNNEL_API_KEY=...
 [`openapi.json`](http://localhost:8000/openapi.json). API используется только для передачи информации от \
 бота к `webapp`. 
 
-...Вытащить openapi из свагера и приложить его
-...Таблица того что можно подергать.
+Для примера предлагаем следующие запросы, которые можно выполнить через Swagger UI:
+
+<div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap;">
+
+<div style="flex:1 1 60%; min-width:320px; overflow-x:auto;">
+
+| # | Метод и путь                                                                                                         | Зачем дергать           | Ожидание                                                |
+|---|----------------------------------------------------------------------------------------------------------------------|-------------------------|---------------------------------------------------------|
+| 1 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/health`                                  | Процесс API жив         | `{"status":"ok"}`                                       |
+| 2 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/events/feed?scope=city&limit=5`          | Городская лента из seed | `200`, `scope=city`, в `items` есть карточки            |
+| 3 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/events/map?limit=50`                     | Точки карты             | `200`, `count` > 0, у точек есть `lat`/`lon`/`category` |
+| 4 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/chat-link/addresses/search?q=Варшавское` | Каталог адресов         | `200`, непустой `items` с `address_text`                |
+
+</div>
+
+<div style="flex:1 1 35%; min-width:280px;">
+
+<img src="media/openapi.webp" alt="openapi demo" style="width:100%; border-radius:12px; display:block;">
+
+</div>
+
+</div>

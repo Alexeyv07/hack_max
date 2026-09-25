@@ -87,8 +87,8 @@ def create_app() -> FastAPI:
         description=_OPENAPI_DESCRIPTION,
         openapi_tags=_OPENAPI_TAGS,
         contact={
-            "name": "hack-max",
-            "url": settings.docs.github_url,
+            "name": "Documentations",
+            "url": settings.docs.url,
         },
         license_info={
             "name": "Project source",
