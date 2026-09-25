@@ -196,7 +196,7 @@ async def _render_welcome(
             if is_new or any((admin_token, notice, target_chat_id, resident_chat_id))
             else ADDRESS_PICKER_TEXT
         )
-        screen_attachments = [first_start_image(), *attachments] if is_new else attachments
+        screen_attachments = [first_start_image(bot), *attachments] if is_new else attachments
         if chat_id is not None:
             result = await bot.send_message(
                 chat_id=chat_id,
@@ -244,6 +244,23 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             await bot.delete_message(str(mid))
         except Exception:
             logger.debug("Не удалось удалить команду пользователя mid=%s", mid, exc_info=True)
+
+    @dp.message_created(Command("home"))
+    async def on_home(event: Any, context: Any = None) -> None:
+        """Показать главную; сообщение с командой убрать из истории."""
+        user = await asyncio.to_thread(authorize_from_event, event)
+        await _delete_user_command(event)
+        if user is None:
+            return
+        chat_id = getattr(event, "chat_id", None)
+        if chat_id is None:
+            recipient = getattr(getattr(event, "message", None), "recipient", None)
+            chat_id = getattr(recipient, "chat_id", None)
+        try:
+            with session_scope() as session:
+                await send_home(bot, session, user.max_user_id, recipient_chat_id=chat_id)
+        except Exception:
+            logger.exception("Не удалось отправить /home")
 
     @dp.bot_started()
     async def on_bot_started(event: Any, context: Any) -> None:
@@ -313,20 +330,3 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
         if user is None or duplicate_start(user.max_user_id, "message_created"):
             return
         await _render_welcome(bot, event, context, user)
-
-    @dp.message_created(Command("home"))
-    async def on_home(event: Any) -> None:
-        """Показать главную; сообщение с командой убрать из истории."""
-        user = await asyncio.to_thread(authorize_from_event, event)
-        await _delete_user_command(event)
-        if user is None:
-            return
-        chat_id = getattr(event, "chat_id", None)
-        if chat_id is None:
-            recipient = getattr(getattr(event, "message", None), "recipient", None)
-            chat_id = getattr(recipient, "chat_id", None)
-        try:
-            with session_scope() as session:
-                await send_home(bot, session, user.max_user_id, recipient_chat_id=chat_id)
-        except Exception:
-            logger.exception("Не удалось отправить /home")

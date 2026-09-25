@@ -377,7 +377,7 @@ async def announce_connected_group(
         if not requester_added:
             text += "\n\nИнициатору нужно вступить в этот чат и нажать «Указать свой адрес» ниже."
         keyboard = _connected_group_keyboard(referral, bind_link, chat_id=chat_id)
-        attachments = [first_start_image(), *([keyboard] if keyboard is not None else [])]
+        attachments = [first_start_image(bot), *([keyboard] if keyboard is not None else [])]
         if chat.welcome_mid:
             try:
                 await bot.edit_message(

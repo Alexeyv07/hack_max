@@ -76,13 +76,13 @@ def _screen_mid(event: Any) -> str | None:
     return str(mid) if mid else None
 
 
-async def _ack_callback(event: Any) -> None:
-    """Снять spinner кнопки сразу; тяжёлая работа/редактирование идут после ack."""
+async def _ack_callback(event: Any, *, notification: str = "…") -> None:
+    """Снять spinner кнопки. MAX требует message или notification в /answers."""
     ack = getattr(event, "ack", None)
     if not callable(ack):
         return
     try:
-        await ack()
+        await ack(notification=notification)
     except Exception:
         logger.debug("Не удалось быстро подтвердить callback", exc_info=True)
 

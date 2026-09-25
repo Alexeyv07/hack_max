@@ -12,7 +12,7 @@ from chat_link.commands import register_chat_link_commands
 from chat_link.handlers import get_address_catalog
 from notify.commands import register_notify_commands
 from parse_chat import register_parse_chat_commands
-from project.bot_media import install_bot_images
+from project.bot_media import install_bot_images, warm_bot_images
 from project.config import get_settings
 from project.logging_setup import get_logger
 from project.max_runtime import set_max_bot
@@ -61,9 +61,9 @@ async def run_max_bot() -> None:
         logger.exception("Не удалось получить GET /me — open_app возьмёт fallback из конфига")
 
     install_bot_images(bot)
+    # Token'ы картинок один раз: иначе каждый экран ждёт upload ~0.5–2с.
+    await warm_bot_images(bot)
     set_max_bot(bot)
-    # ~125k адресов: только в thread — иначе весь event loop (и HTTP) мёртв на 10–30с.
-    await asyncio.to_thread(get_address_catalog)
 
     chat_on = settings.runtime.enable_chat_parser and settings.chat_parser.enabled
     if chat_on:
@@ -85,5 +85,23 @@ async def run_max_bot() -> None:
             settings.notify.enabled,
         )
 
-    logger.info("Polling Max-бота запущен")
+    # ~125k адресов: греем в фоне после регистрации хендлеров, чтобы polling
+    # стартовал сразу. Первый выбор адреса дождётся готовности каталога.
+    catalog_ready = asyncio.create_task(
+        asyncio.to_thread(get_address_catalog),
+        name="address-catalog-warm",
+    )
+
+    def _catalog_done(task: asyncio.Task[Any]) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.exception("Не удалось прогреть StreetCatalog", exc_info=exc)
+        else:
+            logger.info("StreetCatalog готов")
+
+    catalog_ready.add_done_callback(_catalog_done)
+
+    logger.info("Polling Max-бота запущен (каталог адресов греется в фоне)")
     await dp.start_polling(bot)

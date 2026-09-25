@@ -87,7 +87,7 @@ async def send_home(
         return await bot.send_message(
             **recipient,
             text=text,
-            attachments=[home_image(), keyboard],
+            attachments=[home_image(bot), keyboard],
             format=Format.HTML,
         )
     except Exception:

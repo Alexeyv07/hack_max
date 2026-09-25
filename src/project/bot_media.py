@@ -1,4 +1,8 @@
-"""Единое оформление сообщений MAX, без повторной отправки приветственной обложки."""
+"""Единое оформление сообщений MAX, без повторной отправки приветственной обложки.
+
+Картинки кэшируются через upload token: иначе каждый send/edit заново грузит
+~400KB на CDN MAX и бот ощущается «тормозным».
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from maxapi.types import InputMedia
+from maxapi.types.attachments.upload import AttachmentUpload
 
 # Корень репозитория: src/project/bot_media.py → parents[2]
 ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
@@ -13,17 +18,36 @@ FIRST_START_IMAGE_PATH = ASSETS_DIR / "first_start.jpg"
 OTHER_MESSAGES_IMAGE_PATH = ASSETS_DIR / "other_messages.jpg"
 HOME_IMAGE_PATH = ASSETS_DIR / "home.jpg"
 
-
-def first_start_image() -> InputMedia:
-    return InputMedia(str(FIRST_START_IMAGE_PATH), type="image")
+_CACHE_ATTR = "_brand_image_cache"
 
 
-def home_image() -> InputMedia:
-    return InputMedia(str(HOME_IMAGE_PATH), type="image")
+def first_start_image(bot: Any | None = None) -> InputMedia | AttachmentUpload:
+    return _cached_or_path(bot, "first_start", FIRST_START_IMAGE_PATH)
+
+
+def home_image(bot: Any | None = None) -> InputMedia | AttachmentUpload:
+    return _cached_or_path(bot, "home", HOME_IMAGE_PATH)
+
+
+def other_messages_image(bot: Any | None = None) -> InputMedia | AttachmentUpload:
+    return _cached_or_path(bot, "other", OTHER_MESSAGES_IMAGE_PATH)
+
+
+def _cached_or_path(bot: Any | None, key: str, path: Path) -> InputMedia | AttachmentUpload:
+    cache = getattr(bot, _CACHE_ATTR, None) if bot is not None else None
+    if isinstance(cache, dict) and key in cache:
+        return cache[key]
+    return InputMedia(str(path), type="image")
+
+
+def _attachment_kind(item: Any) -> str:
+    raw = getattr(item, "type", "")
+    value = getattr(raw, "value", raw)
+    return str(value).lower()
 
 
 def _has_image(attachments: Any) -> bool:
-    return any(str(getattr(item, "type", "")).lower() == "image" for item in (attachments or []))
+    return any(_attachment_kind(item) in {"image", "photo"} for item in (attachments or []))
 
 
 def _is_priority_notify_text(text: str | None) -> bool:
@@ -34,49 +58,58 @@ def _is_priority_notify_text(text: str | None) -> bool:
     return stripped.startswith(("🔴", "🟠"))
 
 
-def _other_image(attachments: Any, text: str | None) -> list[Any] | None:
+def _other_image(bot: Any, attachments: Any, text: str | None) -> list[Any] | None:
     """Оставить тематическое изображение, если оно уже задано явно."""
     if text is None or text.startswith("<b>Главная</b>") or _is_priority_notify_text(text):
         return attachments
     if _has_image(attachments):
         return attachments
-    return [InputMedia(str(OTHER_MESSAGES_IMAGE_PATH), type="image"), *(attachments or [])]
+    return [other_messages_image(bot), *(attachments or [])]
+
+
+async def warm_bot_images(bot: Any) -> None:
+    """Один раз загрузить обложки в MAX и дальше слать только token."""
+    if getattr(bot, _CACHE_ATTR, None):
+        return
+    upload = getattr(bot, "upload_media", None)
+    if not callable(upload):
+        return
+    cache: dict[str, AttachmentUpload] = {}
+    for key, path in (
+        ("first_start", FIRST_START_IMAGE_PATH),
+        ("home", HOME_IMAGE_PATH),
+        ("other", OTHER_MESSAGES_IMAGE_PATH),
+    ):
+        if not path.is_file():
+            continue
+        try:
+            cache[key] = await upload(InputMedia(str(path), type="image"))
+        except Exception:
+            # Без кэша остаёмся на InputMedia — медленнее, но бот жив.
+            from project.logging_setup import get_logger
+
+            get_logger(__name__).exception("Не удалось прогреть обложку %s", path.name)
+    if cache:
+        setattr(bot, _CACHE_ATTR, cache)
 
 
 def install_bot_images(bot: Any) -> None:
-    """Оформить все исходящие сообщения, включая ответы на inline-callback.
+    """Оформить новые исходящие сообщения брендовой обложкой.
 
-    Не меняем сами callback-уведомления (ack), если там нет сообщения.
-    Повторный вызов не добавляет обёртки повторно.
-    Передайте brand_image=False, чтобы не вставлять other_messages.jpg
-    (например, для notify-пушей и дайджестов).
+    Не трогаем edit/callback: иначе каждый шаг picker-а снова upload-ит JPG.
+    Передайте brand_image=False, чтобы не вставлять other_messages.jpg.
     """
     if getattr(bot, "_brand_images_installed", False):
         return
     original_send_message = bot.send_message
-    original_edit_message = bot.edit_message
-    original_send_callback = bot.send_callback
 
     async def send_message(*args: Any, **kwargs: Any) -> Any:
-        brand = kwargs.pop("brand_image", True)
+        # По умолчанию без обложки: upload на каждый ответ делает бота «тормозным».
+        # Явно brand_image=True — только для экранов, где картинка нужна.
+        brand = kwargs.pop("brand_image", False)
         if brand and "text" in kwargs:
-            kwargs["attachments"] = _other_image(kwargs.get("attachments"), kwargs["text"])
+            kwargs["attachments"] = _other_image(bot, kwargs.get("attachments"), kwargs["text"])
         return await original_send_message(*args, **kwargs)
 
-    async def edit_message(*args: Any, **kwargs: Any) -> Any:
-        brand = kwargs.pop("brand_image", True)
-        if brand and "text" in kwargs:
-            kwargs["attachments"] = _other_image(kwargs.get("attachments"), kwargs["text"])
-        return await original_edit_message(*args, **kwargs)
-
-    async def send_callback(*args: Any, **kwargs: Any) -> Any:
-        message = kwargs.get("message")
-        if message is not None and message.text is not None:
-            attachments = _other_image(message.attachments, message.text)
-            kwargs["message"] = message.model_copy(update={"attachments": attachments})
-        return await original_send_callback(*args, **kwargs)
-
     bot.send_message = send_message
-    bot.edit_message = edit_message
-    bot.send_callback = send_callback
     bot._brand_images_installed = True

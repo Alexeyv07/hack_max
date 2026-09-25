@@ -60,7 +60,7 @@ async def _finish_ack_callback(event: Any, *, acknowledged: bool) -> None:
     if not callable(ack):
         return
     try:
-        await ack(notification="Отмечено как увиденное" if acknowledged else None)
+        await ack(notification="Отмечено как увиденное" if acknowledged else "…")
     except Exception:
         logger.debug("Не удалось подтвердить callback notify", exc_info=True)
 
@@ -171,7 +171,7 @@ async def _toggle_notify_body(event: Any, *, delivery_id: int, expanded: bool) -
             logger.debug("Не удалось edit notify mid=%s", mid, exc_info=True)
     ack = getattr(event, "ack", None)
     if callable(ack):
-        await ack(notification=None)
+        await ack(notification="…")
 
 
 async def _send_demo_notify(bot: Any, *, max_user_id: int, chat_id: int | None) -> None:
