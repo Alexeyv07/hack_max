@@ -95,6 +95,8 @@ class MapPointResponse(BaseModel):
     )
     disaster_flag: bool
     body: str | None = None
+    geo_by: str | None = Field(default=None, description="Точность гео: city | street | home")
+    location: str | None = None
 
 
 class MapResponse(BaseModel):

@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from itertools import batched
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, tuple_
 from sqlalchemy.orm import Session, joinedload
 
 from address.db.address import AddressRow
@@ -81,6 +81,8 @@ class MapPoint:
     category: str
     disaster_flag: bool
     body: str | None = None
+    geo_by: str | None = None
+    location: str | None = None
 
 
 def _normalize_source(source: EventSource | str) -> str:
@@ -118,6 +120,60 @@ def _outlet_reliability_map() -> dict[str, float]:
         return {}
 
 
+def _street_centers(
+    session: Session, rows: Sequence[EventRow]
+) -> dict[tuple[str, str], tuple[float, float]]:
+    """Representative street positions, never a randomly selected house number.
+
+    One aggregate query per feed/map request, even when several events share a street.
+    Only explicit street-level matches are included; home locations remain exact.
+    """
+    keys = {
+        (row.address.city, row.address.street)
+        for row in rows
+        if row.geo_by == "street"
+        and row.address is not None
+        and row.address.city
+        and row.address.street
+    }
+    if not keys:
+        return {}
+    centers = session.execute(
+        select(
+            AddressRow.city,
+            AddressRow.street,
+            func.avg(AddressRow.latitude),
+            func.avg(AddressRow.longitude),
+        )
+        .where(tuple_(AddressRow.city, AddressRow.street).in_(sorted(keys)))
+        .group_by(AddressRow.city, AddressRow.street)
+    ).all()
+    return {
+        (city, street): (float(lat), float(lon))
+        for city, street, lat, lon in centers
+        if lat is not None and lon is not None
+    }
+
+
+def _event_map_location(
+    row: EventRow,
+    street_centers: dict[tuple[str, str], tuple[float, float]] | None,
+) -> tuple[float | None, float | None, str | None]:
+    address = row.address
+    if address is None:
+        return None, None, None
+    if row.geo_by == "street":
+        # The linked AddressRow may be an arbitrary building on this street.
+        # Do not display its house number or present its coordinates as exact.
+        if address.city and address.street:
+            center = (street_centers or {}).get((address.city, address.street))
+            if center is not None:
+                return center[0], center[1], f"{address.city}, {address.street}"
+        # Missing street components: better no marker than a misleading house pin.
+        return None, None, address.street or address.address_text
+    return float(address.latitude), float(address.longitude), address.address_text
+
+
 def _to_domain(
     row: EventRow,
     *,
@@ -127,6 +183,7 @@ def _to_domain(
     proximity: str | None = None,
     same_street: bool = False,
     is_active_now: bool | None = None,
+    street_centers: dict[tuple[str, str], tuple[float, float]] | None = None,
 ) -> Event:
     weight = (
         weight_override
@@ -143,7 +200,7 @@ def _to_domain(
             now=now,
         )
     )
-    address = row.address
+    lat, lon, location = _event_map_location(row, street_centers)
     return Event(
         id=row.id,
         title=row.title,
@@ -151,15 +208,15 @@ def _to_domain(
         importance=row.importance,
         source=row.source,
         address_id=row.address_id,
-        lat=float(address.latitude) if address is not None else None,
-        lon=float(address.longitude) if address is not None else None,
+        lat=lat,
+        lon=lon,
         weight=weight,
         source_msg_id=row.source_msg_id,
         disaster_flag=row.disaster_flag,
         source_url=row.source_url,
         image_url=row.image_url,
         geo_by=row.geo_by,
-        location=address.address_text if address is not None else None,
+        location=location,
         published_at=row.published_at,
         active_from=row.active_from,
         active_to=row.active_to,
@@ -234,6 +291,7 @@ def _list_nearby_feed(
         .limit(_NEARBY_CANDIDATE_CAP)
     )
     rows = list(session.scalars(stmt).unique().all())
+    street_centers = _street_centers(session, rows)
     scored: list[Event] = []
     for row in rows:
         assert row.address is not None
@@ -283,6 +341,7 @@ def _list_nearby_feed(
                 proximity=proximity_band(distance),
                 same_street=same_street,
                 is_active_now=active,
+                street_centers=street_centers,
             )
         )
 
@@ -328,6 +387,7 @@ def _list_city_feed(
         .limit(_NEARBY_CANDIDATE_CAP)
     )
     rows = list(session.scalars(stmt).unique().all())
+    street_centers = _street_centers(session, rows)
     scored: list[Event] = []
     for row in rows:
         active = event_is_active_now(
@@ -354,6 +414,7 @@ def _list_city_feed(
                 now=now,
                 weight_override=rank,
                 is_active_now=active,
+                street_centers=street_centers,
             )
         )
 
@@ -653,21 +714,26 @@ def list_map_points(
         .where(
             EventRow.importance.in_((1, 2)),
             _not_expired_clause(datetime.now(UTC)),
+            EventRow.geo_by.in_(("street", "home")),
         )
         .order_by(EventRow.importance.asc(), EventRow.id.asc())
         .limit(limit)
     )
+    rows = list(session.scalars(stmt).unique().all())
+    street_centers = _street_centers(session, rows)
     points: list[MapPoint] = []
-    for row in session.scalars(stmt).unique().all():
+    for row in rows:
         if not allowed_on_map(importance=row.importance, disaster_flag=row.disaster_flag):
             continue
-        assert row.address is not None
+        lat, lon, location = _event_map_location(row, street_centers)
+        if lat is None or lon is None:
+            continue
         points.append(
             MapPoint(
                 id=row.id,
                 title=row.title,
-                lat=float(row.address.latitude),
-                lon=float(row.address.longitude),
+                lat=lat,
+                lon=lon,
                 importance=row.importance,
                 category=map_icon_category(
                     importance=row.importance,
@@ -675,6 +741,8 @@ def list_map_points(
                 ),
                 disaster_flag=row.disaster_flag,
                 body=row.body,
+                geo_by=row.geo_by,
+                location=location,
             )
         )
 

@@ -18,8 +18,10 @@ from notify.db import NotifyCursorRow, NotifyDeliveryRow
 from notify.priority import (
     PRIORITY_CURSOR,
     acknowledge_delivery,
+    delivery_is_due,
     enqueue_new_priority_deliveries,
     is_suspended_dialog_error,
+    list_due_priority_deliveries,
     parse_ack_payload,
 )
 from notify.worker import run_priority_cycle
@@ -79,7 +81,7 @@ def _enable_cursor(session) -> None:
     session.flush()
 
 
-def test_priority_scale_enqueues_importance_1_and_2_but_not_3(db_session) -> None:
+def test_priority_scale_enqueues_only_importance_1(db_session) -> None:
     address = _address("Москва, Тестовая улица, д. 1", city="Москва", street="Тестовая", house="1")
     db_session.add(address)
     db_session.flush()
@@ -94,14 +96,31 @@ def test_priority_scale_enqueues_importance_1_and_2_but_not_3(db_session) -> Non
     created = enqueue_new_priority_deliveries(db_session)
 
     deliveries = list(db_session.query(NotifyDeliveryRow).order_by(NotifyDeliveryRow.event_id))
-    assert created == 2
-    assert [(row.user_id, row.event_id) for row in deliveries] == [
-        (user.id, first.id),
-        (user.id, second.id),
-    ]
+    assert created == 1
+    assert [(row.user_id, row.event_id) for row in deliveries] == [(user.id, first.id)]
     cursor = db_session.get(NotifyCursorRow, PRIORITY_CURSOR)
     assert cursor is not None
     assert cursor.last_event_id == noise.id
+
+
+def test_previously_queued_importance_2_is_not_sent(db_session) -> None:
+    """Очередь старой версии не должна продолжать рассылать категорию 2."""
+    address = _address("Москва, Тестовая улица, д. 1", city="Москва", street="Тестовая", house="1")
+    db_session.add(address)
+    db_session.flush()
+    user = _seed_member(db_session, max_user_id=1002, private_chat_id=5002, address=address)
+    event = _event(address=address, title="Обычная новость", importance=2)
+    db_session.add(event)
+    db_session.flush()
+    delivery = NotifyDeliveryRow(user_id=user.id, event_id=event.id)
+    db_session.add(delivery)
+    db_session.flush()
+
+    now = datetime(2026, 9, 25, tzinfo=UTC)
+    assert list_due_priority_deliveries(db_session, now=now, retry_interval_seconds=3600) == []
+    assert not delivery_is_due(
+        db_session, delivery_id=delivery.id, now=now, retry_interval_seconds=3600
+    )
 
 
 def test_priority_geo_scope_uses_confirmed_chat_memberships(db_session) -> None:
@@ -127,7 +146,7 @@ def test_priority_geo_scope_uses_confirmed_chat_memberships(db_session) -> None:
     _seed_member(db_session, max_user_id=1104, private_chat_id=5104, address=other_city)
     _enable_cursor(db_session)
 
-    db_session.add(_event(address=home, title="Улица", importance=2, geo_by="street"))
+    db_session.add(_event(address=home, title="Улица", importance=1, geo_by="street"))
     db_session.flush()
     enqueue_new_priority_deliveries(db_session)
 
@@ -136,7 +155,7 @@ def test_priority_geo_scope_uses_confirmed_chat_memberships(db_session) -> None:
 
     cursor = db_session.get(NotifyCursorRow, PRIORITY_CURSOR)
     assert cursor is not None
-    city_event = _event(address=home, title="Город", importance=2, geo_by="city")
+    city_event = _event(address=home, title="Город", importance=1, geo_by="city")
     db_session.add(city_event)
     db_session.flush()
     enqueue_new_priority_deliveries(db_session)
@@ -441,7 +460,7 @@ def test_dialog_suspended_blocks_user_without_false_ack_and_start_restores(
         assert row.notify_blocked_at is not None
         assert row.notify_blocked_reason == "chat.denied:dialog.suspended"
         deliveries = session.query(NotifyDeliveryRow).all()
-        assert len(deliveries) == 2
+        assert len(deliveries) == 1
         assert all(
             d.acked_at is None and d.last_sent_at is None and d.attempts == 0 for d in deliveries
         )
@@ -472,8 +491,8 @@ def test_dialog_suspended_blocks_user_without_false_ack_and_start_restores(
         assert row.notify_blocked_reason is None
 
     bot.send_message.side_effect = None
-    assert asyncio.run(run_priority_cycle(bot, **{**kwargs, "now": now + timedelta(days=1)})) == 3
-    assert bot.send_message.await_count == 4
+    assert asyncio.run(run_priority_cycle(bot, **{**kwargs, "now": now + timedelta(days=1)})) == 2
+    assert bot.send_message.await_count == 3
 
 
 def test_transient_max_error_stays_retryable(session_factory) -> None:

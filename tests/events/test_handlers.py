@@ -406,6 +406,7 @@ def test_map_excludes_trivia(db_session) -> None:
             importance=2,
             source="news",
             address_id=water.id,
+            geo_by="home",
         ),
     )
     crud.create_event(
@@ -427,6 +428,7 @@ def test_map_excludes_trivia(db_session) -> None:
             source="news",
             address_id=emergency.id,
             disaster_flag=True,
+            geo_by="home",
         ),
     )
 

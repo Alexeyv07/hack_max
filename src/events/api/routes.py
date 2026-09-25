@@ -126,6 +126,8 @@ def get_map(
                 category=point.category,
                 disaster_flag=point.disaster_flag,
                 body=point.body,
+                geo_by=point.geo_by,
+                location=point.location,
             )
             for point in points
         ],

@@ -245,6 +245,10 @@ def test_map_only_important(client) -> None:
     assert "Nearby ok" in titles
     assert "Вода в районе" in titles
     assert "Пропала кошка" not in titles
+    by_title = {item["title"]: item for item in response.json()["items"]}
+    assert by_title["Nearby ok"]["geo_by"] == "street"
+    assert by_title["Nearby ok"]["location"] == "Москва, Тестовая"
+    assert "Far city" not in by_title
 
 
 def test_nearby_differs_by_user_location(client) -> None:
@@ -415,3 +419,77 @@ def test_unconfirmed_personal_location_falls_back_to_linked_group(client) -> Non
     assert response.status_code == 200
     assert [item["title"] for item in response.json()["items"]] == ["Около группового"]
     assert response.json()["origin"]["chat_count"] == 1
+
+
+def test_street_only_event_uses_approximate_street_center(client) -> None:
+    """A street-level event must not appear pinned to a random house."""
+    test_client, session_factory = client
+    with session_factory() as session:
+        first = _add_address(
+            session,
+            text="Москва, улица Средняя, д. 1",
+            lat=55.76,
+            lon=37.62,
+            street="улица Средняя",
+        )
+        _add_address(
+            session,
+            text="Москва, улица Средняя, д. 2",
+            lat=55.78,
+            lon=37.64,
+            street="улица Средняя",
+        )
+        street_event = crud.create_event(
+            session,
+            EventCreate(
+                title="Известна только улица",
+                body="b",
+                importance=2,
+                source="news",
+                address_id=first.id,
+                geo_by="street",
+            ),
+        )
+        home_event = crud.create_event(
+            session,
+            EventCreate(
+                title="Точный дом",
+                body="b",
+                importance=2,
+                source="news",
+                address_id=first.id,
+                geo_by="home",
+            ),
+        )
+        city = _add_address(session, text="Москва", lat=55.7558, lon=37.6173, street=None)
+        city_event = crud.create_event(
+            session,
+            EventCreate(
+                title="Известен только город",
+                body="b",
+                importance=2,
+                source="news",
+                address_id=city.id,
+                geo_by="city",
+            ),
+        )
+        session.commit()
+
+    response = test_client.get("/events/feed", params={"scope": "city"}, headers=USER_HEADERS)
+    assert response.status_code == 200
+    feed = {item["id"]: item for item in response.json()["items"]}
+    assert feed[street_event.id]["lat"] == pytest.approx(55.77)
+    assert feed[street_event.id]["lon"] == pytest.approx(37.63)
+    assert feed[street_event.id]["location"] == "Москва, улица Средняя"
+    assert feed[street_event.id]["geo_by"] == "street"
+    assert feed[home_event.id]["lat"] == pytest.approx(55.76)
+    assert feed[home_event.id]["lon"] == pytest.approx(37.62)
+
+    response = test_client.get("/events/map", headers=USER_HEADERS)
+    assert response.status_code == 200
+    points = {item["id"]: item for item in response.json()["items"]}
+    assert points[street_event.id]["lat"] == pytest.approx(55.77)
+    assert points[street_event.id]["lon"] == pytest.approx(37.63)
+    assert points[street_event.id]["location"] == "Москва, улица Средняя"
+    assert points[home_event.id]["lon"] == pytest.approx(37.62)
+    assert city_event.id not in points

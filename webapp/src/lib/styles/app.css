@@ -22,3 +22,44 @@ body {
 button {
 	font: inherit;
 }
+
+/* DOM-маркеры для Yandex Maps 3: кнопки доступны и с клавиатуры. */
+.event-map-marker {
+	position: relative;
+	width: 37px;
+	height: 37px;
+	transform: translate(-50%, -100%) rotate(-45deg);
+	border: 3px solid white;
+	border-radius: 50% 50% 50% 5px;
+	background: #e53935;
+	color: white;
+	box-shadow: 0 3px 12px rgba(0, 0, 0, 0.38);
+	cursor: pointer;
+	display: grid;
+	place-items: center;
+	z-index: 1;
+}
+.event-map-marker[data-priority='important'] {
+	background: #fb8c00;
+}
+.event-map-marker[data-precision='street'] {
+	/* Street-only geocoding: an approximate position, not an exact house. */
+	box-shadow: 0 0 0 9px rgba(255, 255, 255, 0.13), 0 3px 12px rgba(0, 0, 0, 0.38);
+}
+.event-map-marker[data-selected='true'] {
+	box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.25), 0 5px 18px rgba(0, 0, 0, 0.5);
+	z-index: 2;
+}
+.event-map-marker[data-selected='true'][data-precision='street'] {
+	box-shadow: 0 0 0 12px rgba(255, 255, 255, 0.17), 0 5px 18px rgba(0, 0, 0, 0.5);
+}
+.event-map-marker:focus-visible {
+	outline: 3px solid #fff;
+	outline-offset: 5px;
+}
+.event-map-marker > span {
+	transform: rotate(45deg);
+	font-size: 22px;
+	font-weight: 900;
+	line-height: 1;
+}

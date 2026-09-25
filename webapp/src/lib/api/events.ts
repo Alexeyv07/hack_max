@@ -1,6 +1,6 @@
 import { apiUrl } from '$lib/api/base';
 import { requireMaxUserId } from '$lib/maxUser';
-import type { FeedResponse, FeedScope } from '$lib/types/event';
+import type { FeedResponse, FeedScope, MapResponse } from '$lib/types/event';
 
 export async function fetchFeed(
 	scope: FeedScope,
@@ -29,4 +29,14 @@ export async function fetchFeed(
 	}
 
 	return (await response.json()) as FeedResponse;
+}
+
+export async function fetchEventMap(signal?: AbortSignal): Promise<MapResponse> {
+	const userId = requireMaxUserId();
+	const response = await fetch(apiUrl('/events/map'), {
+		headers: { 'X-Max-User-Id': String(userId), Accept: 'application/json' },
+		signal
+	});
+	if (!response.ok) throw new Error(`Карта событий: HTTP ${response.status}`);
+	return (await response.json()) as MapResponse;
 }
