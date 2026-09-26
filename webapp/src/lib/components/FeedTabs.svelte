@@ -60,8 +60,17 @@
 		transition: color 0.2s ease;
 	}
 
+	.tab:hover {
+		color: rgba(255, 255, 255, 0.8);
+	}
+
 	.tab.active {
 		color: #fff;
-		font-weight: 700;
+		font-weight: 600;
+	}
+
+	.tab:focus-visible {
+		outline: 2px solid #fff;
+		outline-offset: 4px;
 	}
 </style>

@@ -288,10 +288,34 @@
 	}
 
 	function choose(item: AddressOption) {
-		selected = item;
+		if (selected?.id === item.id) {
+			selected = null;
+		} else {
+			selected = item;
+		}
+		error = '';
+		saveDraft();
+		if (selected) {
+			void tick().then(() => {
+				document.getElementById('address-confirm')?.scrollIntoView({
+					behavior: 'smooth',
+					block: 'nearest'
+				});
+			});
+		}
+	}
+
+	function clearSelection() {
+		selected = null;
 		error = '';
 		saveDraft();
 	}
+
+	const visibleOptions = $derived.by(() => {
+		const current = selected;
+		if (!current) return options;
+		return options.filter((item) => item.id === current.id);
+	});
 
 	async function confirm() {
 		if (!selected) return;
@@ -387,9 +411,16 @@
 
 	{#if !result}
 		{#if mode === 'map'}
-			<div class="map-shell" role="application" aria-label="Карта выбора дома">
+			<div
+				class="map-shell"
+				class:compact={!!selected}
+				role="application"
+				aria-label="Карта выбора дома"
+			>
 				<div class="map" class:yandex-map-clean={HIDE_YANDEX_ATTRIBUTION} bind:this={mapElement}></div>
-				<div class="pin" aria-hidden="true">＋</div>
+				<div class="pin" aria-hidden="true">
+					<span class="pin-dot"></span>
+				</div>
 				{#if mapReady}
 					<div class="zoom-controls" aria-label="Масштаб карты">
 						<button type="button" aria-label="Приблизить карту" onclick={() => zoomMap(1)}>+</button>
@@ -405,7 +436,9 @@
 					<div class="map-loading">Загружаем Яндекс Карты…</div>
 				{/if}
 			</div>
-			<button class="secondary" type="button" onclick={locate}>Моя геопозиция</button>
+			{#if !selected}
+				<button class="secondary" type="button" onclick={locate}>Моя геопозиция</button>
+			{/if}
 		{:else}
 			<div class="search-box">
 				<input
@@ -425,49 +458,64 @@
 		{/if}
 
 		{#if options.length}
-			<p class="list-title">{mode === 'map' ? 'Ближайшие дома' : 'Подходящие адреса'}</p>
+			<p class="list-title">
+				{selected
+					? 'Выбранный адрес'
+					: mode === 'map'
+						? 'Ближайшие дома'
+						: 'Подходящие адреса'}
+			</p>
 			<div class="options" aria-label="Варианты адреса">
-				{#each options as item}
+				{#each visibleOptions as item}
 					<button
 						type="button"
 						class:selected={selected?.id === item.id}
 						aria-pressed={selected?.id === item.id}
 						onclick={() => choose(item)}
 					>
-						<span class="choice" aria-hidden="true">{selected?.id === item.id ? '✓' : '○'}</span>
+						<span class="choice" aria-hidden="true">{selected?.id === item.id ? '●' : '○'}</span>
 						<span class="address-label">{item.address_text}</span>
 					</button>
 				{/each}
 			</div>
-		{/if}
-
-		<div class="confirm-wrap">
 			{#if selected}
-				<p class="selection-status">Выбран адрес: <b>{selected.address_text}</b></p>
-			{:else if options.length}
+				<div class="confirm-wrap" id="address-confirm">
+					<button class="primary" type="button" disabled={loading} onclick={confirm}>
+						{loading ? 'Сохраняем…' : 'Подтвердить адрес'}
+					</button>
+					<button class="secondary" type="button" disabled={loading} onclick={clearSelection}>
+						Выбрать другой
+					</button>
+				</div>
+			{:else}
 				<p class="selection-status muted">Нажмите на нужный адрес в списке.</p>
 			{/if}
-			<button class="primary" type="button" disabled={!selected || loading} onclick={confirm}>
-				{loading && selected ? 'Сохраняем…' : 'Подтвердить адрес'}
-			</button>
-		</div>
+		{/if}
 	{:else}
 		<div class="done">
 			<b>{result.address.address_text}</b>
 			{#if result.mode === 'group_connected'}
-				<p>✅ Домовой чат успешно привязан к этому адресу. Можно вернуться в групповой чат.</p>
+				<p>Домовой чат успешно привязан к этому адресу. Можно вернуться в групповой чат.</p>
 			{:else if result.mode === 'already_member'}
-				<p>✅ Вы состоите в этом домовом чате. Чат привязан к вашему профилю.</p>
+				<p>Вы состоите в этом домовом чате. Чат привязан к вашему профилю.</p>
 			{:else if result.mode === 'resident_address' || result.mode === 'personal_address'}
-				<p>✅ Ваш адрес сохранён. Новости рядом доступны.</p>
+				<p>Ваш адрес сохранён. Новости рядом доступны.</p>
 			{:else if showAdminHelp}
 				<p>
 					Добавьте бота в нужный групповой чат и назначьте его администратором с правом
 					«Читать все сообщения». После этого чат подключится автоматически —
 					дополнительных команд не нужно.
 				</p>
-				<button class="secondary" type="button" onclick={() => (showAdminHelp = false)}>
-					← Я не администратор
+				<button class="secondary back-link" type="button" onclick={() => (showAdminHelp = false)}>
+					<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+						<path
+							fill="currentColor"
+							fill-rule="evenodd"
+							clip-rule="evenodd"
+							d="M9.53 2.47a.75.75 0 0 1 0 1.06L4.81 8.25H15a6.75 6.75 0 0 1 0 13.5h-3a.75.75 0 0 1 0-1.5h3a5.25 5.25 0 1 0 0-10.5H4.81l4.72 4.72a.75.75 0 1 1-1.06 1.06l-6-6a.75.75 0 0 1 0-1.06l6-6a.75.75 0 0 1 1.06 0Z"
+						/>
+					</svg>
+					Я не администратор
 				</button>
 			{:else}
 				<p>
@@ -504,21 +552,41 @@
 		overflow-x: hidden;
 		overscroll-behavior: contain;
 		-webkit-overflow-scrolling: touch;
-		background: #0a1014;
-		color: #eef3f6;
-		padding: 18px 18px calc(28px + env(safe-area-inset-bottom));
-		font-family: system-ui;
+		background: var(--bg-canvas);
+		color: var(--text-primary);
+		padding: calc(16px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+		font-family: var(--font);
+		max-width: 28rem;
+		margin-inline: auto;
+		border-inline: 1px solid var(--border);
 	}
-	h1 { font-size: 22px; margin: 0 0 14px; }
+	h1 {
+		font-size: var(--fs-20);
+		font-weight: 600;
+		letter-spacing: -0.015em;
+		margin: 0 0 16px;
+	}
 	.map-shell {
-		height: 52dvh;
-		min-height: 330px;
+		height: 48dvh;
+		min-height: 280px;
 		position: relative;
 		overflow: hidden;
-		border-radius: 18px;
-		background: #202a30;
+		border-radius: var(--radius-lg);
+		border: 1px solid var(--border);
+		background: var(--bg-elevated);
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+		transition:
+			height var(--ease),
+			min-height var(--ease);
 	}
-	.map { position: absolute; inset: 0; }
+	.map-shell.compact {
+		height: 22dvh;
+		min-height: 140px;
+	}
+	.map {
+		position: absolute;
+		inset: 0;
+	}
 	.pin {
 		position: absolute;
 		left: 50%;
@@ -526,9 +594,18 @@
 		z-index: 2;
 		transform: translate(-50%, -50%);
 		pointer-events: none;
-		font-size: 42px;
-		color: #fff;
-		text-shadow: 0 1px 4px #000, 0 0 8px #000;
+		width: 20px;
+		height: 20px;
+		display: grid;
+		place-items: center;
+	}
+	.pin-dot {
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+		background: var(--accent);
+		border: 2px solid #fff;
+		box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 	}
 	.zoom-controls {
 		position: absolute;
@@ -537,47 +614,65 @@
 		z-index: 3;
 		display: grid;
 		overflow: hidden;
-		border-radius: 12px;
-		box-shadow: 0 3px 12px #0004;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-strong);
+		background: var(--bg-raised);
 	}
 	.zoom-controls button {
-		width: 42px;
-		height: 42px;
+		width: 36px;
+		height: 36px;
 		border: 0;
-		background: #fff;
-		color: #172027;
-		font-size: 25px;
+		background: transparent;
+		color: var(--text-primary);
+		font-size: var(--fs-20);
 		font-weight: 500;
 		cursor: pointer;
+		transition: background var(--ease);
 	}
-	.zoom-controls button + button { border-top: 1px solid #dbe2e6; }
+	.zoom-controls button:hover {
+		background: rgba(255, 255, 255, 0.04);
+	}
+	.zoom-controls button + button {
+		border-top: 1px solid var(--border);
+	}
 	.map-loading {
 		position: absolute;
 		inset: 0;
 		display: grid;
 		place-items: center;
 		pointer-events: none;
-		background: #202a30;
-		color: #aebbc3;
+		background: var(--bg-elevated);
+		color: var(--text-secondary);
+		font-size: var(--fs-14);
 	}
 	.map-load-error {
 		z-index: 4;
 		align-content: center;
-		gap: 14px;
+		gap: 12px;
 		padding: 24px;
 		box-sizing: border-box;
-		text-align: center;
+		text-align: left;
 		pointer-events: auto;
+		justify-items: start;
 	}
 	.map-load-error button {
 		border: 0;
-		border-radius: 10px;
-		padding: 10px 18px;
-		background: #168de2;
-		color: #fff;
-		font-weight: 600;
+		border-radius: var(--radius-md);
+		padding: 10px 16px;
+		background: var(--accent);
+		color: #0a0a0a;
+		font-weight: 500;
+		font-size: var(--fs-14);
+		cursor: pointer;
 	}
-	.list-title { margin: 14px 0 8px; font-weight: 700; }
+	.list-title {
+		margin: 16px 0 8px;
+		font-size: var(--fs-12);
+		font-weight: 500;
+		color: var(--text-tertiary);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
 	.options {
 		display: grid;
 		gap: 8px;
@@ -585,48 +680,153 @@
 	}
 	.options button {
 		display: grid;
-		grid-template-columns: 24px minmax(0, 1fr);
+		grid-template-columns: 20px minmax(0, 1fr);
 		align-items: center;
 		gap: 8px;
 		width: 100%;
-		background: #18242c;
-		color: #fff;
-		border: 1px solid #2b3c47;
+		background: var(--bg-surface);
+		color: var(--text-primary);
+		border: 1px solid var(--border);
 		padding: 12px;
 		text-align: left;
-		border-radius: 12px;
+		border-radius: var(--radius-md);
 		cursor: pointer;
+		font: inherit;
+		font-size: var(--fs-14);
+		transition:
+			background var(--ease),
+			border-color var(--ease);
+	}
+	.options button:hover {
+		background: var(--bg-elevated);
 	}
 	.options button.selected {
-		border: 2px solid #168de2;
-		background: #142b3a;
-		padding: 11px;
+		border-color: var(--accent);
+		background: var(--accent-muted);
 	}
-	.choice { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-weight: 800; color: #52b7ff; }
-	.address-label { min-width: 0; line-height: 1.3; }
-	.selection-status { margin: 0 0 8px; line-height: 1.35; font-size: 13px; }
-	.hint-text { margin: 8px 2px 14px; color: #8fa0aa; font-size: 13px; }
-	.search-box { width: 100%; }
+	.choice {
+		display: grid;
+		place-items: center;
+		width: 20px;
+		height: 20px;
+		font-size: 12px;
+		color: var(--text-tertiary);
+	}
+	.options button.selected .choice {
+		color: var(--accent);
+	}
+	.address-label {
+		min-width: 0;
+		line-height: 1.35;
+	}
+	.selection-status {
+		margin: 12px 0 0;
+		line-height: 1.35;
+		font-size: var(--fs-12);
+		color: var(--text-secondary);
+	}
+	.hint-text {
+		margin: 8px 0 12px;
+		color: var(--text-tertiary);
+		font-size: var(--fs-12);
+	}
+	.search-box {
+		width: 100%;
+	}
 	input {
 		box-sizing: border-box;
 		width: 100%;
 		min-width: 0;
-		padding: 15px 14px;
-		border-radius: 12px;
-		border: 1px solid #344;
-		background: #172027;
-		color: #fff;
-		font-size: 16px;
+		padding: 10px 12px;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-strong);
+		background: var(--bg-surface);
+		color: var(--text-primary);
+		font: inherit;
+		font-size: var(--fs-16);
+		transition: border-color var(--ease);
 	}
-	.primary, .secondary { width: 100%; padding: 13px; border: 0; border-radius: 12px; margin-top: 10px; background: #168de2; color: #fff; font-weight: 600; }
-	.primary:disabled { opacity: 0.45; }
+	input:focus {
+		outline: none;
+		border-color: var(--accent);
+		box-shadow: 0 0 0 2px var(--accent-muted);
+	}
+	input::placeholder {
+		color: var(--text-tertiary);
+	}
+	.primary,
+	.secondary {
+		width: 100%;
+		min-height: 40px;
+		padding: 10px 16px;
+		border: 1px solid transparent;
+		border-radius: var(--radius-md);
+		margin-top: 8px;
+		font: inherit;
+		font-size: var(--fs-14);
+		font-weight: 500;
+		cursor: pointer;
+		transition:
+			background var(--ease),
+			border-color var(--ease),
+			opacity var(--ease);
+	}
+	.primary {
+		background: var(--accent);
+		color: #0a0a0a;
+		border-color: var(--accent);
+	}
+	.primary:hover:not(:disabled) {
+		background: var(--accent-hover);
+	}
+	.primary:disabled,
+	.secondary:disabled {
+		opacity: 0.45;
+		cursor: default;
+	}
 	.confirm-wrap {
-		margin-top: 14px;
+		margin-top: 12px;
 		padding-bottom: max(2px, env(safe-area-inset-bottom));
 	}
-	.confirm-wrap .primary { margin-top: 0; }
-	.secondary { background: #263740; }
-	.done { display: grid; gap: 12px; }
-	.muted { color: #aebbc3; }
-	.error { color: #ff8d8d; }
+	.confirm-wrap .primary {
+		margin-top: 0;
+	}
+	.secondary {
+		background: transparent;
+		color: var(--text-primary);
+		border-color: var(--border-strong);
+	}
+	.secondary:hover:not(:disabled) {
+		background: var(--bg-elevated);
+	}
+	.back-link {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+	}
+	.done {
+		display: grid;
+		gap: 12px;
+	}
+	.done > b {
+		font-size: var(--fs-16);
+		font-weight: 600;
+		letter-spacing: -0.01em;
+	}
+	.done p {
+		margin: 0;
+		font-size: var(--fs-14);
+		color: var(--text-secondary);
+		line-height: 1.45;
+	}
+	.muted {
+		color: var(--text-tertiary);
+		font-size: var(--fs-14);
+	}
+	.error {
+		color: var(--danger);
+		font-size: var(--fs-14);
+		margin-top: 12px;
+	}
 </style>

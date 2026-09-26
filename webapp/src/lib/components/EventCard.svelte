@@ -18,10 +18,10 @@
 
 	const importanceColor = $derived(
 		event.disaster_flag || event.importance === 1
-			? '#e53935'
+			? 'var(--danger)'
 			: event.importance === 2
-				? '#fb8c00'
-				: '#5c9ead'
+				? 'var(--warning)'
+				: 'var(--accent)'
 	);
 
 	const displayTitle = $derived(
@@ -153,10 +153,19 @@
 		<h2 class="title">
 			{#if event.disaster_flag}
 				<span class="disaster" title="Важная новость / ЧС" aria-label="Важная новость">
-					<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+					<svg
+						viewBox="0 0 24 24"
+						width="18"
+						height="18"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.5"
+						aria-hidden="true"
+					>
 						<path
-							fill="currentColor"
-							d="M12 2 1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
 						/>
 					</svg>
 				</span>
@@ -202,9 +211,10 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		background: #101820;
-		color: #eef3f6;
+		background: var(--bg-surface);
+		color: var(--text-primary);
 		overflow: hidden;
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 	}
 
 	.media {
@@ -216,7 +226,8 @@
 		max-height: 280px;
 		padding: 0;
 		border: 0;
-		background: #000;
+		border-bottom: 1px solid var(--border);
+		background: var(--bg-canvas);
 		cursor: pointer;
 		overflow: hidden;
 		flex-shrink: 0;
@@ -224,33 +235,35 @@
 
 	.map-shortcut {
 		position: absolute;
-		bottom: 0.75rem;
-		right: 0.75rem;
-		width: 44px;
-		height: 44px;
+		bottom: 12px;
+		right: 12px;
+		width: 40px;
+		height: 40px;
 		display: grid;
 		place-items: center;
-		border-radius: 12px;
-		background: rgba(255, 255, 255, 0.94);
-		box-shadow: 0 2px 10px #0005;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border-strong);
+		background: var(--bg-raised);
 		pointer-events: none;
 	}
 	.media.placeholder .map-shortcut {
 		bottom: 4.2rem;
 	}
 	.media.placeholder.clean-preview .map-shortcut {
-		bottom: 0.75rem;
+		bottom: 12px;
 	}
 	.map-shortcut img {
-		width: 27px;
-		height: 27px;
+		width: 20px;
+		height: 20px;
+		opacity: 0.9;
+		filter: invert(1);
 	}
 	.media:focus-visible {
-		outline: 3px solid #fff;
-		outline-offset: -3px;
+		outline: 2px solid var(--accent);
+		outline-offset: -2px;
 	}
 	.media.placeholder {
-		background: #122e34;
+		background: var(--bg-elevated);
 	}
 
 	.media > img {
@@ -261,7 +274,7 @@
 	}
 
 	.importance-bar {
-		height: 4px;
+		height: 2px;
 		background: var(--importance-color);
 		flex-shrink: 0;
 	}
@@ -270,28 +283,29 @@
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
-		padding: 1rem 1.1rem 1.25rem;
+		gap: var(--space-3);
+		padding: var(--space-4);
+		padding-bottom: calc(var(--space-5) + env(safe-area-inset-bottom));
 		min-height: 0;
 		overflow: hidden;
 	}
 
 	.title {
 		margin: 0;
-		font-size: clamp(1.15rem, 4.2vw, 1.45rem);
-		font-weight: 700;
-		line-height: 1.25;
-		letter-spacing: -0.02em;
+		font-size: var(--fs-20);
+		font-weight: 600;
+		line-height: 1.3;
+		letter-spacing: -0.015em;
 		display: flex;
 		align-items: flex-start;
-		gap: 0.45rem;
+		gap: var(--space-2);
 		flex-shrink: 0;
 	}
 
 	.disaster {
-		color: #e53935;
+		color: var(--danger);
 		flex-shrink: 0;
-		margin-top: 0.1rem;
+		margin-top: 2px;
 	}
 
 	.description-wrap {
@@ -307,9 +321,9 @@
 		flex: 1;
 		min-height: 0;
 		overflow: hidden;
-		font-size: 0.95rem;
-		line-height: 1.45;
-		opacity: 0.88;
+		font-size: var(--fs-14);
+		line-height: 1.5;
+		color: var(--text-secondary);
 		white-space: pre-wrap;
 	}
 
@@ -319,28 +333,30 @@
 
 	.more {
 		align-self: flex-start;
-		margin-top: 0.35rem;
+		margin-top: var(--space-1);
 		padding: 0;
 		border: 0;
 		background: transparent;
-		color: #4da3ff;
+		color: var(--accent);
 		font: inherit;
-		font-size: 0.95rem;
-		font-weight: 600;
+		font-size: var(--fs-14);
+		font-weight: 500;
 		cursor: pointer;
 		flex-shrink: 0;
 	}
 
 	.more:hover {
+		color: var(--accent-hover);
 		text-decoration: underline;
 		text-underline-offset: 2px;
 	}
 
 	.meta {
-		font-size: 0.78rem;
-		opacity: 0.72;
-		padding-top: 0.35rem;
-		border-top: 1px solid rgba(255, 255, 255, 0.08);
+		font-size: var(--fs-12);
+		font-family: var(--font-mono);
+		color: var(--text-tertiary);
+		padding-top: var(--space-3);
+		border-top: 1px solid var(--border);
 		flex-shrink: 0;
 	}
 
@@ -352,7 +368,11 @@
 	}
 
 	.meta a {
-		color: #8ec8d8;
+		color: var(--accent);
+		text-decoration: none;
+	}
+
+	.meta a:hover {
 		text-decoration: underline;
 		text-underline-offset: 2px;
 	}
@@ -363,6 +383,6 @@
 	}
 
 	.near-hint {
-		color: #9fd0c0;
+		color: var(--success);
 	}
 </style>

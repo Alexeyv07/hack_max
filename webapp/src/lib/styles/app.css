@@ -1,6 +1,76 @@
+/* КасаетсяМеня — craft dark UI (Gosuslugi / Linear density) */
+
 :root {
 	color-scheme: dark;
-	font-family: 'Segoe UI', system-ui, sans-serif;
+
+	/* Elevation — brightness, not shadow */
+	--bg-canvas: #0a0a0a;
+	--bg-surface: #111111;
+	--bg-elevated: #171717;
+	--bg-raised: #1f1f1f;
+
+	/* Text */
+	--text-primary: #ededed;
+	--text-secondary: #a3a3a3;
+	--text-tertiary: #737373;
+	--text-disabled: #525252;
+
+	/* One accent (courtyard steel-blue, muted) */
+	--accent: #6a9bb0;
+	--accent-muted: rgba(106, 155, 176, 0.16);
+	--accent-hover: #7aabc0;
+
+	/* Semantic — muted, not neon */
+	--danger: #c45c5c;
+	--danger-muted: rgba(196, 92, 92, 0.14);
+	--warning: #c4924a;
+	--warning-muted: rgba(196, 146, 74, 0.14);
+	--success: #6b9e7a;
+	--success-muted: rgba(107, 158, 122, 0.14);
+
+	/* Borders */
+	--border: rgba(255, 255, 255, 0.08);
+	--border-strong: rgba(255, 255, 255, 0.12);
+	--border-focus: rgba(106, 155, 176, 0.55);
+
+	/* Type scale: 12 / 14 / 16 / 20 / 24 / 32 */
+	--font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+	--fs-12: 12px;
+	--fs-14: 14px;
+	--fs-16: 16px;
+	--fs-20: 20px;
+	--fs-24: 24px;
+	--fs-32: 32px;
+
+	/* Space: 8px base, multiples of 4 */
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 20px;
+	--space-6: 24px;
+	--space-8: 32px;
+
+	/* Radius: 6 / 8 / 12 only */
+	--radius-sm: 6px;
+	--radius-md: 8px;
+	--radius-lg: 12px;
+
+	/* Motion */
+	--ease: 140ms ease-out;
+
+	/* Map markers */
+	--home-marker-color: #1a1a1a;
+	--marker-catastrophe: #c45c5c;
+	--marker-important: #c4924a;
+
+	font-family: var(--font);
+	font-size: var(--fs-14);
+	font-weight: 400;
+	line-height: 1.45;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
 }
 
 *,
@@ -14,75 +84,203 @@ body {
 	margin: 0;
 	height: 100%;
 	overflow: hidden;
-	background: #06090c;
-	color: #eef3f6;
+	background: var(--bg-canvas);
+	color: var(--text-primary);
 	-webkit-tap-highlight-color: transparent;
+}
+
+/* Subtle material noise — kills plastic flatness */
+body::before {
+	content: '';
+	position: fixed;
+	inset: 0;
+	pointer-events: none;
+	z-index: 9999;
+	opacity: 0.035;
+	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+	background-repeat: repeat;
+	background-size: 180px 180px;
 }
 
 button {
 	font: inherit;
+	color: inherit;
 }
 
-/* DOM-маркеры для Yandex Maps 3: кнопки доступны и с клавиатуры. */
+a {
+	color: var(--accent);
+}
+
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+
+.mono {
+	font-family: var(--font-mono);
+	font-variant-numeric: tabular-nums;
+}
+
+/* ——— Shared control primitives ——— */
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--space-2);
+	min-height: 40px;
+	padding: 0 var(--space-4);
+	border-radius: var(--radius-md);
+	border: 1px solid transparent;
+	font-size: var(--fs-14);
+	font-weight: 500;
+	cursor: pointer;
+	transition:
+		background var(--ease),
+		border-color var(--ease),
+		color var(--ease),
+		opacity var(--ease);
+}
+
+.btn:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.btn-primary {
+	background: var(--accent);
+	color: #0a0a0a;
+	border-color: var(--accent);
+}
+
+.btn-primary:hover:not(:disabled) {
+	background: var(--accent-hover);
+	border-color: var(--accent-hover);
+}
+
+.btn-primary:active:not(:disabled) {
+	filter: brightness(0.92);
+}
+
+.btn-secondary {
+	background: transparent;
+	color: var(--text-primary);
+	border-color: var(--border-strong);
+}
+
+.btn-secondary:hover:not(:disabled) {
+	background: var(--bg-elevated);
+}
+
+.btn-ghost {
+	background: transparent;
+	color: var(--text-secondary);
+	border-color: transparent;
+}
+
+.btn-ghost:hover:not(:disabled) {
+	background: rgba(255, 255, 255, 0.04);
+	color: var(--text-primary);
+}
+
+.field {
+	width: 100%;
+	min-width: 0;
+	padding: 10px 12px;
+	border-radius: var(--radius-md);
+	border: 1px solid var(--border-strong);
+	background: var(--bg-surface);
+	color: var(--text-primary);
+	font: inherit;
+	font-size: var(--fs-16);
+	transition: border-color var(--ease);
+}
+
+.field::placeholder {
+	color: var(--text-tertiary);
+}
+
+.field:focus {
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: 0 0 0 2px var(--accent-muted);
+}
+
+.skeleton {
+	background: linear-gradient(
+		90deg,
+		var(--bg-surface) 0%,
+		var(--bg-elevated) 50%,
+		var(--bg-surface) 100%
+	);
+	background-size: 200% 100%;
+	animation: skeleton-shine 1.2s ease-in-out infinite;
+	border-radius: var(--radius-sm);
+}
+
+@keyframes skeleton-shine {
+	0% {
+		background-position: 100% 0;
+	}
+	100% {
+		background-position: -100% 0;
+	}
+}
+
+/* ——— Map markers ——— */
 .event-map-marker {
 	position: relative;
-	width: 37px;
-	height: 37px;
+	width: 36px;
+	height: 36px;
 	transform: translate(-50%, -100%) rotate(-45deg);
-	border: 3px solid white;
-	border-radius: 50% 50% 50% 5px;
-	background: #e53935;
-	color: white;
-	box-shadow: 0 3px 12px rgba(0, 0, 0, 0.38);
+	border: 2px solid #fff;
+	border-radius: 50% 50% 50% 4px;
+	background: var(--marker-catastrophe);
+	color: #fff;
 	cursor: pointer;
 	display: grid;
 	place-items: center;
 	z-index: 1;
 }
+
 .event-map-marker[data-priority='important'] {
-	background: #fb8c00;
+	background: var(--marker-important);
 }
 
 .event-map-marker[data-selected='true'] {
-	box-shadow:
-		0 0 0 5px rgba(255, 255, 255, 0.25),
-		0 5px 18px rgba(0, 0, 0, 0.5);
+	outline: 2px solid rgba(255, 255, 255, 0.45);
+	outline-offset: 2px;
 	z-index: 2;
 }
 
 .event-map-marker:focus-visible {
-	outline: 3px solid #fff;
-	outline-offset: 5px;
+	outline: 2px solid #fff;
+	outline-offset: 4px;
 }
+
 .event-map-marker > span {
 	transform: rotate(45deg);
-	font-size: 22px;
-	font-weight: 900;
+	font-size: 18px;
+	font-weight: 600;
 	line-height: 1;
 }
 
-/* KAN-26: change this variable to experiment with the home pin colour. */
-:root {
-	--home-marker-color: #000000;
-}
 .home-map-marker {
-	width: 42px;
-	height: 42px;
+	width: 40px;
+	height: 40px;
 	display: grid;
 	place-items: center;
 	transform: translate(-50%, -100%) rotate(-45deg);
 	background: var(--home-marker-color);
 	color: #fff;
-	border: 3px solid #fff;
-	border-radius: 50% 50% 50% 5px;
-	box-shadow: 0 3px 12px #0008;
+	border: 2px solid #fff;
+	border-radius: 50% 50% 50% 4px;
 }
+
 .home-map-marker > span {
 	transform: rotate(45deg);
 	display: flex;
 }
 
-/* A visible 16px point with a transparent 44px touch target. */
 .event-map-marker.event-map-street-dot {
 	width: 44px;
 	height: 44px;
@@ -91,25 +289,25 @@ button {
 	padding: 0;
 	transform: translate(-50%, -50%);
 	background: transparent;
-	box-shadow: none;
 }
+
 .event-map-street-dot > span {
-	width: 16px;
-	height: 16px;
+	width: 14px;
+	height: 14px;
 	border: 2px solid #fff;
 	border-radius: 50%;
 	transform: none;
-	background: #e53935;
-	box-shadow: 0 2px 6px #0005;
-}
-.event-map-street-dot[data-priority='important'] > span {
-	background: #fb8c00;
-}
-.event-map-street-dot[data-selected='true'] > span {
-	box-shadow: 0 0 0 4px #ffffff55;
+	background: var(--marker-catastrophe);
 }
 
-/* Internal Yandex SDK selectors: scoped to explicitly opted-in map containers. */
+.event-map-street-dot[data-priority='important'] > span {
+	background: var(--marker-important);
+}
+
+.event-map-street-dot[data-selected='true'] > span {
+	outline: 3px solid rgba(255, 255, 255, 0.35);
+}
+
 .yandex-map-clean [class*='copyright'],
 .yandex-map-clean [class*='distribution'],
 .yandex-map-clean button.ymaps3--control-button:has(> ymaps3.ymaps3--open-maps-button) {

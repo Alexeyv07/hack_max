@@ -74,15 +74,15 @@ export function addEventGeography(
 	const point = eventPoint(event);
 	if (!point) return;
 	if (event.geo_by === 'street') {
-		const color = event.disaster_flag || event.importance === 1 ? '#e53935' : '#fb8c00';
+		const color = event.disaster_flag || event.importance === 1 ? '#c45c5c' : '#c4924a';
 		map.addChild(
 			new ymaps3.YMapFeature({
 				geometry: streetContextGeometry(point),
 				style: {
 					fill:
 						event.disaster_flag || event.importance === 1
-							? 'rgba(229, 57, 53, 0.13)'
-							: 'rgba(251, 140, 0, 0.13)',
+							? 'rgba(196, 92, 92, 0.14)'
+							: 'rgba(196, 146, 74, 0.14)',
 					stroke: [{ color, width: 2, dash: [6, 8] }],
 					simplificationRate: 0
 				}
@@ -138,6 +138,6 @@ export function makeHomeMarker(address: string): HTMLElement {
 	marker.setAttribute('aria-label', `Ваш дом: ${address}`);
 	marker.title = `Ваш дом: ${address}`;
 	marker.innerHTML =
-		'<span><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 3 2 11l1.5 1.8L5 11.6V21h5v-6h4v6h5v-9.4l1.5 1.2L22 11 12 3Z"/></svg></span>';
+		'<span><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M11.47 3.841a.75.75 0 0 1 1.06 0l8.69 8.69a.75.75 0 1 0 1.06-1.061l-8.689-8.69a2.25 2.25 0 0 0-3.182 0l-8.69 8.69a.75.75 0 1 0 1.061 1.06l8.69-8.689Z"/><path fill="currentColor" d="m12 5.432 8.159 8.159c.03.03.06.058.091.086v6.198c0 1.035-.84 1.875-1.875 1.875H15a.75.75 0 0 1-.75-.75v-4.5a.75.75 0 0 0-.75-.75h-3a.75.75 0 0 0-.75.75V21a.75.75 0 0 1-.75.75H5.625a1.875 1.875 0 0 1-1.875-1.875v-6.198a2.29 2.29 0 0 0 .091-.086L12 5.432Z"/></svg></span>';
 	return marker;
 }
