@@ -90,7 +90,7 @@ def test_admin_can_add_next_address_without_readding_bot(monkeypatch) -> None:
     connect = AsyncMock(return_value=ConnectOutcome(True, -100500, True, "Адрес добавлен к чату."))
     announce = AsyncMock()
     home = AsyncMock()
-    monkeypatch.setattr(flow, "_send_home_after_native_selection", home)
+    monkeypatch.setattr(flow, "_complete_with_home", home)
     monkeypatch.setattr(flow, "session_scope", fake_session_scope)
     monkeypatch.setattr(
         flow,
@@ -114,25 +114,13 @@ def test_admin_can_add_next_address_without_readding_bot(monkeypatch) -> None:
     asyncio.run(flow._finish_address(event, context, bot, address_id=2))
 
     connect.assert_awaited_once()
-    home.assert_awaited_once_with(bot, 101)
+    home.assert_awaited_once()
+    assert home.await_args.args[:3] == (event, bot, 101)
+    assert "Чат привязан" in (home.await_args.kwargs.get("notice") or "")
     assert connect.await_args.kwargs["chat_id"] == -100500
-    assert context.data["target_chat_id"] == -100500
-    add_button = event.edit.await_args.kwargs["attachments"][0].payload.buttons[0][0]
-    assert add_button.payload == "chat_link:start"
-
-    dp = FakeDispatcher()
-    flow.register_chat_link_commands(dp, bot)
-    event.callback.payload = add_button.payload
-    asyncio.run(dp.handlers["message_callback"](event, context))
-
-    assert context.data["target_chat_id"] == -100500
-    assert (
-        "Выберите адрес, который нужно добавить к чату"
-        in bot.edit_message.await_args.kwargs["text"]
-    )
-    method_buttons = bot.edit_message.await_args.kwargs["attachments"][0].payload.buttons
-    assert "_bind_-100500" in method_buttons[2][0].payload
+    assert context.data == {}
     announce.assert_awaited_once()
+    event.edit.assert_not_awaited()
 
 
 class PostalCatalog:
@@ -354,7 +342,7 @@ def test_method_screen_has_back_to_welcome_button() -> None:
 
     assert len(buttons) == 5
     assert [button[0].text for button in buttons[:4]] == [
-        "Выбрать место жительства",
+        "Выбрать адрес",
         "Указать почтовый индекс",
         "Указать на карте",
         "Ввести текстом",
@@ -367,35 +355,40 @@ def test_method_screen_has_back_to_welcome_button() -> None:
     assert buttons[3][0].payload == "chat_link_text"
     assert buttons[-1][0].text == "← Назад"
     assert buttons[-1][0].payload == "cl:back:welcome"
+    manage = method_keyboard(bot, from_manage=True)
+    assert manage.payload.buttons[-1][0].payload == "cl:back:manage"
 
 
-def test_bot_picker_has_both_search_modes_and_back() -> None:
-    from chat_link.commands.keyboards import bot_method_keyboard
+def test_manage_start_returns_to_address_list(monkeypatch) -> None:
+    @contextmanager
+    def fake_session_scope():
+        yield object()
 
-    buttons = bot_method_keyboard().payload.buttons
-    assert [(row[0].text, row[0].payload) for row in buttons] == [
-        ("По адресу", "cl:method:native"),
-        ("По почтовому индексу", "cl:method:postal"),
-        ("← Назад", "cl:back:root"),
-    ]
-
-
-def test_bot_picker_keeps_group_context() -> None:
+    monkeypatch.setattr(flow, "session_scope", fake_session_scope)
+    monkeypatch.setattr(
+        flow,
+        "build_manage_list_view",
+        lambda _uid, page=0, notice=None: (
+            "Ваши адреса",
+            SimpleNamespace(payload=SimpleNamespace(buttons=[])),
+        ),
+    )
     dp = FakeDispatcher()
-    bot = SimpleNamespace(me=SimpleNamespace(username="test_bot", user_id=999))
+    bot = SimpleNamespace(
+        me=SimpleNamespace(username="test_bot", user_id=999),
+        edit_message=AsyncMock(),
+    )
     flow.register_chat_link_commands(dp, bot)
-    context = FakeContext({"target_chat_id": 42, "flow_mid": "mid"})
+    context = FakeContext({"from_manage": True, "flow_mid": "mid"})
     event = SimpleNamespace(
-        callback=SimpleNamespace(payload="cl:method:bot", user=SimpleNamespace(user_id=123)),
+        callback=SimpleNamespace(payload="cl:back:manage", user=SimpleNamespace(user_id=123)),
         message=SimpleNamespace(body=SimpleNamespace(mid="mid")),
+        ack=AsyncMock(),
         edit=AsyncMock(),
     )
     asyncio.run(dp.handlers["message_callback"](event, context))
-    assert context.data["target_chat_id"] == 42
-    assert (
-        event.edit.await_args.kwargs["attachments"][0].payload.buttons[1][0].payload
-        == "cl:method:postal"
-    )
+    bot.edit_message.assert_awaited_once()
+    assert bot.edit_message.await_args.kwargs["text"] == "Ваши адреса"
 
 
 def test_back_from_method_screen_returns_to_welcome(monkeypatch) -> None:
@@ -421,7 +414,7 @@ def test_back_from_method_screen_returns_to_welcome(monkeypatch) -> None:
             username="alexey",
         ),
     )
-    monkeypatch.setattr(flow, "get_personal_address", lambda _session, _max_user_id: None)
+    monkeypatch.setattr(flow, "user_can_see_events", lambda _max_user_id: False)
     flow.register_chat_link_commands(dp, bot)
 
     context = FakeContext(
@@ -450,22 +443,21 @@ def test_back_from_method_screen_returns_to_welcome(monkeypatch) -> None:
     kwargs = bot.edit_message.await_args.kwargs
     assert kwargs["text"].startswith("Давайте найдём ваш дом")
     buttons = kwargs["attachments"][0].payload.buttons
-    assert buttons[0][0].text == "Указать свой адрес"
+    assert buttons[0][0].text == "Выбрать адрес"
     assert context.data == {"flow_mid": "mid"}
     assert context.state is None
 
 
-def test_first_welcome_photo_is_not_overwritten_by_address_picker(monkeypatch) -> None:
+def test_first_welcome_is_edited_into_address_picker(monkeypatch) -> None:
     @contextmanager
     def fake_session_scope():
         yield object()
 
     monkeypatch.setattr(flow, "session_scope", fake_session_scope)
     dp = FakeDispatcher()
-    sent = SimpleNamespace(message=SimpleNamespace(body=SimpleNamespace(mid="picker-mid")))
     bot = SimpleNamespace(
         me=SimpleNamespace(username="test_bot", user_id=999),
-        send_message=AsyncMock(return_value=sent),
+        send_message=AsyncMock(),
         edit_message=AsyncMock(),
     )
     flow.register_chat_link_commands(dp, bot)
@@ -477,11 +469,11 @@ def test_first_welcome_photo_is_not_overwritten_by_address_picker(monkeypatch) -
         edit=AsyncMock(),
     )
     asyncio.run(dp.handlers["message_callback"](event, context))
-    bot.edit_message.assert_not_awaited()
-    bot.send_message.assert_awaited_once()
-    assert bot.send_message.await_args.kwargs["user_id"] == 123
-    assert context.data["first_welcome_mid"] == "first-mid"
-    assert context.data["flow_mid"] == "picker-mid"
+    bot.send_message.assert_not_awaited()
+    bot.edit_message.assert_awaited_once()
+    assert bot.edit_message.await_args.args == ("first-mid",)
+    assert context.data.get("first_welcome_mid") is None
+    assert context.data["flow_mid"] == "first-mid"
 
 
 def test_address_button_allows_outsider_to_choose_without_granting_feed(monkeypatch) -> None:
@@ -550,11 +542,13 @@ def test_group_admin_removes_address_and_updates_announcement(db_session, monkey
         edit=AsyncMock(),
     )
     asyncio.run(dp.handlers["message_callback"](event, FakeContext()))
-    buttons = bot.send_message.await_args.kwargs["attachments"][0].payload.buttons
-    assert "Какой адрес убрать" in bot.send_message.await_args.kwargs["text"]
+    bot.send_message.assert_not_awaited()
+    buttons = bot.edit_message.await_args.kwargs["attachments"][0].payload.buttons
+    assert "Какой адрес убрать" in bot.edit_message.await_args.kwargs["text"]
     assert len(buttons) == 2
     assert buttons[1][0].payload == f"cl:group:pick:-8123:{second.id}"
     event.callback.payload = buttons[1][0].payload
+    bot.edit_message.reset_mock()
     asyncio.run(dp.handlers["message_callback"](event, FakeContext()))
     assert [address.id for address in list_chat_addresses(db_session, -8123)] == [first.id]
     announce.assert_awaited_once_with(bot, -8123)

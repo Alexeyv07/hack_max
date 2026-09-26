@@ -59,7 +59,7 @@ def test_brand_image_is_opt_in() -> None:
         )
     )
     sent = raw_send.await_args.kwargs
-    assert _image_token_or_path(sent["attachments"]).endswith("other_messages.jpg")
+    assert _image_token_or_path(sent["attachments"]).endswith("other_messages.webp")
     assert sent["attachments"][1] == "keyboard"
 
 
@@ -69,7 +69,7 @@ def test_initial_brand_is_not_replaced_and_home_is_not_decorated() -> None:
     install_bot_images(bot)
     asyncio.run(bot.send_message(chat_id=10, text="Привет", attachments=[first_start_image()]))
     assert _image_token_or_path(raw_send.await_args.kwargs["attachments"]).endswith(
-        "first_start.jpg"
+        "first_start.webp"
     )
     asyncio.run(bot.send_message(chat_id=10, text="<b>Главная</b>", attachments=["keyboard"]))
     assert raw_send.await_args.kwargs["attachments"] == ["keyboard"]

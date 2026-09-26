@@ -118,17 +118,45 @@ async def run_priority_cycle(
         with factory() as session:
             previous_mid = delivery_last_message_mid(session, delivery_id=delivery.delivery_id)
 
-        await delete_message_quiet(bot, previous_mid)
+        text = build_priority_text(
+            delivery,
+            expanded=False,
+            docs_url=get_settings().docs.notifications_url,
+        )
+        attachments = [keyboard_factory(delivery)]
+
+        if previous_mid:
+            try:
+                await bot.edit_message(
+                    previous_mid,
+                    text=text,
+                    attachments=attachments,
+                    format="markdown",
+                    notify=False,
+                )
+                with factory() as session:
+                    if mark_delivery_sent(
+                        session,
+                        delivery_id=delivery.delivery_id,
+                        sent_at=current,
+                        message_mid=previous_mid,
+                    ):
+                        session.commit()
+                        sent += 1
+                continue
+            except Exception:
+                logger.debug(
+                    "Не удалось edit priority mid=%s — шлём новое",
+                    previous_mid,
+                    exc_info=True,
+                )
+                await delete_message_quiet(bot, previous_mid)
 
         try:
             result = await bot.send_message(
                 chat_id=delivery.chat_id,
-                text=build_priority_text(
-                    delivery,
-                    expanded=False,
-                    docs_url=get_settings().docs.notifications_url,
-                ),
-                attachments=[keyboard_factory(delivery)],
+                text=text,
+                attachments=attachments,
                 format="markdown",
                 brand_image=False,
             )

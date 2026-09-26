@@ -51,7 +51,7 @@ def _list_view(
     if notice:
         text += f"\n\n{escape(notice)}"
     builder = InlineKeyboardBuilder()
-    builder.row(CallbackButton(text="Добавить адрес", payload="chat_link:start"))
+    builder.row(CallbackButton(text="Добавить адрес", payload="chat_link:start:manage"))
     for address in addresses[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]:
         builder.row(
             CallbackButton(
@@ -99,6 +99,15 @@ def _parse_address_action(payload: str, prefix: str) -> tuple[int, int] | None:
     except ValueError:
         return None
     return (address_id, page) if address_id > 0 and page >= 0 else None
+
+
+def build_manage_list_view(
+    max_user_id: int, page: int = 0, *, notice: str | None = None
+) -> tuple[str, Any]:
+    """Экран списка адресов для возврата из chat_link (manage → добавить → назад)."""
+    with session_scope() as session:
+        addresses = list_managed_addresses(session, max_user_id)
+        return _list_view(addresses, page, notice=notice)
 
 
 async def _safe_ack(event: Any, notification: str = "…") -> None:
@@ -176,7 +185,7 @@ def register_manage_addresses(dp: Any, bot: Any) -> None:
                 event,
                 max_user_id,
                 text,
-                [home_image(bot), build_home_keyboard(bot)],
+                [home_image(bot), build_home_keyboard(bot, has_addresses=bool(addresses))],
                 notification="Главная",
             )
             return

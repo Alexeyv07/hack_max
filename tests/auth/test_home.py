@@ -53,7 +53,7 @@ def test_home_lists_only_member_selected_addresses(db_session) -> None:
 
 def test_home_keyboard_matches_mockup() -> None:
     bot = SimpleNamespace(me=SimpleNamespace(username="bot", user_id=7))
-    keyboard = build_home_keyboard(bot)
+    keyboard = build_home_keyboard(bot, has_addresses=True)
     buttons = keyboard.payload.buttons
     assert [row[0].text for row in buttons] == [
         "Посмотреть новости рядом",
@@ -61,6 +61,11 @@ def test_home_keyboard_matches_mockup() -> None:
     ]
     assert buttons[1][0].payload == "home:manage"
     assert buttons[0][0].web_app == "bot"
+    empty = build_home_keyboard(bot, has_addresses=False)
+    assert [row[0].text for row in empty.payload.buttons] == [
+        "Добавить адрес",
+        "Управлять адресами",
+    ]
     assert "справка о сервисе" in build_home_text([])
     assert "<a href=" in build_home_text([])
 
@@ -83,6 +88,8 @@ def test_home_sends_image_and_keyboard_together(db_session) -> None:
     assert "—" in sent["text"]
     assert len(sent["attachments"]) == 2
     assert sent["attachments"][0].type == "image"
+    # Пустой список адресов → «Добавить адрес», не лента.
+    assert sent["attachments"][1].payload.buttons[0][0].payload == "chat_link:start"
     assert sent["attachments"][1].payload.buttons[1][0].payload == "home:manage"
 
 

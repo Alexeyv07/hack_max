@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from maxapi.enums.format import Format
 from maxapi.utils.deep_linking import create_start_link
 
 from auth.commands.home import send_home
@@ -19,6 +20,7 @@ from chat_link.api.schemas import (
     PersonalResidenceResponse,
     PostalAddressSearchResponse,
 )
+from chat_link.commands.keyboards import method_keyboard, setup_keyboard
 from chat_link.handlers import (
     announce_connected_group,
     bind_existing_chat_member,
@@ -354,13 +356,20 @@ async def select_address(
             "но вы не состоите в нём. Присоединитесь через приложение «Госуслуги Дом», "
             "затем повторите выбор адреса."
         )
+        attachments = [method_keyboard(bot)]
     else:
         notice = (
             f"По адресу {address.address_text} пока нет подключённого домового чата. "
-            "Скопируйте приглашение для администратора или нажмите «Я администратор чата»."
+            "Скопируйте приглашение для администратора или нажмите «Я администратор»."
         )
+        attachments = [setup_keyboard(admin_link, address.address_text)]
     try:
-        await bot.send_message(user_id=max_user_id, text=notice)
+        await bot.send_message(
+            user_id=max_user_id,
+            text=notice,
+            attachments=attachments,
+            format=Format.HTML,
+        )
     except Exception:
         logger.exception("Не удалось отправить результат выбора адреса в MAX")
     return AddressSelectResponse(

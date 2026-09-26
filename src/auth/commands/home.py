@@ -19,6 +19,7 @@ from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
 MANAGE_ADDRESSES_PAYLOAD = "home:manage"
+CHAT_LINK_START_PAYLOAD = "chat_link:start"
 
 
 def linked_addresses(session: Session, max_user_id: int) -> list[str]:
@@ -33,17 +34,24 @@ def build_home_text(addresses: list[str], *, notice: str | None = None) -> str:
         if len(addresses) > 12:
             lines.append(f"…и ещё {len(addresses) - 12}")
         address_block = "\n".join(lines)
+        body = (
+            "Здесь собрано то, что касается вашего дома и города: "
+            "отключения воды, ремонт, перекрытия и другие события.\n\n"
+            "Нажмите «Посмотреть новости рядом», чтобы открыть ленту. "
+            "Если нужно добавить или убрать дом — «Управлять адресами»."
+        )
     else:
         address_block = "—"
+        body = (
+            "Пока нет сохранённого адреса — лента новостей рядом будет пустой.\n\n"
+            "Нажмите «Добавить адрес», чтобы указать дом."
+        )
     help_link = docs_html("справка о сервисе", page="overview")
     text = (
         "<b>Главная</b>\n\n"
         f"<b>Ваши адреса 🏠</b>\n{address_block}\n\n"
-        "Здесь собрано то, что касается вашего дома и города: "
-        "отключения воды, ремонт, перекрытия и другие события.\n\n"
-        "Нажмите «Посмотреть новости рядом», чтобы открыть ленту. "
-        f"Если нужно добавить или убрать дом — «Управлять адресами».\n\n"
-        "Команды: /home — эта страница · /get_notify — получить тестовое оповещение \n\n"
+        f"{body}\n\n"
+        "Команды: /home — эта страница · /get_notify — пример уведомления\n\n"
         f"Документация: {help_link}"
     )
     if notice:
@@ -51,17 +59,21 @@ def build_home_text(addresses: list[str], *, notice: str | None = None) -> str:
     return text
 
 
-def build_home_keyboard(bot: Any) -> Any:
+def build_home_keyboard(bot: Any, *, has_addresses: bool | None = None) -> Any:
     me = getattr(bot, "me", None)
     builder = InlineKeyboardBuilder()
-    builder.row(
-        OpenAppButton(
-            text="Посмотреть новости рядом",
-            web_app=getattr(me, "username", None),
-            contact_id=getattr(me, "user_id", None),
+    if has_addresses:
+        builder.row(
+            OpenAppButton(
+                text="Посмотреть новости рядом",
+                web_app=getattr(me, "username", None),
+                contact_id=getattr(me, "user_id", None),
+            )
         )
-    )
-    builder.row(CallbackButton(text="Управлять адресами", payload=MANAGE_ADDRESSES_PAYLOAD))
+        builder.row(CallbackButton(text="Управлять адресами", payload=MANAGE_ADDRESSES_PAYLOAD))
+    else:
+        builder.row(CallbackButton(text="Добавить адрес", payload=CHAT_LINK_START_PAYLOAD))
+        builder.row(CallbackButton(text="Управлять адресами", payload=MANAGE_ADDRESSES_PAYLOAD))
     return builder.as_markup()
 
 
@@ -81,8 +93,9 @@ async def send_home(
     recipient = (
         {"chat_id": chat_id} if chat_id is not None and chat_id > 0 else {"user_id": max_user_id}
     )
-    text = build_home_text(linked_addresses(session, max_user_id), notice=notice)
-    keyboard = build_home_keyboard(bot)
+    addresses = linked_addresses(session, max_user_id)
+    text = build_home_text(addresses, notice=notice)
+    keyboard = build_home_keyboard(bot, has_addresses=bool(addresses))
     try:
         return await bot.send_message(
             **recipient,
@@ -91,7 +104,6 @@ async def send_home(
             format=Format.HTML,
         )
     except Exception:
-        # Ошибка медиа не должна оставлять пользователя без кнопок навигации.
         logger.exception("Не удалось отправить главную с изображением; отправляем текстовую версию")
         return await bot.send_message(
             **recipient,
@@ -101,12 +113,54 @@ async def send_home(
         )
 
 
-# Обратная совместимость для тестов, которые импортируют путь напрямую.
+async def edit_to_home(
+    bot: Any,
+    event: Any,
+    session: Session,
+    max_user_id: int,
+    *,
+    notice: str | None = None,
+) -> bool:
+    """Заменить текущий bot-screen на главную (без второго сообщения)."""
+    addresses = linked_addresses(session, max_user_id)
+    text = build_home_text(addresses, notice=notice)
+    attachments = [home_image(bot), build_home_keyboard(bot, has_addresses=bool(addresses))]
+    edit = getattr(event, "edit", None)
+    if callable(edit):
+        try:
+            await edit(
+                text=text,
+                attachments=attachments,
+                format=Format.HTML,
+                notify=False,
+                notification="Главная",
+            )
+            return True
+        except Exception:
+            logger.debug("event.edit → home не удался", exc_info=True)
+    mid = getattr(getattr(getattr(event, "message", None), "body", None), "mid", None)
+    if mid:
+        try:
+            await bot.edit_message(
+                str(mid),
+                text=text,
+                attachments=attachments,
+                format=Format.HTML,
+                notify=False,
+            )
+            return True
+        except Exception:
+            logger.debug("edit_message → home не удался", exc_info=True)
+    return False
+
+
 __all__ = [
+    "CHAT_LINK_START_PAYLOAD",
     "HOME_IMAGE_PATH",
     "MANAGE_ADDRESSES_PAYLOAD",
     "build_home_keyboard",
     "build_home_text",
+    "edit_to_home",
     "linked_addresses",
     "send_home",
 ]

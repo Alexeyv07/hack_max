@@ -95,10 +95,12 @@ def build_welcome_keyboard(
     keyboard = InlineKeyboardBuilder()
     buttons: list[Any] = []
     if binding_group or can_choose_address:
-        add_text = "Добавить адрес чата" if binding_group else "Указать свой адрес"
+        add_text = "Добавить адрес чата" if binding_group else "Выбрать адрес"
         buttons.append(CallbackButton(text=add_text, payload=CHAT_LINK_START_PAYLOAD))
     if show_events:
-        buttons.append(OpenAppButton(text="Смотреть события", web_app=username, contact_id=user_id))
+        buttons.append(
+            OpenAppButton(text="Посмотреть новости рядом", web_app=username, contact_id=user_id)
+        )
     if buttons:
         keyboard.row(*buttons)
     return keyboard.as_markup() if buttons else None
@@ -112,13 +114,18 @@ def _can_choose_address(max_user_id: int) -> bool:
     return True  # Адрес может выбрать любой; право на ленту проверим после выбора дома.
 
 
-def _show_events(max_user_id: int) -> bool:
+def user_can_see_events(max_user_id: int) -> bool:
+    """Единая проверка доступа к ленте: личный дом+чат или любое подключённое членство."""
     with session_scope() as session:
         personal = get_personal_address(session, max_user_id)
         return (
             personal is not None
             and bool(linked_group_ids(session, max_user_id, address_id=personal.id))
         ) or has_connected_chat(session, max_user_id)
+
+
+# Совместимость со старыми тестами / импортами.
+_show_events = user_can_see_events
 
 
 def _claim_admin(*, token: str, max_user_id: int) -> None:

@@ -395,8 +395,6 @@ def test_ack_opens_fresh_main_menu_only_once_for_owner(session_factory, monkeypa
             session.commit()
 
     monkeypatch.setattr(commands, "session_scope", scoped_session)
-    send_home = AsyncMock()
-    monkeypatch.setattr("auth.commands.home.send_home", send_home)
     dp = _CallbackDispatcher()
     bot = SimpleNamespace()
     commands.register_notify_commands(dp, bot)
@@ -416,21 +414,15 @@ def test_ack_opens_fresh_main_menu_only_once_for_owner(session_factory, monkeypa
     other = callback(9999)
     asyncio.run(handler(other, context))
     other.edit.assert_not_awaited()
-    send_home.assert_not_awaited()
 
     first = callback(1501)
     asyncio.run(handler(first, context))
     first.edit.assert_awaited_once()
-    send_home.assert_awaited_once()
-    _session, max_user_id = send_home.await_args.args[1], send_home.await_args.args[2]
-    assert send_home.await_args.args[0] is bot
-    assert max_user_id == 1501
-    assert send_home.await_args.kwargs == {"recipient_chat_id": 5501}
+    assert first.edit.await_args.kwargs.get("attachments") == []
 
     repeated = callback(1501)
     asyncio.run(handler(repeated, context))
     repeated.edit.assert_awaited_once()
-    send_home.assert_awaited_once()
 
     with session_factory() as session:
         assert session.get(NotifyDeliveryRow, delivery_id).acked_at is not None

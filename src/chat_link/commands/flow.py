@@ -11,14 +11,13 @@ from maxapi.utils.deep_linking import create_start_link
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
 from address.street_catalog import normalize_ui_text
-from auth.commands.home import send_home
-from auth.commands.start import ADDRESS_PICKER_TEXT, build_welcome_keyboard
+from auth.commands.home import edit_to_home, send_home
+from auth.commands.manage_addresses import build_manage_list_view
+from auth.commands.start import ADDRESS_PICKER_TEXT, build_welcome_keyboard, user_can_see_events
 from auth.handlers import get_user_by_max_id
-from auth.handlers.residence import get_personal_address, set_personal_address
+from auth.handlers.residence import set_personal_address
 from chat_link.commands.keyboards import (
-    add_more_addresses_keyboard,
     admin_setup_keyboard,
-    bot_method_keyboard,
     list_keyboard,
     method_keyboard,
     postal_input_keyboard,
@@ -46,7 +45,6 @@ from user_chat.handlers import (
     bind_known_chat_member,
     detach_chat,
     get_chat,
-    linked_group_ids,
     list_chat_addresses,
     remove_chat_address,
     remove_user_from_chat,
@@ -124,11 +122,6 @@ async def _show_welcome(event: Any, context: Any, bot: Any) -> None:
     max_user_id = _callback_user_id(event)
     with session_scope() as session:
         user = get_user_by_max_id(session, max_user_id)
-        can_choose_address = True
-        personal = get_personal_address(session, max_user_id)
-        show_events = personal is not None and bool(
-            linked_group_ids(session, max_user_id, address_id=personal.id)
-        )
     if user is None:
         return
 
@@ -148,6 +141,7 @@ async def _show_welcome(event: Any, context: Any, bot: Any) -> None:
         clean_data["first_welcome_mid"] = data["first_welcome_mid"]
     await context.set_data(clean_data)
 
+    show_events = await asyncio.to_thread(user_can_see_events, max_user_id)
     kwargs = {
         "text": ADDRESS_PICKER_TEXT,
         "attachments": [],
@@ -159,9 +153,7 @@ async def _show_welcome(event: Any, context: Any, bot: Any) -> None:
         show_events=show_events,
         binding_group=target_chat_id is not None,
         choosing_residence=resident_chat_id is not None,
-        can_choose_address=can_choose_address
-        or target_chat_id is not None
-        or resident_chat_id is not None,
+        can_choose_address=True,
     )
     if keyboard is not None:
         kwargs["attachments"].append(keyboard)
@@ -172,6 +164,41 @@ async def _show_welcome(event: Any, context: Any, bot: Any) -> None:
         await event.edit(**kwargs)
 
 
+async def _show_manage_list(event: Any, context: Any, bot: Any) -> None:
+    """Вернуться в «Управлять адресами» после chat_link:start:manage."""
+    max_user_id = _callback_user_id(event)
+    await context.set_state(None)
+    data = await context.get_data()
+    clean: dict[str, Any] = {}
+    mid = _screen_mid(event) or data.get("flow_mid")
+    if mid:
+        clean["flow_mid"] = mid
+    await context.set_data(clean)
+    text, keyboard = await asyncio.to_thread(build_manage_list_view, max_user_id)
+    kwargs = {
+        "text": text,
+        "attachments": [keyboard],
+        "format": Format.HTML,
+        "notify": False,
+    }
+    if mid:
+        await _ack_callback(event)
+        await bot.edit_message(mid, **kwargs)
+    else:
+        await event.edit(**kwargs)
+
+
+def _preserve_flow_flags(data: dict[str, Any]) -> dict[str, Any]:
+    """Сохранить режимы bind/resident/manage при смене шага picker-а."""
+    keep: dict[str, Any] = {}
+    for key in ("target_chat_id", "resident_chat_id", "first_welcome_mid"):
+        if data.get(key) is not None:
+            keep[key] = data[key]
+    if data.get("from_manage"):
+        keep["from_manage"] = True
+    return keep
+
+
 async def _show_methods(event: Any, context: Any, bot: Any) -> None:
     await context.set_state(ChatLinkStates.choosing)
     mid = _screen_mid(event)
@@ -180,6 +207,7 @@ async def _show_methods(event: Any, context: Any, bot: Any) -> None:
     data = await context.get_data()
     target_chat_id = data.get("target_chat_id")
     resident_chat_id = data.get("resident_chat_id")
+    from_manage = bool(data.get("from_manage"))
     text = (
         "Выберите адрес, который нужно добавить к чату. Можно будет добавить и другие дома двора."
         if target_chat_id is not None
@@ -193,47 +221,32 @@ async def _show_methods(event: Any, context: Any, bot: Any) -> None:
     kwargs = {
         "text": text,
         "attachments": [
-            method_keyboard(bot, target_chat_id=target_chat_id, resident_chat_id=resident_chat_id)
+            method_keyboard(
+                bot,
+                target_chat_id=target_chat_id,
+                resident_chat_id=resident_chat_id,
+                from_manage=from_manage,
+            )
         ],
         "notify": False,
         "format": Format.HTML,
     }
-    if mid and mid == data.get("first_welcome_mid"):
-        # Первую обложку не перезаписываем: следующие экраны открываются новым сообщением.
-        await _ack_callback(event)
-        result = await bot.send_message(user_id=_callback_user_id(event), **kwargs)
-        body = getattr(getattr(result, "message", None), "body", None)
-        if getattr(body, "mid", None):
-            await context.update_data(flow_mid=str(body.mid))
-    elif mid:
-        # Через обычный PUT /messages клавиатура не зависит от callback-answer UI.
+    if mid:
+        # Редактируем и первое welcome — иначе остаётся живая кнопка «Выбрать адрес».
         await _ack_callback(event)
         await bot.edit_message(mid, **kwargs)
+        if mid == data.get("first_welcome_mid"):
+            await context.update_data(first_welcome_mid=None)
     else:
         await event.edit(**kwargs)
-
-
-async def _show_bot_methods(event: Any, context: Any) -> None:
-    await context.set_state(ChatLinkStates.choosing)
-    mid = _screen_mid(event)
-    if mid:
-        await context.update_data(flow_mid=mid)
-    await event.edit(
-        text=(
-            "Выберите способ в боте. Индекс сузит список, затем нужно выбрать конкретный дом.\n\n"
-            f"Подсказка: {docs_html('как выбрать адрес', page='chat-link')}."
-        ),
-        attachments=[bot_method_keyboard()],
-        notify=False,
-        format=Format.HTML,
-    )
 
 
 async def _show_city(event: Any, context: Any, page: int = 0) -> None:
     data = await context.get_data()
     postal = data.get("postal_code")
     values = get_address_catalog().cities(postal_code=postal)
-    markup, page, pages = list_keyboard(values, kind="city", page=page, back="root")
+    back = "manage" if data.get("from_manage") else "root"
+    markup, page, pages = list_keyboard(values, kind="city", page=page, back=back)
     await event.edit(
         text=_page_text("Выберите город", page, pages),
         attachments=[markup],
@@ -273,7 +286,12 @@ async def _show_street(event: Any, context: Any, page: int = 0) -> None:
             notify=False,
         )
         return
-    markup, page, pages = list_keyboard(values, kind="street", page=page, back="district")
+    markup, page, pages = list_keyboard(
+        values,
+        kind="street",
+        page=page,
+        back="street_root" if data.get("street_prefix") else "district",
+    )
     title = f"{data['city']} → {data['district']} → выберите улицу"
     if data.get("street_prefix"):
         title += f"\nФильтр: {data['street_prefix']}"
@@ -305,11 +323,12 @@ async def _show_postal_street(event: Any, context: Any, page: int = 0) -> None:
     data = await context.get_data()
     postal = data["postal_code"]
     values = get_address_catalog().postal_streets(postal)
+    back = "manage" if data.get("from_manage") else "root"
     markup, page, pages = list_keyboard(
         values,
         kind="postal_street",
         page=page,
-        back="root",
+        back=back,
     )
     await event.edit(
         text=_page_text(f"Индекс {postal} → выберите улицу", page, pages),
@@ -340,9 +359,26 @@ async def _show_postal_house(event: Any, context: Any, page: int = 0) -> None:
     )
 
 
+async def _complete_with_home(
+    event: Any, bot: Any, max_user_id: int, *, notice: str | None = None
+) -> None:
+    """Один экран: заменить текущее сообщение на главную (без второго send)."""
+    try:
+        with session_scope() as session:
+            if await edit_to_home(bot, event, session, max_user_id, notice=notice):
+                return
+            await send_home(bot, session, max_user_id, notice=notice)
+    except Exception:
+        logger.exception("Не удалось показать главную после выбора дома в боте")
+
+
+# Совместимость со старыми тестами.
+
+
 async def _send_home_after_native_selection(
     bot: Any, max_user_id: int, *, notice: str | None = None
 ) -> None:
+    """Fallback без callback-event (тесты / старые вызовы)."""
     try:
         with session_scope() as session:
             await send_home(bot, session, max_user_id, notice=notice)
@@ -375,19 +411,23 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
         except ValueError as exc:
             await event.edit(
                 text=f"Не удалось сохранить адрес.\n\n{exc}",
-                attachments=[method_keyboard(bot, resident_chat_id=int(resident_chat_id))],
+                attachments=[
+                    method_keyboard(
+                        bot,
+                        resident_chat_id=int(resident_chat_id),
+                        from_manage=bool(data.get("from_manage")),
+                    )
+                ],
                 notify=False,
             )
             return
-        await event.edit(
-            text=(
-                f"✅ Ваш адрес сохранён: {address.address_text}\n\n"
-                "Теперь события рядом с вами доступны в мини-приложении."
-            ),
-            attachments=[build_welcome_keyboard(bot, show_events=True, choosing_residence=True)],
-            notify=False,
+        await context.set_data({})
+        await _complete_with_home(
+            event,
+            bot,
+            user_id,
+            notice=f"✅ Ваш адрес сохранён: {address.address_text}",
         )
-        await _send_home_after_native_selection(bot, user_id)
         return
     if target_chat_id is not None:
         with session_scope() as session:
@@ -401,7 +441,13 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
         if not outcome.connected:
             await event.edit(
                 text=f"Не удалось привязать чат.\n\n{outcome.message or 'Попробуйте ещё раз.'}",
-                attachments=[method_keyboard(bot, target_chat_id=int(target_chat_id))],
+                attachments=[
+                    method_keyboard(
+                        bot,
+                        target_chat_id=int(target_chat_id),
+                        from_manage=bool(data.get("from_manage")),
+                    )
+                ],
                 notify=False,
             )
             return
@@ -413,22 +459,19 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
             address_text=address.address_text,
             additional=outcome.message is not None,
         )
-        await context.update_data(address_id=address_id)
-        await event.edit(
-            text=(
-                "✅ Чат успешно привязан к адресу:\n"
-                f"{address.address_text}\n\n"
-                "Нажмите «Добавить ещё адрес», если в чате есть жители других домов. "
-                "Главная страница придёт следующим сообщением."
+        await context.set_data({})
+        await _complete_with_home(
+            event,
+            bot,
+            user_id,
+            notice=(
+                f"✅ Чат привязан к адресу: {address.address_text}. "
+                "Добавить ещё дом можно в «Управлять адресами»."
             ),
-            attachments=[add_more_addresses_keyboard()],
-            notify=False,
         )
-        await _send_home_after_native_selection(bot, user_id)
         return
 
     # Личный выбор: членство проверяется у чата ИМЕННО выбранного дома.
-    # Посторонний может выбрать дом, но не получает персональную ленту.
     try:
         with session_scope() as session:
             outcome = await resolve_residence(
@@ -451,7 +494,7 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
                 "Присоединитесь к домовому чату через приложение «Госуслуги Дом», "
                 "затем вернитесь к боту и выберите адрес снова."
             ),
-            attachments=[method_keyboard(bot)],
+            attachments=[method_keyboard(bot, from_manage=bool(data.get("from_manage")))],
             notify=False,
         )
         return
@@ -459,12 +502,13 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
         await context.update_data(link_token=outcome.token)
         await _show_resident_setup(event, context, bot)
         return
-    await event.edit(
-        text=f"✅ Ваш адрес сохранён: {address.address_text}\n\nНовости рядом уже доступны.",
-        attachments=[],
-        notify=False,
+    await context.set_data({})
+    await _complete_with_home(
+        event,
+        bot,
+        user_id,
+        notice=f"✅ Ваш адрес сохранён: {address.address_text}",
     )
-    await _send_home_after_native_selection(bot, user_id)
 
 
 async def _show_resident_setup(event: Any, context: Any, bot: Any) -> None:
@@ -631,9 +675,17 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
     @dp.message_callback()
     async def on_callback(event: Any, context: Any) -> None:
         payload = _callback_payload(event)
-        if not payload.startswith("cl:") and payload != "chat_link:start":
+        if not payload.startswith("cl:") and not payload.startswith("chat_link:start"):
             return
-        if payload == "chat_link:start":
+        if payload.startswith("chat_link:start"):
+            from_manage = payload == "chat_link:start:manage"
+            current = await context.get_data()
+            flags = _preserve_flow_flags(current)
+            flags["from_manage"] = from_manage
+            mid = _screen_mid(event)
+            if mid:
+                flags["flow_mid"] = mid
+            await context.set_data(flags)
             await _show_methods(event, context, bot)
             return
         # Действия администратора в группе не редактируют главное сообщение
@@ -682,10 +734,25 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                                 payload=f"cl:group:pick:{chat_id}:{address.id}",
                             )
                         )
+                    pick_text = "Какой адрес убрать из этого чата? Нажмите на нужный."
+                    mid = _screen_mid(event)
                     await _ack_callback(event)
+                    if mid:
+                        try:
+                            await bot.edit_message(
+                                mid,
+                                text=pick_text,
+                                attachments=[keyboard.as_markup()],
+                                notify=False,
+                            )
+                            return
+                        except Exception:
+                            logger.debug(
+                                "Не удалось edit список адресов на удаление", exc_info=True
+                            )
                     await bot.send_message(
                         chat_id=chat_id,
-                        text="Какой адрес убрать из этого чата? Нажмите на нужный.",
+                        text=pick_text,
                         attachments=[keyboard.as_markup()],
                     )
                     return
@@ -728,22 +795,20 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             await _ack_callback(event)
             return
         parts = payload.split(":")
-        if payload == "cl:method:bot":
-            await _show_bot_methods(event, context)
-            return
         if payload == "cl:method:native":
             current = await context.get_data()
-            data = {"flow_mid": _screen_mid(event)}
-            if current.get("target_chat_id") is not None:
-                data["target_chat_id"] = current["target_chat_id"]
-            if current.get("resident_chat_id") is not None:
-                data["resident_chat_id"] = current["resident_chat_id"]
+            data = _preserve_flow_flags(current)
+            mid = _screen_mid(event)
+            if mid:
+                data["flow_mid"] = mid
             await context.set_data(data)
             await context.set_state(ChatLinkStates.choosing)
             await _show_city(event, context)
             return
 
         if payload == "cl:method:postal":
+            current = await context.get_data()
+            from_manage = bool(current.get("from_manage"))
             await context.set_state(ChatLinkStates.postal)
             mid = _screen_mid(event)
             if mid:
@@ -753,7 +818,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                     "Введите шестизначный почтовый индекс. Он только сузит список адресов.\n\n"
                     f"Если не знаете индекс: {docs_html('как выбрать адрес', page='chat-link')}."
                 ),
-                attachments=[postal_input_keyboard()],
+                attachments=[postal_input_keyboard(from_manage=from_manage)],
                 notify=False,
                 format=Format.HTML,
             )
@@ -763,10 +828,10 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             target = parts[2]
             if target == "welcome":
                 await _show_welcome(event, context, bot)
+            elif target == "manage":
+                await _show_manage_list(event, context, bot)
             elif target == "root":
                 await _show_methods(event, context, bot)
-            elif target == "bot_methods":
-                await _show_bot_methods(event, context)
             elif target == "city":
                 await _show_city(event, context)
             elif target == "district":
@@ -853,6 +918,8 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
         with session_scope() as session:
             address_text = connected_group_address(session, int(chat_id))
         if address_text is None:
+            # Тот же экран, что при добавлении бота — иначе инструкция «отправьте /address» тупик.
+            await announce_group_address_setup(bot, int(chat_id))
             return
         keyboard = connected_group_keyboard(bot, int(chat_id))
         await bot.send_message(
@@ -869,8 +936,10 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
     async def on_postal(event: Any, context: Any) -> None:
         body = getattr(event.message, "body", None)
         text = (getattr(body, "text", None) or "").strip()
+        user_mid = getattr(body, "mid", None)
+        data = await context.get_data()
+        from_manage = bool(data.get("from_manage"))
         if not (len(text) == 6 and text.isdigit()):
-            data = await context.get_data()
             mid = data.get("flow_mid")
             if mid:
                 await bot.edit_message(
@@ -880,14 +949,13 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                         "Введите индекс ещё раз.\n\n"
                         f"Подсказка: {docs_html('как выбрать адрес', page='chat-link')}."
                     ),
-                    attachments=[postal_input_keyboard()],
+                    attachments=[postal_input_keyboard(from_manage=from_manage)],
                     format=Format.HTML,
                 )
             return
 
         index = get_address_catalog()
         streets = index.postal_streets(text)
-        data = await context.get_data()
         mid = data.get("flow_mid")
         if not streets:
             if mid:
@@ -898,29 +966,33 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                         "Введите другой шестизначный индекс.\n\n"
                         f"Подсказка: {docs_html('как выбрать адрес', page='chat-link')}."
                     ),
-                    attachments=[postal_input_keyboard()],
+                    attachments=[postal_input_keyboard(from_manage=from_manage)],
                     format=Format.HTML,
                 )
             return
+
+        if user_mid:
+            try:
+                await bot.delete_message(str(user_mid))
+            except Exception:
+                logger.debug("Не удалось удалить сообщение с индексом", exc_info=True)
 
         await context.set_state(ChatLinkStates.choosing)
         next_data = {
             "flow_mid": mid,
             "postal_code": text,
+            **_preserve_flow_flags(data),
         }
-        if data.get("target_chat_id") is not None:
-            next_data["target_chat_id"] = data["target_chat_id"]
-        if data.get("resident_chat_id") is not None:
-            next_data["resident_chat_id"] = data["resident_chat_id"]
         await context.set_data(next_data)
         if not mid:
             return
 
+        back = "manage" if from_manage else "root"
         markup, page, pages = list_keyboard(
             streets,
             kind="postal_street",
             page=0,
-            back="root",
+            back=back,
         )
         await bot.edit_message(
             mid,

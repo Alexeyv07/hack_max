@@ -161,7 +161,7 @@ def test_management_flow_list_detail_back_delete(db_session, monkeypatch) -> Non
     bot.send_message.assert_not_awaited()
     markup = event.edit.await_args.kwargs["attachments"][0].payload.buttons
     assert markup[0][0].text == "Добавить адрес"
-    assert markup[0][0].payload == "chat_link:start"
+    assert markup[0][0].payload == "chat_link:start:manage"
     assert [row[0].text for row in markup[1:3]] == [b.address_text, a.address_text]
     assert markup[1][0].payload == f"home:addresses:open:{b.id}:0"
 
@@ -197,7 +197,7 @@ def test_list_pagination_and_escaped_html() -> None:
     buttons = keyboard.payload.buttons
     assert len(buttons) == 11  # добавить, 8 адресов, навигация и главная
     assert buttons[0][0].text == "Добавить адрес"
-    assert buttons[0][0].payload == "chat_link:start"
+    assert buttons[0][0].payload == "chat_link:start:manage"
     assert [button.text for button in buttons[9]] == ["‹", "2/3", "›"]
     assert buttons[1][0].payload == "home:addresses:open:9:1"
     detail_text, detail_keyboard = commands._detail_view(addresses[0], 0)
@@ -209,5 +209,5 @@ def test_empty_list_allows_selecting_address_again() -> None:
     text, keyboard = commands._list_view([], 0)
     assert "Пока нет сохранённых адресов" in text
     assert keyboard.payload.buttons[0][0].text == "Добавить адрес"
-    assert keyboard.payload.buttons[0][0].payload == "chat_link:start"
+    assert keyboard.payload.buttons[0][0].payload == "chat_link:start:manage"
     assert keyboard.payload.buttons[1][0].text == "← Главная"

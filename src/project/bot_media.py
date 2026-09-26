@@ -1,7 +1,7 @@
 """Единое оформление сообщений MAX, без повторной отправки приветственной обложки.
 
 Картинки кэшируются через upload token: иначе каждый send/edit заново грузит
-~400KB на CDN MAX и бот ощущается «тормозным».
+медиа на CDN MAX и бот ощущается «тормозным».
 """
 
 from __future__ import annotations
@@ -14,9 +14,9 @@ from maxapi.types.attachments.upload import AttachmentUpload
 
 # Корень репозитория: src/project/bot_media.py → parents[2]
 ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
-FIRST_START_IMAGE_PATH = ASSETS_DIR / "first_start.jpg"
-OTHER_MESSAGES_IMAGE_PATH = ASSETS_DIR / "other_messages.jpg"
-HOME_IMAGE_PATH = ASSETS_DIR / "home.jpg"
+FIRST_START_IMAGE_PATH = ASSETS_DIR / "first_start.webp"
+OTHER_MESSAGES_IMAGE_PATH = ASSETS_DIR / "other_messages.webp"
+HOME_IMAGE_PATH = ASSETS_DIR / "home.webp"
 
 _CACHE_ATTR = "_brand_image_cache"
 
@@ -85,7 +85,6 @@ async def warm_bot_images(bot: Any) -> None:
         try:
             cache[key] = await upload(InputMedia(str(path), type="image"))
         except Exception:
-            # Без кэша остаёмся на InputMedia — медленнее, но бот жив.
             from project.logging_setup import get_logger
 
             get_logger(__name__).exception("Не удалось прогреть обложку %s", path.name)
@@ -96,16 +95,14 @@ async def warm_bot_images(bot: Any) -> None:
 def install_bot_images(bot: Any) -> None:
     """Оформить новые исходящие сообщения брендовой обложкой.
 
-    Не трогаем edit/callback: иначе каждый шаг picker-а снова upload-ит JPG.
-    Передайте brand_image=False, чтобы не вставлять other_messages.jpg.
+    Не трогаем edit/callback: иначе каждый шаг picker-а снова upload-ит файл.
+    brand_image=True — только для экранов, где картинка нужна явно.
     """
     if getattr(bot, "_brand_images_installed", False):
         return
     original_send_message = bot.send_message
 
     async def send_message(*args: Any, **kwargs: Any) -> Any:
-        # По умолчанию без обложки: upload на каждый ответ делает бота «тормозным».
-        # Явно brand_image=True — только для экранов, где картинка нужна.
         brand = kwargs.pop("brand_image", False)
         if brand and "text" in kwargs:
             kwargs["attachments"] = _other_image(bot, kwargs.get("attachments"), kwargs["text"])

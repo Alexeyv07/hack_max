@@ -8,6 +8,8 @@ from typing import Any
 
 from maxapi import F
 from maxapi.filters.command import Command
+from maxapi.types import CallbackButton
+from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -30,7 +32,6 @@ from notify.priority import (
 )
 from project.config import get_settings
 from project.database import session_scope
-from project.docs_links import docs_md
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -40,6 +41,34 @@ _DEMO_BODY = (
     "Так выглядит важное сообщение о вашем доме: например, отключение воды "
     "или срочный ремонт рядом. Нажмите «Увидел», когда прочитаете."
 )
+_DEMO_ACK = "notify:demo:ack"
+_DEMO_EXPAND = "notify:demo:expand"
+_DEMO_COLLAPSE = "notify:demo:collapse"
+
+
+def _demo_delivery() -> PriorityDelivery:
+    return PriorityDelivery(
+        delivery_id=0,
+        user_id=0,
+        max_user_id=0,
+        chat_id=0,
+        event_id=0,
+        title=_DEMO_TITLE,
+        body=_DEMO_BODY,
+        importance=1,
+    )
+
+
+def _demo_keyboard(*, expanded: bool) -> Any:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        CallbackButton(
+            text="Свернуть" if expanded else "Подробнее",
+            payload=_DEMO_COLLAPSE if expanded else _DEMO_EXPAND,
+        )
+    )
+    builder.row(CallbackButton(text="Увидел", payload=_DEMO_ACK))
+    return builder.as_markup()
 
 
 async def _finish_ack_callback(event: Any, *, acknowledged: bool) -> None:
@@ -174,6 +203,29 @@ async def _toggle_notify_body(event: Any, *, delivery_id: int, expanded: bool) -
         await ack(notification="…")
 
 
+async def _toggle_demo_body(event: Any, *, expanded: bool) -> None:
+    docs = get_settings().docs.notifications_url
+    delivery = _demo_delivery()
+    text = build_priority_text(delivery, expanded=expanded, docs_url=docs)
+    keyboard = _demo_keyboard(expanded=expanded)
+    edit = getattr(event, "edit", None)
+    if callable(edit):
+        try:
+            await edit(
+                text=text,
+                attachments=[keyboard],
+                format="markdown",
+                notify=False,
+                notification="Подробности" if expanded else "Скрыто",
+            )
+            return
+        except Exception:
+            logger.debug("Не удалось переключить demo notify", exc_info=True)
+    ack = getattr(event, "ack", None)
+    if callable(ack):
+        await ack(notification="…")
+
+
 async def _send_demo_notify(bot: Any, *, max_user_id: int, chat_id: int | None) -> None:
     docs = get_settings().docs.notifications_url
     with session_scope() as session:
@@ -182,10 +234,9 @@ async def _send_demo_notify(bot: Any, *, max_user_id: int, chat_id: int | None) 
             return
         event = _pick_demo_event(session)
         if event is None:
-            text = (
-                f"🔴 {_DEMO_TITLE}\n\n{_DEMO_BODY}\n\n"
-                f"{docs_md('Как устроены уведомления?', page='notifications')}"
-            )
+            delivery = _demo_delivery()
+            text = build_priority_text(delivery, expanded=False, docs_url=docs)
+            markup = _demo_keyboard(expanded=False)
             recipient: dict[str, int] = (
                 {"chat_id": int(chat_id)}
                 if chat_id is not None and int(chat_id) > 0
@@ -194,6 +245,7 @@ async def _send_demo_notify(bot: Any, *, max_user_id: int, chat_id: int | None) 
             await bot.send_message(
                 **recipient,
                 text=text,
+                attachments=[markup],
                 format="markdown",
                 brand_image=False,
             )
@@ -221,7 +273,27 @@ async def _send_demo_notify(bot: Any, *, max_user_id: int, chat_id: int | None) 
         )
         delivery_id = delivery.delivery_id
 
-    await delete_message_quiet(bot, previous_mid)
+    if previous_mid:
+        try:
+            await bot.edit_message(
+                previous_mid,
+                text=text,
+                attachments=[markup],
+                format="markdown",
+                notify=False,
+            )
+            with session_scope() as session:
+                mark_delivery_sent(
+                    session,
+                    delivery_id=delivery_id,
+                    sent_at=datetime.now(UTC),
+                    message_mid=previous_mid,
+                )
+            return
+        except Exception:
+            logger.debug("Не удалось edit демо-notify mid=%s", previous_mid, exc_info=True)
+            await delete_message_quiet(bot, previous_mid)
+
     result = await bot.send_message(
         **recipient,
         text=text,
@@ -255,6 +327,18 @@ def register_notify_commands(dp: Any, bot: Any) -> None:
             return
         await _toggle_notify_body(event, delivery_id=delivery_id, expanded=False)
 
+    @dp.message_callback(F.callback.payload == _DEMO_EXPAND)
+    async def on_demo_expand(event: Any) -> None:
+        await _toggle_demo_body(event, expanded=True)
+
+    @dp.message_callback(F.callback.payload == _DEMO_COLLAPSE)
+    async def on_demo_collapse(event: Any) -> None:
+        await _toggle_demo_body(event, expanded=False)
+
+    @dp.message_callback(F.callback.payload == _DEMO_ACK)
+    async def on_demo_ack(event: Any) -> None:
+        await _finish_ack_callback(event, acknowledged=True)
+
     @dp.message_callback(F.callback.payload.startswith("notify:ack:"))
     async def on_notify_ack(event: Any, context: Any) -> None:
         delivery_id = parse_ack_payload(str(getattr(event.callback, "payload", "") or ""))
@@ -263,16 +347,12 @@ def register_notify_commands(dp: Any, bot: Any) -> None:
             return
         max_user_id = int(event.callback.user.user_id)
         with session_scope() as session:
-            delivery = session.get(NotifyDeliveryRow, delivery_id)
-            first_ack = delivery is not None and delivery.acked_at is None
             acknowledged = acknowledge_delivery(
                 session,
                 delivery_id=delivery_id,
                 max_user_id=max_user_id,
                 acked_at=datetime.now(UTC),
             )
-            first_ack = first_ack and acknowledged
-            user = get_user_by_max_id(session, max_user_id) if first_ack else None
         await _finish_ack_callback(event, acknowledged=acknowledged)
         if not acknowledged:
             logger.warning(
@@ -280,15 +360,6 @@ def register_notify_commands(dp: Any, bot: Any) -> None:
                 delivery_id,
                 max_user_id,
             )
-            return
-        if user is not None:
-            try:
-                from auth.commands.home import send_home
-
-                with session_scope() as session:
-                    await send_home(bot, session, user.max_user_id, recipient_chat_id=user.chat_id)
-            except Exception:
-                logger.exception("Не удалось показать главную после notify ack")
 
     @dp.message_callback(F.callback.payload.startswith("notify:approval:"))
     async def on_obsolete_approval(event: Any) -> None:
