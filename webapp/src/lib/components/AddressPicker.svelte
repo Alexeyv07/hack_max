@@ -311,9 +311,11 @@
 		saveDraft();
 	}
 
-	const visibleOptions = $derived(
-		selected ? options.filter((item) => item.id === selected.id) : options
-	);
+	const visibleOptions = $derived.by(() => {
+		const current = selected;
+		if (!current) return options;
+		return options.filter((item) => item.id === current.id);
+	});
 
 	async function confirm() {
 		if (!selected) return;
