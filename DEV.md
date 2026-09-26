@@ -13,6 +13,7 @@
 conf/                  # local.yaml / prod.yaml (+ ml_dedup, ml_enrich)
 db/migrations/         # SQL up/down (вместо Alembic)
 docker/postgres/       # образ Postgres: migrate + COPY seed
+deploy/                # prod: compose + webapp Dockerfile; ONNX → GitHub Release `models`
 src/
   project/             # config, logging, database, sql_migrate
   auth/                # пользователи Max
@@ -73,20 +74,25 @@ python ml/dedup/bootstrap_pairs.py
 python ml/dedup/eval_threshold.py --config ml/dedup/config.yaml
 ```
 
-Артефакты → `ml/*/artifacts/` (в git не коммитим тяжёлые `.onnx`; монтируются в Docker).
+Артефакты → `ml/*/artifacts/` (в git не коммитим тяжёлые `.onnx`; в local compose
+монтируются, в prod — внутри bot-образа из GitHub Release `models`, см. `deploy/`).
 
 ## Запуск
 
-Нужен `.env` из `.env.example` (`MAX_BOT_TOKEN`, `CLOUDPUB_TOKEN`).
+Нужен `.env` из `.env.example` (`MAX_BOT_TOKEN`, `CLOUDPUB_TOKEN`, `AITUNNEL_API_KEY`).
 
 ```bash
-# Всё в Docker (postgres + bot + webapp + cloudpub):
+# Dev — всё в Docker (postgres + bot + webapp + cloudpub):
 docker compose up -d --build
 docker compose logs -f cloudpub   # https://….cloudpub.ru → в Max
 
 # Бот на хосте — не поднимайте сервис bot:
 docker compose up -d postgres webapp cloudpub
 python -m main
+
+# Prod — публичные образы GHCR (тег v* → Actions), ONNX внутри bot:
+# см. deploy/README.md (куда залить ONNX в Release `models`)
+# docker compose -f deploy/docker-compose.prod.yaml --env-file .env up -d
 ```
 
 ## Миграции (SQL)
@@ -106,7 +112,7 @@ python scripts/migrate.py down --steps 3
 - `APP_ENVIRONMENT=local|prod` → `conf/local.yaml` | `prod.yaml`
 - `ml_dedup.active_days: 21`, пороги cosine, `ml_enrich.spacy_model`
 - Env перекрывает YAML (`DATABASE_*`, `MAX_BOT_TOKEN`, `ML_DEDUP_ENABLED`, …)
-- Секреты только в `.env`
+- Секреты только в `.env`: `MAX_BOT_TOKEN`, `CLOUDPUB_TOKEN`, `AITUNNEL_API_KEY`
 
 ## Линтеры
 
