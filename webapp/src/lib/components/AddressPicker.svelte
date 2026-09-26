@@ -288,10 +288,22 @@
 	}
 
 	function choose(item: AddressOption) {
-		selected = item;
+		if (selected?.id === item.id) {
+			selected = null;
+		} else {
+			selected = item;
+		}
 		error = '';
 		saveDraft();
 	}
+
+	function clearSelection() {
+		selected = null;
+		error = '';
+		saveDraft();
+	}
+
+	const visibleOptions = $derived(selected ? options.filter((item) => item.id === selected.id) : options);
 
 	async function confirm() {
 		if (!selected) return;
@@ -427,9 +439,15 @@
 		{/if}
 
 		{#if options.length}
-			<p class="list-title">{mode === 'map' ? 'Ближайшие дома' : 'Подходящие адреса'}</p>
+			<p class="list-title">
+				{selected
+					? 'Выбранный адрес'
+					: mode === 'map'
+						? 'Ближайшие дома'
+						: 'Подходящие адреса'}
+			</p>
 			<div class="options" aria-label="Варианты адреса">
-				{#each options as item}
+				{#each visibleOptions as item}
 					<button
 						type="button"
 						class:selected={selected?.id === item.id}
@@ -441,18 +459,20 @@
 					</button>
 				{/each}
 			</div>
-		{/if}
-
-		<div class="confirm-wrap">
 			{#if selected}
-				<p class="selection-status">Выбран адрес: <b>{selected.address_text}</b></p>
-			{:else if options.length}
+				<div class="confirm-wrap">
+					<button class="primary" type="button" disabled={loading} onclick={confirm}>
+						{loading ? 'Сохраняем…' : 'Подтвердить адрес'}
+					</button>
+					<button class="secondary" type="button" disabled={loading} onclick={clearSelection}>
+						Выбрать другой
+					</button>
+					<p class="selection-hint muted">Нажмите на адрес ещё раз, чтобы снова увидеть список</p>
+				</div>
+			{:else}
 				<p class="selection-status muted">Нажмите на нужный адрес в списке.</p>
 			{/if}
-			<button class="primary" type="button" disabled={!selected || loading} onclick={confirm}>
-				{loading && selected ? 'Сохраняем…' : 'Подтвердить адрес'}
-			</button>
-		</div>
+		{/if}
 	{:else}
 		<div class="done">
 			<b>{result.address.address_text}</b>
@@ -667,14 +687,15 @@
 		line-height: 1.35;
 	}
 	.selection-status {
-		margin: 0 0 8px;
+		margin: 12px 0 0;
 		line-height: 1.35;
 		font-size: var(--fs-12);
 		color: var(--text-secondary);
 	}
-	.selection-status b {
-		font-weight: 600;
-		color: var(--text-primary);
+	.selection-hint {
+		margin: 4px 0 0;
+		font-size: var(--fs-12);
+		line-height: 1.35;
 	}
 	.hint-text {
 		margin: 8px 0 12px;
@@ -730,12 +751,13 @@
 	.primary:hover:not(:disabled) {
 		background: var(--accent-hover);
 	}
-	.primary:disabled {
+	.primary:disabled,
+	.secondary:disabled {
 		opacity: 0.45;
 		cursor: default;
 	}
 	.confirm-wrap {
-		margin-top: 16px;
+		margin-top: 12px;
 		padding-bottom: max(2px, env(safe-area-inset-bottom));
 	}
 	.confirm-wrap .primary {
@@ -746,7 +768,7 @@
 		color: var(--text-primary);
 		border-color: var(--border-strong);
 	}
-	.secondary:hover {
+	.secondary:hover:not(:disabled) {
 		background: var(--bg-elevated);
 	}
 	.done {
