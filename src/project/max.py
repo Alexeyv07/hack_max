@@ -7,7 +7,7 @@ from typing import Any
 
 from maxapi import Bot, Dispatcher
 
-from auth.commands import register_auth_commands
+from auth.commands import publish_bot_commands, register_auth_commands
 from chat_link.commands import register_chat_link_commands
 from chat_link.handlers import get_address_catalog
 from notify.commands import register_notify_commands
@@ -84,6 +84,12 @@ async def run_max_bot() -> None:
             chat_on,
             settings.notify.enabled,
         )
+
+    # Меню «/» в клиенте Max — отдельно от handlers; без PATCH команды не видны.
+    try:
+        await publish_bot_commands(bot)
+    except Exception:
+        logger.exception("Не удалось опубликовать команды бота в Max (PATCH /me/commands)")
 
     # ~125k адресов: греем в фоне после регистрации хендлеров, чтобы polling
     # стартовал сразу. Первый выбор адреса дождётся готовности каталога.
