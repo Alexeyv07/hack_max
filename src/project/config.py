@@ -302,6 +302,27 @@ class DocsConfig:
     url: str = "https://alexeyv07.github.io/hack_max/docs/"
     github_url: str = "https://github.com/Alexeyv07/hack_max"
 
+    def page(self, slug: str) -> str:
+        """URL одной страницы mdBook (`overview`, `chat-link`, …)."""
+        base = self.url.rstrip("/")
+        clean = slug.strip("/").removesuffix(".html")
+        return f"{base}/{clean}.html"
+
+    @property
+    def chat_link_url(self) -> str:
+        """Как выбрать адрес и подключить домовой чат."""
+        return self.page("chat-link")
+
+    @property
+    def addresses_url(self) -> str:
+        """Личный список адресов на главной."""
+        return self.page("addresses")
+
+    @property
+    def notifications_url(self) -> str:
+        """Личные уведомления о важном."""
+        return self.page("notifications")
+
 
 @dataclass(frozen=True, slots=True)
 class Settings:

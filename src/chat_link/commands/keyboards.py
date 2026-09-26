@@ -81,14 +81,18 @@ def list_keyboard(
 
 
 def method_keyboard(
-    bot: Any, *, target_chat_id: int | None = None, resident_chat_id: int | None = None
+    bot: Any,
+    *,
+    target_chat_id: int | None = None,
+    resident_chat_id: int | None = None,
+    from_manage: bool = False,
 ):
     me = getattr(bot, "me", None)
     username = getattr(me, "username", None)
     contact_id = getattr(me, "user_id", None)
 
     builder = InlineKeyboardBuilder()
-    builder.row(CallbackButton(text="Выбрать место жительства", payload="cl:method:native"))
+    builder.row(CallbackButton(text="Выбрать адрес", payload="cl:method:native"))
     builder.row(CallbackButton(text="Указать почтовый индекс", payload="cl:method:postal"))
     suffix = (
         f"_bind_{target_chat_id}"
@@ -113,23 +117,16 @@ def method_keyboard(
             payload=f"chat_link_text{suffix}",
         )
     )
-    builder.row(CallbackButton(text="← Назад", payload="cl:back:welcome"))
+    back_payload = "cl:back:manage" if from_manage else "cl:back:welcome"
+    builder.row(CallbackButton(text="← Назад", payload=back_payload))
     return builder.as_markup()
 
 
-def bot_method_keyboard():
-    """Выбор способа внутри бота, без открытия WebApp."""
-    builder = InlineKeyboardBuilder()
-    builder.row(CallbackButton(text="По адресу", payload="cl:method:native"))
-    builder.row(CallbackButton(text="По почтовому индексу", payload="cl:method:postal"))
-    builder.row(CallbackButton(text="← Назад", payload="cl:back:root"))
-    return builder.as_markup()
-
-
-def postal_input_keyboard():
+def postal_input_keyboard(*, from_manage: bool = False):
     """Выход из ручного ввода индекса, в том числе после ошибки."""
     builder = InlineKeyboardBuilder()
-    builder.row(CallbackButton(text="← Назад", payload="cl:back:root"))
+    back_payload = "cl:back:manage" if from_manage else "cl:back:root"
+    builder.row(CallbackButton(text="← Назад", payload=back_payload))
     return builder.as_markup()
 
 

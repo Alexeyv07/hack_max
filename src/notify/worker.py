@@ -24,12 +24,14 @@ from notify.digest import (
     mark_digest_done,
     normalize_messages,
 )
+from notify.messaging import delete_message_quiet, sent_mid
 from notify.priority import (
     PriorityDelivery,
-    ack_payload,
     block_user_notifications,
+    build_priority_keyboard,
     build_priority_text,
     delivery_is_due,
+    delivery_last_message_mid,
     enqueue_new_priority_deliveries,
     is_suspended_dialog_error,
     list_due_priority_deliveries,
@@ -52,13 +54,7 @@ async def _summarize_digest(messages: Sequence[ChatMessage], config: NotifyConfi
 
 
 def _build_priority_keyboard(delivery: PriorityDelivery) -> Any:
-    # Локальный импорт: unit-тесты priority не требуют установленного maxapi.
-    from maxapi.types import CallbackButton
-    from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
-
-    builder = InlineKeyboardBuilder()
-    builder.row(CallbackButton(text="Увидел", payload=ack_payload(delivery.delivery_id)))
-    return builder.as_markup()
+    return build_priority_keyboard(delivery, expanded=False)
 
 
 def _target_is_still_due(
@@ -119,11 +115,50 @@ async def run_priority_cycle(
             ):
                 continue
 
+        with factory() as session:
+            previous_mid = delivery_last_message_mid(session, delivery_id=delivery.delivery_id)
+
+        text = build_priority_text(
+            delivery,
+            expanded=False,
+            docs_url=get_settings().docs.notifications_url,
+        )
+        attachments = [keyboard_factory(delivery)]
+
+        if previous_mid:
+            try:
+                await bot.edit_message(
+                    previous_mid,
+                    text=text,
+                    attachments=attachments,
+                    format="markdown",
+                    notify=False,
+                )
+                with factory() as session:
+                    if mark_delivery_sent(
+                        session,
+                        delivery_id=delivery.delivery_id,
+                        sent_at=current,
+                        message_mid=previous_mid,
+                    ):
+                        session.commit()
+                        sent += 1
+                continue
+            except Exception:
+                logger.debug(
+                    "Не удалось edit priority mid=%s — шлём новое",
+                    previous_mid,
+                    exc_info=True,
+                )
+                await delete_message_quiet(bot, previous_mid)
+
         try:
-            await bot.send_message(
+            result = await bot.send_message(
                 chat_id=delivery.chat_id,
-                text=build_priority_text(delivery),
-                attachments=[keyboard_factory(delivery)],
+                text=text,
+                attachments=attachments,
+                format="markdown",
+                brand_image=False,
             )
         except asyncio.CancelledError:
             raise
@@ -159,6 +194,7 @@ async def run_priority_cycle(
                 session,
                 delivery_id=delivery.delivery_id,
                 sent_at=current,
+                message_mid=sent_mid(result),
             ):
                 session.commit()
                 sent += 1
@@ -219,7 +255,12 @@ async def run_digest_cycle(
 
         text = decorate_digest(text, bot_link=_bot_join_link(bot))
         try:
-            await bot.send_message(chat_id=target.chat_id, text=text, format="markdown")
+            await bot.send_message(
+                chat_id=target.chat_id,
+                text=text,
+                format="markdown",
+                brand_image=False,
+            )
         except asyncio.CancelledError:
             raise
         except Exception:

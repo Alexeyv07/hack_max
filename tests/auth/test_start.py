@@ -77,14 +77,17 @@ def test_admin_deep_link_explains_automatic_group_connection() -> None:
 def test_welcome_keyboard_hides_events_without_membership() -> None:
     markup = start.build_welcome_keyboard(_bot(), show_events=False)
     buttons = markup.payload.buttons
-    assert [button.text for button in buttons[0]] == ["Указать свой адрес"]
+    assert [button.text for button in buttons[0]] == ["Выбрать адрес"]
     assert start.build_welcome_keyboard(_bot(), show_events=False, can_choose_address=False) is None
 
 
 def test_welcome_keyboard_shows_events_after_membership() -> None:
     markup = start.build_welcome_keyboard(_bot(), show_events=True)
     buttons = markup.payload.buttons
-    assert [button.text for button in buttons[0]] == ["Указать свой адрес", "Смотреть события"]
+    assert [button.text for button in buttons[0]] == [
+        "Выбрать адрес",
+        "Посмотреть новости рядом",
+    ]
     assert buttons[0][0].payload == start.CHAT_LINK_START_PAYLOAD
     assert buttons[0][1].web_app == "smart_city_bot"
     assert buttons[0][1].contact_id == 777
@@ -266,9 +269,9 @@ def test_outsider_can_start_address_selection_but_not_open_news(monkeypatch) -> 
 
     sent = bot.send_message.await_args.kwargs
     assert "Здравствуйте, Алексей!" in sent["text"]
-    assert sent["attachments"][1].payload.buttons[0][0].text == "Указать свой адрес"
+    assert sent["attachments"][1].payload.buttons[0][0].text == "Выбрать адрес"
     assert all(
-        button.text != "Смотреть события"
+        button.text != "Посмотреть новости рядом"
         for row in sent["attachments"][1].payload.buttons
         for button in row
     )

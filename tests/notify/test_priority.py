@@ -7,7 +7,6 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import auth.commands.start as start
 import auth.handlers.authorize as authorize
 import notify.commands as commands
 from address.db.address import AddressRow
@@ -202,10 +201,15 @@ def test_priority_cycle_retries_after_interval_and_ack_stops_it(session_factory)
         session.add(event)
         session.commit()
 
-    bot = SimpleNamespace(send_message=AsyncMock())
+    bot = SimpleNamespace(send_message=AsyncMock(), delete_message=AsyncMock())
 
     def keyboard_factory(delivery):
         return f"ack:{delivery.delivery_id}"
+
+    def _reply(mid: str):
+        return SimpleNamespace(message=SimpleNamespace(body=SimpleNamespace(mid=mid)))
+
+    bot.send_message.side_effect = [_reply("mid-1"), _reply("mid-2")]
 
     assert (
         asyncio.run(
@@ -243,13 +247,15 @@ def test_priority_cycle_retries_after_interval_and_ack_stops_it(session_factory)
         )
         == 1
     )
-
+    bot.delete_message.assert_awaited_once_with("mid-1")
+    assert bot.send_message.await_args_list[0].kwargs.get("brand_image") is False
     with session_factory() as session:
         delivery = session.query(NotifyDeliveryRow).one()
         assert delivery.user_id == user.id
         assert delivery.attempts == 2
         assert delivery.first_sent_at is not None
         assert delivery.last_sent_at is not None
+        assert delivery.last_message_mid == "mid-2"
         assert acknowledge_delivery(
             session,
             delivery_id=delivery.id,
@@ -274,7 +280,31 @@ def test_priority_cycle_retries_after_interval_and_ack_stops_it(session_factory)
     first_call = bot.send_message.await_args_list[0].kwargs
     assert first_call["chat_id"] == 5301
     assert "Отключение воды" in first_call["text"]
+    assert "Подробности скрыты" in first_call["text"]
+    assert first_call.get("format") == "markdown"
     assert first_call["attachments"][0].startswith("ack:")
+
+
+def test_priority_text_collapses_body_by_default() -> None:
+    from notify.priority import PriorityDelivery, build_priority_text, has_expandable_body
+
+    delivery = PriorityDelivery(
+        delivery_id=1,
+        user_id=1,
+        max_user_id=1,
+        chat_id=1,
+        event_id=1,
+        title="Отключение воды",
+        body="С 10:00 до 18:00 не будет горячей воды во всём доме.",
+        importance=1,
+    )
+    assert has_expandable_body(delivery)
+    collapsed = build_priority_text(delivery, expanded=False)
+    assert "Подробности скрыты" in collapsed
+    assert "горячей воды" not in collapsed
+    expanded = build_priority_text(delivery, expanded=True)
+    assert "горячей воды" in expanded
+    assert "Подробности скрыты" not in expanded
 
 
 def test_ack_requires_delivery_owner_and_payload_is_strict(db_session) -> None:
@@ -334,6 +364,12 @@ class _CallbackDispatcher:
 
         return register
 
+    def message_created(self, _filter):
+        def register(handler):
+            return handler
+
+        return register
+
 
 def test_ack_opens_fresh_main_menu_only_once_for_owner(session_factory, monkeypatch) -> None:
     with session_factory() as session:
@@ -359,12 +395,10 @@ def test_ack_opens_fresh_main_menu_only_once_for_owner(session_factory, monkeypa
             session.commit()
 
     monkeypatch.setattr(commands, "session_scope", scoped_session)
-    render_welcome = AsyncMock()
-    monkeypatch.setattr(start, "_render_welcome", render_welcome)
     dp = _CallbackDispatcher()
     bot = SimpleNamespace()
     commands.register_notify_commands(dp, bot)
-    handler = dp.handlers[0]
+    handler = next(h for h in dp.handlers if h.__name__ == "on_notify_ack")
     context = SimpleNamespace()
 
     def callback(user_id):
@@ -380,23 +414,15 @@ def test_ack_opens_fresh_main_menu_only_once_for_owner(session_factory, monkeypa
     other = callback(9999)
     asyncio.run(handler(other, context))
     other.edit.assert_not_awaited()
-    render_welcome.assert_not_awaited()
 
     first = callback(1501)
     asyncio.run(handler(first, context))
     first.edit.assert_awaited_once()
-    render_welcome.assert_awaited_once()
-    args, kwargs = render_welcome.await_args
-    assert args[0] is bot
-    assert args[1] is first
-    assert args[2] is context
-    assert args[3].max_user_id == 1501
-    assert kwargs == {"recipient_chat_id": 5501}
+    assert first.edit.await_args.kwargs.get("attachments") == []
 
     repeated = callback(1501)
     asyncio.run(handler(repeated, context))
     repeated.edit.assert_awaited_once()
-    render_welcome.assert_awaited_once()
 
     with session_factory() as session:
         assert session.get(NotifyDeliveryRow, delivery_id).acked_at is not None

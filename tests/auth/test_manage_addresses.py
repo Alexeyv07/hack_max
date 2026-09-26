@@ -139,6 +139,7 @@ def _event(payload: str):
         callback=SimpleNamespace(payload=payload, user=SimpleNamespace(user_id=42)),
         message=SimpleNamespace(body=SimpleNamespace(mid="manage-mid")),
         ack=AsyncMock(),
+        edit=AsyncMock(),
     )
 
 
@@ -156,39 +157,43 @@ def test_management_flow_list_detail_back_delete(db_session, monkeypatch) -> Non
 
     event = _event("home:manage")
     asyncio.run(dp.callback(event))
-    event.ack.assert_awaited_once()
-    bot.send_message.assert_awaited_once()
-    markup = bot.send_message.await_args.kwargs["attachments"][0].payload.buttons
-    assert [row[0].text for row in markup[:2]] == [b.address_text, a.address_text]
-    assert markup[0][0].payload == f"home:addresses:open:{b.id}:0"
+    event.edit.assert_awaited_once()
+    bot.send_message.assert_not_awaited()
+    attachments = event.edit.await_args.kwargs["attachments"]
+    assert len(attachments) == 2
+    assert getattr(attachments[0], "type", None) == "image" or "other_messages" in str(
+        getattr(attachments[0], "path", "")
+        or getattr(getattr(attachments[0], "payload", None), "token", "")
+    )
+    markup = attachments[1].payload.buttons
+    assert markup[0][0].text == "Добавить адрес"
+    assert markup[0][0].payload == "chat_link:start:manage"
+    assert [row[0].text for row in markup[1:3]] == [b.address_text, a.address_text]
+    assert markup[1][0].payload == f"home:addresses:open:{b.id}:0"
 
-    bot.send_message.reset_mock()
     event = _event(f"home:addresses:open:{a.id}:0")
     asyncio.run(dp.callback(event))
-    bot.edit_message.assert_awaited_once()
-    detail = bot.edit_message.await_args.kwargs
+    detail = event.edit.await_args.kwargs
     assert a.address_text in detail["text"]
-    assert [row[0].text for row in detail["attachments"][0].payload.buttons] == [
+    assert [row[0].text for row in detail["attachments"][1].payload.buttons] == [
         "Удалить адрес",
         "← Назад",
     ]
-    assert detail["attachments"][0].payload.buttons[1][0].payload == "home:addresses:list:0"
+    assert detail["attachments"][1].payload.buttons[1][0].payload == "home:addresses:list:0"
 
-    bot.edit_message.reset_mock()
     event = _event("home:addresses:list:0")
     asyncio.run(dp.callback(event))
-    assert "Ваши адреса" in bot.edit_message.await_args.kwargs["text"]
+    assert "Ваши адреса" in event.edit.await_args.kwargs["text"]
 
-    bot.edit_message.reset_mock()
     event = _event(f"home:addresses:delete:{a.id}:0")
     asyncio.run(dp.callback(event))
-    assert "✅ Адрес удалён" in bot.edit_message.await_args.kwargs["text"]
+    assert "✅ Адрес удалён" in event.edit.await_args.kwargs["text"]
     assert user.address_id == b.id
     assert len(list_managed_addresses(db_session, 42)) == 1
 
-    bot.edit_message.reset_mock()
-    asyncio.run(dp.callback(_event(f"home:addresses:delete:{a.id}:0")))
-    assert "уже удалён" in bot.edit_message.await_args.kwargs["text"]
+    event = _event(f"home:addresses:delete:{a.id}:0")
+    asyncio.run(dp.callback(event))
+    assert "уже удалён" in event.edit.await_args.kwargs["text"]
 
 
 def test_list_pagination_and_escaped_html() -> None:
@@ -196,9 +201,11 @@ def test_list_pagination_and_escaped_html() -> None:
     text, keyboard = commands._list_view(addresses, 1)
     assert "Ваши адреса" in text
     buttons = keyboard.payload.buttons
-    assert len(buttons) == 10  # 8 адресов, навигация и главная
-    assert [button.text for button in buttons[8]] == ["‹", "2/3", "›"]
-    assert buttons[0][0].payload == "home:addresses:open:9:1"
+    assert len(buttons) == 11  # добавить, 8 адресов, навигация и главная
+    assert buttons[0][0].text == "Добавить адрес"
+    assert buttons[0][0].payload == "chat_link:start:manage"
+    assert [button.text for button in buttons[9]] == ["‹", "2/3", "›"]
+    assert buttons[1][0].payload == "home:addresses:open:9:1"
     detail_text, detail_keyboard = commands._detail_view(addresses[0], 0)
     assert "&lt;1&gt;" in detail_text
     assert detail_keyboard.payload.buttons[0][0].payload == "home:addresses:delete:1:0"
@@ -207,5 +214,6 @@ def test_list_pagination_and_escaped_html() -> None:
 def test_empty_list_allows_selecting_address_again() -> None:
     text, keyboard = commands._list_view([], 0)
     assert "Пока нет сохранённых адресов" in text
-    assert keyboard.payload.buttons[0][0].payload == "chat_link:start"
+    assert keyboard.payload.buttons[0][0].text == "Добавить адрес"
+    assert keyboard.payload.buttons[0][0].payload == "chat_link:start:manage"
     assert keyboard.payload.buttons[1][0].text == "← Главная"

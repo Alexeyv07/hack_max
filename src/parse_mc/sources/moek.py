@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 import re
 from datetime import UTC, datetime
 
@@ -70,7 +71,8 @@ class MoekSource(BaseMcSource):
                     logger.warning("moek listing %s: %s", candidate, exc)
             if not html:
                 if idx == 0:
-                    raise RuntimeError(f"moek listing failed: {try_urls}")
+                    logger.error("moek listing failed: %s", try_urls)
+                    return CollectResult(notices=[], next_cursor=None, reached_since=True)
                 reached_since = True
                 break
 
@@ -84,10 +86,10 @@ class MoekSource(BaseMcSource):
                 m = _ID_RE.search(article_url)
                 if m:
                     external_id = m.group(3)
-                    published_guess = datetime(int(m.group(1)), int(m.group(2)), 1, tzinfo=UTC)
+                    published_guess = _month_fallback(int(m.group(1)), int(m.group(2)))
                 else:
                     external_id = stable_id(article_url)
-                    published_guess = datetime(year, month, 1, tzinfo=UTC)
+                    published_guess = _month_fallback(year, month)
 
                 notice = await enrich_url(
                     client,
@@ -100,7 +102,8 @@ class MoekSource(BaseMcSource):
                 if notice is None:
                     continue
                 published = ensure_aware(notice.published_at) or published_guess
-                if published < since:
+                # На listing (incremental) берём всё с первой страницы; lookback — только backfill.
+                if published < since and mode == "backfill":
                     reached_since = True
                     continue
                 notices.append(notice)
@@ -120,6 +123,12 @@ class MoekSource(BaseMcSource):
             next_cursor=next_cursor,
             reached_since=reached_since or mode == "incremental",
         )
+
+
+def _month_fallback(year: int, month: int) -> datetime:
+    """Конец месяца: day=1 ломал lookback (весь сентябрь < since на 23-е)."""
+    last_day = calendar.monthrange(year, month)[1]
+    return datetime(year, month, last_day, 12, 0, tzinfo=UTC)
 
 
 def _month_pages(

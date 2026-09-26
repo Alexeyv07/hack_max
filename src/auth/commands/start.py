@@ -8,7 +8,7 @@ from time import monotonic
 from typing import Any
 
 from maxapi.enums.format import Format
-from maxapi.filters.command import CommandStart
+from maxapi.filters.command import Command, CommandStart
 from maxapi.types import CallbackButton, OpenAppButton
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
@@ -19,8 +19,11 @@ from auth.handlers.residence import get_personal_address
 from chat_link.handlers import bind_referral_member, claim_admin_request
 from project.bot_media import first_start_image
 from project.database import session_scope
+from project.docs_links import docs_html
+from project.logging_setup import get_logger
 from user_chat.handlers import has_connected_chat, linked_group_ids
 
+logger = get_logger(__name__)
 CHAT_LINK_START_PAYLOAD = "chat_link:start"
 CHAT_BIND_PREFIX = "chat_bind_"
 
@@ -28,7 +31,8 @@ ADDRESS_PICKER_TEXT = (
     "Давайте найдём ваш дом 🏠\n\n"
     "Выберите удобный способ: найти адрес в списке, показать дом на карте "
     "или написать адрес.\n\n"
-    "Если помните почтовый индекс, можно начать с него — затем выбрать свой дом:"
+    "Если помните почтовый индекс, можно начать с него — затем выбрать свой дом.\n\n"
+    f"{docs_html('Как выбрать адрес', page='chat-link')}"
 )
 
 
@@ -53,6 +57,7 @@ def build_welcome_text(
         "- Если сроки изменятся — обновим информацию 📣\n\n"
         "Также кроме новостей вашего двора и округи мы собираем для вас "
         "подборку актуальных новостей вашего города. Не упустите то, что вас касается ❗\n\n"
+        f"{docs_html('О сервисе', page='overview')}\n\n"
         "Укажите свой адрес, чтобы подключить сервис к чату вашего дома:"
     )
     if notice:
@@ -90,10 +95,12 @@ def build_welcome_keyboard(
     keyboard = InlineKeyboardBuilder()
     buttons: list[Any] = []
     if binding_group or can_choose_address:
-        add_text = "Добавить адрес чата" if binding_group else "Указать свой адрес"
+        add_text = "Добавить адрес чата" if binding_group else "Выбрать адрес"
         buttons.append(CallbackButton(text=add_text, payload=CHAT_LINK_START_PAYLOAD))
     if show_events:
-        buttons.append(OpenAppButton(text="Смотреть события", web_app=username, contact_id=user_id))
+        buttons.append(
+            OpenAppButton(text="Посмотреть новости рядом", web_app=username, contact_id=user_id)
+        )
     if buttons:
         keyboard.row(*buttons)
     return keyboard.as_markup() if buttons else None
@@ -107,13 +114,18 @@ def _can_choose_address(max_user_id: int) -> bool:
     return True  # Адрес может выбрать любой; право на ленту проверим после выбора дома.
 
 
-def _show_events(max_user_id: int) -> bool:
+def user_can_see_events(max_user_id: int) -> bool:
+    """Единая проверка доступа к ленте: личный дом+чат или любое подключённое членство."""
     with session_scope() as session:
         personal = get_personal_address(session, max_user_id)
         return (
             personal is not None
             and bool(linked_group_ids(session, max_user_id, address_id=personal.id))
         ) or has_connected_chat(session, max_user_id)
+
+
+# Совместимость со старыми тестами / импортами.
+_show_events = user_can_see_events
 
 
 def _claim_admin(*, token: str, max_user_id: int) -> None:
@@ -191,7 +203,7 @@ async def _render_welcome(
             if is_new or any((admin_token, notice, target_chat_id, resident_chat_id))
             else ADDRESS_PICKER_TEXT
         )
-        screen_attachments = [first_start_image(), *attachments] if is_new else attachments
+        screen_attachments = [first_start_image(bot), *attachments] if is_new else attachments
         if chat_id is not None:
             result = await bot.send_message(
                 chat_id=chat_id,
@@ -230,6 +242,39 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             return True
         recent_starts[user_id] = (source, now)
         return False
+
+    async def _delete_user_command(event: Any) -> None:
+        mid = getattr(getattr(getattr(event, "message", None), "body", None), "mid", None)
+        if not mid:
+            return
+        try:
+            await bot.delete_message(str(mid))
+        except Exception as exc:
+            # В личке MAX часто запрещает боту удалять сообщения пользователя (403).
+            code = getattr(exc, "code", None)
+            raw = getattr(exc, "raw", None) or {}
+            denied = code == 403 or (isinstance(raw, dict) and raw.get("code") == "access.denied")
+            if denied:
+                logger.debug("Нет права удалить команду пользователя mid=%s", mid)
+            else:
+                logger.debug("Не удалось удалить команду пользователя mid=%s", mid, exc_info=True)
+
+    @dp.message_created(Command("home"))
+    async def on_home(event: Any, context: Any = None) -> None:
+        """Показать главную; сообщение с командой убрать из истории."""
+        user = await asyncio.to_thread(authorize_from_event, event)
+        await _delete_user_command(event)
+        if user is None:
+            return
+        chat_id = getattr(event, "chat_id", None)
+        if chat_id is None:
+            recipient = getattr(getattr(event, "message", None), "recipient", None)
+            chat_id = getattr(recipient, "chat_id", None)
+        try:
+            with session_scope() as session:
+                await send_home(bot, session, user.max_user_id, recipient_chat_id=chat_id)
+        except Exception:
+            logger.exception("Не удалось отправить /home")
 
     @dp.bot_started()
     async def on_bot_started(event: Any, context: Any) -> None:

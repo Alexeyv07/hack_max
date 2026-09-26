@@ -19,6 +19,7 @@ from chat_link.handlers.links import (
 from chat_link.models import ConnectOutcome, JoinOutcome
 from project.bot_media import first_start_image
 from project.database import session_scope
+from project.docs_links import docs_html
 from user_chat.db import ChatRow
 from user_chat.handlers import (
     add_chat_address,
@@ -328,7 +329,8 @@ async def announce_group_address_setup(bot: Any, chat_id: int) -> None:
         "Бот добавлен в чат. Чтобы подключить этот чат к дому, администратору нужно:\n"
         "1. Назначить бота администратором с правом «Читать все сообщения».\n"
         "2. Нажать «Выбрать адрес» и указать дом. Позже можно добавить другие дома двора.\n\n"
-        "Каждый адрес должен быть свободен от привязки к другому чату."
+        "Каждый адрес должен быть свободен от привязки к другому чату.\n\n"
+        f"{docs_html('Как подключить домовой чат', page='chat-link')}."
     )
     if not bind_link:
         text += (
@@ -340,6 +342,7 @@ async def announce_group_address_setup(bot: Any, chat_id: int) -> None:
         chat_id=chat_id,
         text=text,
         attachments=[keyboard] if keyboard is not None else None,
+        format="html",
     )
 
 
@@ -374,7 +377,7 @@ async def announce_connected_group(
         if not requester_added:
             text += "\n\nИнициатору нужно вступить в этот чат и нажать «Указать свой адрес» ниже."
         keyboard = _connected_group_keyboard(referral, bind_link, chat_id=chat_id)
-        attachments = [first_start_image(), *([keyboard] if keyboard is not None else [])]
+        attachments = [first_start_image(bot), *([keyboard] if keyboard is not None else [])]
         if chat.welcome_mid:
             try:
                 await bot.edit_message(

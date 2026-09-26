@@ -132,7 +132,9 @@ def remove_chat_address(session: Session, chat_id: int, address_id: int) -> bool
     if not any(address.id == address_id for address in addresses):
         return False
     if len(addresses) == 1:
-        raise ValueError("Нельзя удалить последний адрес чата: сначала отключите бота от группы")
+        raise ValueError(
+            "Это единственный адрес у чата. Чтобы убрать его, удалите бота из группового чата."
+        )
     session.execute(
         delete(chat_addresses).where(
             chat_addresses.c.chat_id == chat_id, chat_addresses.c.address_id == address_id

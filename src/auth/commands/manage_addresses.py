@@ -11,13 +11,15 @@ from maxapi.enums.format import Format
 from maxapi.types import CallbackButton
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
-from auth.commands.home import MANAGE_ADDRESSES_PAYLOAD, send_home
+from auth.commands.home import MANAGE_ADDRESSES_PAYLOAD, build_home_keyboard, build_home_text
 from auth.handlers.managed_addresses import (
     ManagedAddress,
     list_managed_addresses,
     remove_managed_address,
 )
+from project.bot_media import home_image, other_messages_image
 from project.database import session_scope
+from project.docs_links import docs_html
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -37,14 +39,19 @@ def _list_view(
     addresses: list[ManagedAddress], page: int, *, notice: str | None = None
 ) -> tuple[str, Any]:
     page, pages = _page(page, len(addresses))
-    text = "<b>Ваши адреса 🏠</b>\n\nВыберите адрес, чтобы посмотреть его или удалить."
+    text = (
+        "<b>Ваши адреса 🏠</b>\n\nВыберите адрес, чтобы посмотреть его или удалить.\n\n"
+        f"{docs_html('Как управлять адресами', page='addresses')}"
+    )
     if not addresses:
-        text = "<b>Ваши адреса 🏠</b>\n\nПока нет сохранённых адресов."
+        text = (
+            "<b>Ваши адреса 🏠</b>\n\nПока нет сохранённых адресов.\n\n"
+            f"{docs_html('Как управлять адресами', page='addresses')}"
+        )
     if notice:
         text += f"\n\n{escape(notice)}"
     builder = InlineKeyboardBuilder()
-    if not addresses:
-        builder.row(CallbackButton(text="Указать свой адрес", payload="chat_link:start"))
+    builder.row(CallbackButton(text="Добавить адрес", payload="chat_link:start:manage"))
     for address in addresses[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]:
         builder.row(
             CallbackButton(
@@ -75,7 +82,8 @@ def _detail_view(address: ManagedAddress, page: int) -> tuple[str, Any]:
     text = (
         f"<b>{escape(address.text)}</b>\n\n"
         "Вы можете удалить этот адрес из своего списка. "
-        "Привязка дома к групповому чату при этом сохранится."
+        "Привязка дома к групповому чату при этом сохранится.\n\n"
+        f"{docs_html('Управление адресами', page='addresses')}"
     )
     return text, builder.as_markup()
 
@@ -93,22 +101,72 @@ def _parse_address_action(payload: str, prefix: str) -> tuple[int, int] | None:
     return (address_id, page) if address_id > 0 and page >= 0 else None
 
 
-async def _show(
-    bot: Any, event: Any, max_user_id: int, text: str, keyboard: Any, *, fresh: bool
+def build_manage_list_view(
+    max_user_id: int, page: int = 0, *, notice: str | None = None
+) -> tuple[str, Any]:
+    """Экран списка адресов для возврата из chat_link (manage → добавить → назад)."""
+    with session_scope() as session:
+        addresses = list_managed_addresses(session, max_user_id)
+        return _list_view(addresses, page, notice=notice)
+
+
+async def _safe_ack(event: Any, notification: str = "…") -> None:
+    """MAX требует message или notification в POST /answers — пустой ack даёт 400."""
+    ack = getattr(event, "ack", None)
+    if not callable(ack):
+        return
+    try:
+        await ack(notification=notification)
+    except Exception:
+        logger.debug("Не удалось подтвердить callback", exc_info=True)
+
+
+async def _show_screen(
+    bot: Any,
+    event: Any,
+    max_user_id: int,
+    text: str,
+    attachments: list[Any],
+    *,
+    notification: str = "…",
 ) -> None:
-    if not fresh:
-        mid = getattr(getattr(getattr(event, "message", None), "body", None), "mid", None)
-        if mid:
-            try:
-                await bot.edit_message(
-                    str(mid), text=text, attachments=[keyboard], format=Format.HTML, notify=False
-                )
-                return
-            except Exception:
-                logger.exception("Не удалось обновить экран управления адресами")
-    # Открываем отдельное сообщение: фото главной не заменяется текстом.
+    """Одно окно: правим сообщение кнопки через callback answer (без нового spam)."""
+    edit = getattr(event, "edit", None)
+    if callable(edit):
+        try:
+            await edit(
+                text=text,
+                attachments=attachments,
+                format=Format.HTML,
+                notify=False,
+                notification=notification,
+            )
+            return
+        except Exception:
+            logger.debug("event.edit не удался, пробуем edit_message", exc_info=True)
+
+    mid = getattr(getattr(getattr(event, "message", None), "body", None), "mid", None)
+    if mid:
+        try:
+            await bot.edit_message(
+                str(mid),
+                text=text,
+                attachments=attachments,
+                format=Format.HTML,
+                notify=False,
+            )
+            await _safe_ack(event, notification)
+            return
+        except Exception:
+            logger.exception("Не удалось обновить экран управления адресами")
+
+    await _safe_ack(event, notification)
     await bot.send_message(
-        user_id=max_user_id, text=text, attachments=[keyboard], format=Format.HTML
+        user_id=max_user_id,
+        text=text,
+        attachments=attachments,
+        format=Format.HTML,
+        brand_image=False,
     )
 
 
@@ -117,39 +175,53 @@ def register_manage_addresses(dp: Any, bot: Any) -> None:
     async def on_manage_addresses_callback(event: Any) -> None:
         payload = str(getattr(event.callback, "payload", "") or "")
         max_user_id = int(event.callback.user.user_id)
+
         if payload == _HOME_PAYLOAD:
-            await event.ack(notification="Открываю главную")
             with session_scope() as session:
-                await send_home(bot, session, max_user_id)
+                addresses = [item.text for item in list_managed_addresses(session, max_user_id)]
+                text = build_home_text(addresses)
+            await _show_screen(
+                bot,
+                event,
+                max_user_id,
+                text,
+                [home_image(bot), build_home_keyboard(bot, has_addresses=bool(addresses))],
+                notification="Главная",
+            )
             return
+
         if payload == MANAGE_ADDRESSES_PAYLOAD:
             page = 0
             action = "list"
+            notice_label = "Адреса"
         elif payload.startswith(_LIST_PREFIX):
             try:
                 page = int(payload[len(_LIST_PREFIX) :])
             except ValueError:
-                await event.ack(notification="Некорректная команда")
+                await _safe_ack(event, "Некорректная команда")
                 return
             action = "list"
+            notice_label = "Адреса"
         elif payload.startswith(_OPEN_PREFIX):
             parsed = _parse_address_action(payload, _OPEN_PREFIX)
             if parsed is None:
-                await event.ack(notification="Некорректная команда")
+                await _safe_ack(event, "Некорректная команда")
                 return
             address_id, page = parsed
             action = "open"
+            notice_label = "Адрес"
         elif payload.startswith(_DELETE_PREFIX):
             parsed = _parse_address_action(payload, _DELETE_PREFIX)
             if parsed is None:
-                await event.ack(notification="Некорректная команда")
+                await _safe_ack(event, "Некорректная команда")
                 return
             address_id, page = parsed
             action = "delete"
+            notice_label = "Удалено"
         else:
-            await event.ack(notification="Некорректная команда")
+            await _safe_ack(event, "Некорректная команда")
             return
-        await event.ack(notification="Открываю адреса")
+
         with session_scope() as session:
             if action == "delete":
                 removed = remove_managed_address(
@@ -170,6 +242,12 @@ def register_manage_addresses(dp: Any, bot: Any) -> None:
                     )
                 else:
                     text, keyboard = _list_view(addresses, page)
-        await _show(
-            bot, event, max_user_id, text, keyboard, fresh=payload == MANAGE_ADDRESSES_PAYLOAD
+
+        await _show_screen(
+            bot,
+            event,
+            max_user_id,
+            text,
+            [other_messages_image(bot), keyboard],
+            notification=notice_label,
         )

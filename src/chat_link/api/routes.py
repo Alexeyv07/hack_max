@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from maxapi.enums.format import Format
 from maxapi.utils.deep_linking import create_start_link
 
 from auth.commands.home import send_home
@@ -19,6 +20,7 @@ from chat_link.api.schemas import (
     PersonalResidenceResponse,
     PostalAddressSearchResponse,
 )
+from chat_link.commands.keyboards import method_keyboard, setup_keyboard
 from chat_link.handlers import (
     announce_connected_group,
     bind_existing_chat_member,
@@ -72,7 +74,7 @@ def _option(row, score: float | None = None) -> AddressOption:
     response_description="До 12 лучших совпадений с score",
     responses={
         status.HTTP_200_OK: {"model": AddressSearchResponse},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "`q` короче 3 символов или длиннее 300.",
             "model": ApiError,
         },
@@ -108,7 +110,7 @@ def search_addresses(
     response_description="Страница домов индекса + total",
     responses={
         status.HTTP_200_OK: {"model": PostalAddressSearchResponse},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "`code` не ровно 6 цифр.",
             "model": ApiError,
         },
@@ -156,7 +158,7 @@ def search_postal_addresses(
     response_description="До 5 ближайших домов",
     responses={
         status.HTTP_200_OK: {"model": AddressSearchResponse},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "lat/lon вне допустимого диапазона.",
             "model": ApiError,
         },
@@ -227,7 +229,7 @@ def get_residence(session: DbSession, max_user_id: MaxUserId) -> PersonalResiden
             "description": "Конфликт привязки / бизнес-правило (см. `detail`).",
             "model": ApiError,
         },
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "Переданы и `chat_id`, и `resident_chat_id`.",
             "model": ApiError,
         },
@@ -264,7 +266,7 @@ async def select_address(
     bot = get_max_bot()
     if payload.chat_id is not None and payload.resident_chat_id is not None:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите только один тип привязки"
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Укажите только один тип привязки"
         )
     if payload.resident_chat_id is not None:
         if bot is None:
@@ -354,13 +356,20 @@ async def select_address(
             "но вы не состоите в нём. Присоединитесь через приложение «Госуслуги Дом», "
             "затем повторите выбор адреса."
         )
+        attachments = [method_keyboard(bot)]
     else:
         notice = (
             f"По адресу {address.address_text} пока нет подключённого домового чата. "
-            "Скопируйте приглашение для администратора или нажмите «Я администратор чата»."
+            "Скопируйте приглашение для администратора или нажмите «Я администратор»."
         )
+        attachments = [setup_keyboard(admin_link, address.address_text)]
     try:
-        await bot.send_message(user_id=max_user_id, text=notice)
+        await bot.send_message(
+            user_id=max_user_id,
+            text=notice,
+            attachments=attachments,
+            format=Format.HTML,
+        )
     except Exception:
         logger.exception("Не удалось отправить результат выбора адреса в MAX")
     return AddressSelectResponse(
