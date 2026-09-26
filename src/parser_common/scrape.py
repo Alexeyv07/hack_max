@@ -89,7 +89,7 @@ def parse_datetime(raw: str | None) -> datetime | None:
 
 
 def parse_ru_date(raw: str | None) -> datetime | None:
-    """ДД.ММ.ГГГГ[ ЧЧ:ММ] или ISO."""
+    """ДД.ММ.ГГГГ[ ЧЧ:ММ], «21 сентября 2026» или ISO."""
     if not raw:
         return None
     text = raw.strip()
@@ -99,7 +99,39 @@ def parse_ru_date(raw: str | None) -> datetime | None:
         hour = int(m.group(4) or 0)
         minute = int(m.group(5) or 0)
         return datetime(year, month, day, hour, minute, tzinfo=UTC)
+    named = re.search(
+        r"(\d{1,2})\s+([А-Яа-яA-Za-zёЁ]+)\s+(\d{4})(?:\s*,?\s*(\d{1,2}):(\d{2}))?",
+        text,
+        re.UNICODE,
+    )
+    if named:
+        month = _RU_MONTHS.get(named.group(2).casefold().replace("ё", "е"))
+        if month is not None:
+            day = int(named.group(1))
+            year = int(named.group(3))
+            hour = int(named.group(4) or 0)
+            minute = int(named.group(5) or 0)
+            try:
+                return datetime(year, month, day, hour, minute, tzinfo=UTC)
+            except ValueError:
+                return None
     return parse_datetime(text)
+
+
+_RU_MONTHS = {
+    "января": 1,
+    "февраля": 2,
+    "марта": 3,
+    "апреля": 4,
+    "мая": 5,
+    "июня": 6,
+    "июля": 7,
+    "августа": 8,
+    "сентября": 9,
+    "октября": 10,
+    "ноября": 11,
+    "декабря": 12,
+}
 
 
 def extract_id_from_url(url: str) -> str | None:

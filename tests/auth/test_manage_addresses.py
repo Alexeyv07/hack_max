@@ -159,7 +159,13 @@ def test_management_flow_list_detail_back_delete(db_session, monkeypatch) -> Non
     asyncio.run(dp.callback(event))
     event.edit.assert_awaited_once()
     bot.send_message.assert_not_awaited()
-    markup = event.edit.await_args.kwargs["attachments"][0].payload.buttons
+    attachments = event.edit.await_args.kwargs["attachments"]
+    assert len(attachments) == 2
+    assert getattr(attachments[0], "type", None) == "image" or "other_messages" in str(
+        getattr(attachments[0], "path", "")
+        or getattr(getattr(attachments[0], "payload", None), "token", "")
+    )
+    markup = attachments[1].payload.buttons
     assert markup[0][0].text == "Добавить адрес"
     assert markup[0][0].payload == "chat_link:start:manage"
     assert [row[0].text for row in markup[1:3]] == [b.address_text, a.address_text]
@@ -169,11 +175,11 @@ def test_management_flow_list_detail_back_delete(db_session, monkeypatch) -> Non
     asyncio.run(dp.callback(event))
     detail = event.edit.await_args.kwargs
     assert a.address_text in detail["text"]
-    assert [row[0].text for row in detail["attachments"][0].payload.buttons] == [
+    assert [row[0].text for row in detail["attachments"][1].payload.buttons] == [
         "Удалить адрес",
         "← Назад",
     ]
-    assert detail["attachments"][0].payload.buttons[1][0].payload == "home:addresses:list:0"
+    assert detail["attachments"][1].payload.buttons[1][0].payload == "home:addresses:list:0"
 
     event = _event("home:addresses:list:0")
     asyncio.run(dp.callback(event))

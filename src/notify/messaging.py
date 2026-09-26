@@ -25,5 +25,11 @@ async def delete_message_quiet(bot: Any, message_mid: str | None) -> None:
         return
     try:
         await delete(message_mid)
-    except Exception:
-        logger.debug("Не удалось удалить сообщение mid=%s", message_mid, exc_info=True)
+    except Exception as exc:
+        code = getattr(exc, "code", None)
+        raw = getattr(exc, "raw", None) or {}
+        denied = code == 403 or (isinstance(raw, dict) and raw.get("code") == "access.denied")
+        if denied:
+            logger.debug("Нет права удалить mid=%s", message_mid)
+        else:
+            logger.debug("Не удалось удалить сообщение mid=%s", message_mid, exc_info=True)

@@ -15,11 +15,15 @@ def make_http_client(
     request_timeout_seconds: float,
     max_connections: int = 20,
 ) -> httpx.AsyncClient:
+    # Connect не режем искусственно до 5с: при параллельных outlet-ах DNS/TLS
+    # часто дольше, и collect сыпется ConnectTimeout при живых сайтах.
+    read_timeout = max(5.0, float(request_timeout_seconds))
+    connect_timeout = max(10.0, min(read_timeout, 30.0))
     timeout = httpx.Timeout(
-        connect=min(5.0, float(request_timeout_seconds)),
-        read=float(request_timeout_seconds),
-        write=float(request_timeout_seconds),
-        pool=5.0,
+        connect=connect_timeout,
+        read=read_timeout,
+        write=read_timeout,
+        pool=min(10.0, connect_timeout),
     )
     limits = httpx.Limits(
         max_connections=max_connections,

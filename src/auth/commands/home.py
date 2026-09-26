@@ -46,13 +46,13 @@ def build_home_text(addresses: list[str], *, notice: str | None = None) -> str:
             "Пока нет сохранённого адреса — лента новостей рядом будет пустой.\n\n"
             "Нажмите «Добавить адрес», чтобы указать дом."
         )
-    help_link = docs_html("справка о сервисе", page="overview")
+    help_link = docs_html("О сервисе", page="overview")
     text = (
         "<b>Главная</b>\n\n"
         f"<b>Ваши адреса 🏠</b>\n{address_block}\n\n"
         f"{body}\n\n"
         "Команды: /home — эта страница · /get_notify — пример уведомления\n\n"
-        f"Документация: {help_link}"
+        f"{help_link}"
     )
     if notice:
         text += f"\n\n{escape(notice)}"

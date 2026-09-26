@@ -74,7 +74,7 @@ def _option(row, score: float | None = None) -> AddressOption:
     response_description="До 12 лучших совпадений с score",
     responses={
         status.HTTP_200_OK: {"model": AddressSearchResponse},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "`q` короче 3 символов или длиннее 300.",
             "model": ApiError,
         },
@@ -110,7 +110,7 @@ def search_addresses(
     response_description="Страница домов индекса + total",
     responses={
         status.HTTP_200_OK: {"model": PostalAddressSearchResponse},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "`code` не ровно 6 цифр.",
             "model": ApiError,
         },
@@ -158,7 +158,7 @@ def search_postal_addresses(
     response_description="До 5 ближайших домов",
     responses={
         status.HTTP_200_OK: {"model": AddressSearchResponse},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "lat/lon вне допустимого диапазона.",
             "model": ApiError,
         },
@@ -229,7 +229,7 @@ def get_residence(session: DbSession, max_user_id: MaxUserId) -> PersonalResiden
             "description": "Конфликт привязки / бизнес-правило (см. `detail`).",
             "model": ApiError,
         },
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "Переданы и `chat_id`, и `resident_chat_id`.",
             "model": ApiError,
         },
@@ -266,7 +266,7 @@ async def select_address(
     bot = get_max_bot()
     if payload.chat_id is not None and payload.resident_chat_id is not None:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "Укажите только один тип привязки"
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Укажите только один тип привязки"
         )
     if payload.resident_chat_id is not None:
         if bot is None:

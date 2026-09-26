@@ -32,7 +32,7 @@ ADDRESS_PICKER_TEXT = (
     "Выберите удобный способ: найти адрес в списке, показать дом на карте "
     "или написать адрес.\n\n"
     "Если помните почтовый индекс, можно начать с него — затем выбрать свой дом.\n\n"
-    f"Если что-то непонятно: {docs_html('как выбрать адрес', page='chat-link')}."
+    f"{docs_html('Как выбрать адрес', page='chat-link')}"
 )
 
 
@@ -57,7 +57,7 @@ def build_welcome_text(
         "- Если сроки изменятся — обновим информацию 📣\n\n"
         "Также кроме новостей вашего двора и округи мы собираем для вас "
         "подборку актуальных новостей вашего города. Не упустите то, что вас касается ❗\n\n"
-        f"Кратко о сервисе: {docs_html('справка', page='overview')}.\n\n"
+        f"{docs_html('О сервисе', page='overview')}\n\n"
         "Укажите свой адрес, чтобы подключить сервис к чату вашего дома:"
     )
     if notice:
@@ -249,8 +249,15 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             return
         try:
             await bot.delete_message(str(mid))
-        except Exception:
-            logger.debug("Не удалось удалить команду пользователя mid=%s", mid, exc_info=True)
+        except Exception as exc:
+            # В личке MAX часто запрещает боту удалять сообщения пользователя (403).
+            code = getattr(exc, "code", None)
+            raw = getattr(exc, "raw", None) or {}
+            denied = code == 403 or (isinstance(raw, dict) and raw.get("code") == "access.denied")
+            if denied:
+                logger.debug("Нет права удалить команду пользователя mid=%s", mid)
+            else:
+                logger.debug("Не удалось удалить команду пользователя mid=%s", mid, exc_info=True)
 
     @dp.message_created(Command("home"))
     async def on_home(event: Any, context: Any = None) -> None:

@@ -17,7 +17,7 @@ from auth.handlers.managed_addresses import (
     list_managed_addresses,
     remove_managed_address,
 )
-from project.bot_media import home_image
+from project.bot_media import home_image, other_messages_image
 from project.database import session_scope
 from project.docs_links import docs_html
 from project.logging_setup import get_logger
@@ -41,12 +41,12 @@ def _list_view(
     page, pages = _page(page, len(addresses))
     text = (
         "<b>Ваши адреса 🏠</b>\n\nВыберите адрес, чтобы посмотреть его или удалить.\n\n"
-        f"Подсказка: {docs_html('как управлять адресами', page='addresses')}."
+        f"{docs_html('Как управлять адресами', page='addresses')}"
     )
     if not addresses:
         text = (
             "<b>Ваши адреса 🏠</b>\n\nПока нет сохранённых адресов.\n\n"
-            f"Подсказка: {docs_html('как управлять адресами', page='addresses')}."
+            f"{docs_html('Как управлять адресами', page='addresses')}"
         )
     if notice:
         text += f"\n\n{escape(notice)}"
@@ -83,7 +83,7 @@ def _detail_view(address: ManagedAddress, page: int) -> tuple[str, Any]:
         f"<b>{escape(address.text)}</b>\n\n"
         "Вы можете удалить этот адрес из своего списка. "
         "Привязка дома к групповому чату при этом сохранится.\n\n"
-        f"Подробнее: {docs_html('управление адресами', page='addresses')}."
+        f"{docs_html('Управление адресами', page='addresses')}"
     )
     return text, builder.as_markup()
 
@@ -248,6 +248,6 @@ def register_manage_addresses(dp: Any, bot: Any) -> None:
             event,
             max_user_id,
             text,
-            [keyboard],
+            [other_messages_image(bot), keyboard],
             notification=notice_label,
         )

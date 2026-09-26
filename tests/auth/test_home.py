@@ -66,7 +66,7 @@ def test_home_keyboard_matches_mockup() -> None:
         "Добавить адрес",
         "Управлять адресами",
     ]
-    assert "справка о сервисе" in build_home_text([])
+    assert "О сервисе" in build_home_text([])
     assert "<a href=" in build_home_text([])
 
 

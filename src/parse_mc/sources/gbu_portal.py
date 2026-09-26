@@ -90,12 +90,13 @@ class GbuPortalSource(BaseMcSource):
                 if notice is None:
                     continue
                 published = ensure_aware(notice.published_at) or datetime.now(UTC)
-                if published < since:
+                # Incremental: берём то, что на listing (даты у Жилищника часто устаревшие).
+                if published < since and mode == "backfill":
                     reached_since = True
                     continue
                 notices.append(notice)
 
-            if hit_cap or reached_since:
+            if hit_cap or (reached_since and mode == "backfill"):
                 break
             page += 1
 

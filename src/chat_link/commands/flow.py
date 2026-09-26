@@ -38,6 +38,7 @@ from chat_link.handlers import (
     pending_for_actor,
 )
 from chat_link.handlers.residence_selection import resolve_residence
+from project.bot_media import other_messages_image
 from project.database import session_scope
 from project.docs_links import docs_html
 from project.logging_setup import get_logger
@@ -177,7 +178,7 @@ async def _show_manage_list(event: Any, context: Any, bot: Any) -> None:
     text, keyboard = await asyncio.to_thread(build_manage_list_view, max_user_id)
     kwargs = {
         "text": text,
-        "attachments": [keyboard],
+        "attachments": [other_messages_image(bot), keyboard],
         "format": Format.HTML,
         "notify": False,
     }
@@ -214,10 +215,7 @@ async def _show_methods(event: Any, context: Any, bot: Any) -> None:
         else ADDRESS_PICKER_TEXT
     )
     if target_chat_id is not None:
-        text = (
-            f"{text}\n\n"
-            f"Подсказка: {docs_html('как выбрать адрес и подключить чат', page='chat-link')}."
-        )
+        text = f"{text}\n\n{docs_html('Как выбрать адрес и подключить чат', page='chat-link')}"
     kwargs = {
         "text": text,
         "attachments": [
@@ -531,7 +529,7 @@ async def _show_resident_setup(event: Any, context: Any, bot: Any) -> None:
         "Для этого дома пока нет подключённого чата.\n\n"
         "Скопируйте пригласительное сообщение и отправьте его администратору "
         "вашего домового чата. Если вы сами администратор, нажмите кнопку ниже.\n\n"
-        f"Пошагово: {docs_html('как подключить домовой чат', page='chat-link')}."
+        f"{docs_html('Как подключить домовой чат', page='chat-link')}."
     )
     if not admin_link:
         text += "\n\nСейчас ссылку для администратора создать не удалось. Попробуйте ещё раз позже."
@@ -563,7 +561,7 @@ async def _show_admin_setup(event: Any, context: Any, bot: Any) -> None:
             "«Добавить адрес чата (админ)». Потом выберите этот дом в личных сообщениях с ботом.\n\n"
             "Если бота в чате ещё нет: добавьте его в группу и сделайте администратором "
             "с правом «Читать все сообщения». После этого можно выбрать первый адрес.\n\n"
-            f"Подробная инструкция: {docs_html('подключение чата', page='chat-link')}."
+            f"{docs_html('Подключение чата', page='chat-link')}."
         ),
         attachments=[admin_setup_keyboard()],
         notify=False,
@@ -816,7 +814,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             await event.edit(
                 text=(
                     "Введите шестизначный почтовый индекс. Он только сузит список адресов.\n\n"
-                    f"Если не знаете индекс: {docs_html('как выбрать адрес', page='chat-link')}."
+                    f"{docs_html('Как выбрать адрес', page='chat-link')}"
                 ),
                 attachments=[postal_input_keyboard(from_manage=from_manage)],
                 notify=False,
@@ -947,7 +945,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                     text=(
                         "❗ Ошибка ❗\n\nИндекс должен состоять ровно из 6 цифр. "
                         "Введите индекс ещё раз.\n\n"
-                        f"Подсказка: {docs_html('как выбрать адрес', page='chat-link')}."
+                        f"{docs_html('Как выбрать адрес', page='chat-link')}."
                     ),
                     attachments=[postal_input_keyboard(from_manage=from_manage)],
                     format=Format.HTML,
@@ -964,7 +962,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                     text=(
                         "❗ Ошибка ❗\n\nТакого индекса нет в справочнике. "
                         "Введите другой шестизначный индекс.\n\n"
-                        f"Подсказка: {docs_html('как выбрать адрес', page='chat-link')}."
+                        f"{docs_html('Как выбрать адрес', page='chat-link')}."
                     ),
                     attachments=[postal_input_keyboard(from_manage=from_manage)],
                     format=Format.HTML,

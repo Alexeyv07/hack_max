@@ -36,7 +36,7 @@ _FEED_RESPONSES = {
         "description": "Не передан обязательный заголовок `X-Max-User-Id`.",
         "model": ApiError,
     },
-    status.HTTP_422_UNPROCESSABLE_ENTITY: {
+    status.HTTP_422_UNPROCESSABLE_CONTENT: {
         "description": "Ошибка валидации FastAPI/Pydantic (неверный тип `scope`, `limit` вне диапазона).",
         "model": ApiError,
     },
@@ -55,7 +55,7 @@ _MAP_RESPONSES = {
         "description": "Не передан обязательный заголовок `X-Max-User-Id`.",
         "model": ApiError,
     },
-    status.HTTP_422_UNPROCESSABLE_ENTITY: {
+    status.HTTP_422_UNPROCESSABLE_CONTENT: {
         "description": "Ошибка валидации query-параметров.",
         "model": ApiError,
     },

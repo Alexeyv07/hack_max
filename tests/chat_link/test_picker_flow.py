@@ -179,7 +179,7 @@ def test_invalid_postal_format_shows_error_and_keeps_back_button(monkeypatch) ->
     buttons = kwargs["attachments"][0].payload.buttons
     assert buttons[0][0].text == "← Назад"
     assert buttons[0][0].payload == "cl:back:root"
-    assert "как выбрать адрес" in kwargs["text"]
+    assert "Как выбрать адрес" in kwargs["text"]
 
 
 def test_unknown_postal_keeps_back_button(monkeypatch) -> None:
@@ -202,7 +202,7 @@ def test_unknown_postal_keeps_back_button(monkeypatch) -> None:
     buttons = kwargs["attachments"][0].payload.buttons
     assert buttons[0][0].text == "← Назад"
     assert buttons[0][0].payload == "cl:back:root"
-    assert "как выбрать адрес" in kwargs["text"]
+    assert "Как выбрать адрес" in kwargs["text"]
 
 
 def test_postal_street_callback_goes_to_houses(monkeypatch) -> None:
@@ -267,7 +267,7 @@ def test_admin_instructions_are_shown_only_after_admin_button(monkeypatch) -> No
     assert "Читать все сообщения" in kwargs["text"]
     buttons = kwargs["attachments"][0].payload.buttons
     assert buttons[0][0].text == "← Я не администратор"
-    assert "подключение чата" in kwargs["text"]
+    assert "Подключение чата" in kwargs["text"]
     assert "<a href=" in kwargs["text"]
 
 
