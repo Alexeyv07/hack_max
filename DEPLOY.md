@@ -1,7 +1,7 @@
 # Deploy — prod образы (GHCR) + ONNX
 
-Релизный стек: три образа в GHCR, локальный/серверный запуск через
-`docker-compose.prod.yaml`. Секреты — только в корневом `.env`.
+Релизный стек: три образа в GHCR, запуск через `docker-compose.prod.yaml`.
+Секреты — только в корневом `.env`.
 
 | Образ | Что внутри |
 |-------|------------|
@@ -9,9 +9,10 @@
 | `ghcr.io/alexeyv07/hack_max-bot` | Python bot/API/parsers + ONNX |
 | `ghcr.io/alexeyv07/hack_max-webapp` | Static SvelteKit + nginx (`/api` → bot) |
 
-Сборка образов — GitHub Actions при пуше тега `v*` (см. `.github/workflows/release-images.yaml`).
+Dockerfiles: корневой `Dockerfile` (bot), `docker/postgres/Dockerfile`, `webapp/Dockerfile`.
+Сборка — GitHub Actions при пуше тега `v*` (`.github/workflows/release-images.yaml`).
 
-Dev-стек (`docker-compose.yaml` в корне) не трогаем.
+Dev-стек (`docker-compose.yaml`) не трогаем.
 
 ---
 
@@ -62,8 +63,15 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-Actions скачает Release `models`, соберёт и запушит три образа с тегами `v1.0.0` и `latest`,
-затем сделает пакеты в GHCR **public** (pull без `docker login`).
+Actions скачает Release `models`, соберёт и запушит три образа с тегами `v1.0.0` и `latest`.
+Пакеты в GHCR по умолчанию private — **один раз** сделайте public (иначе нужен `docker login`):
+
+1. https://github.com/Alexeyv07?tab=packages  
+2. Каждый из `hack_max-postgres` / `hack_max-bot` / `hack_max-webapp` → **Package settings** → **Change visibility** → **Public**
+
+Либо положите в secrets репозитория personal access token владельца (`write:packages`) как `GH_PAT` — workflow попробует выставить public сам.
+
+После этого pull без `docker login`.
 
 ---
 
@@ -79,16 +87,16 @@ AITUNNEL_API_KEY=...
 
    Остальное (БД, порты, `APP_ENVIRONMENT=prod`) задано в `docker-compose.prod.yaml`.
 
-2. Поднять стек **из корня репо** (образы публичные — логин в GHCR не нужен):
+2. Поднять стек:
 
 ```bash
-docker compose -f deploy/docker-compose.prod.yaml --env-file .env up -d
+docker compose -f docker-compose.prod.yaml --env-file .env up -d
 
 # конкретный релиз:
-# IMAGE_TAG=v1.0.0 docker compose -f deploy/docker-compose.prod.yaml --env-file .env up -d
+# IMAGE_TAG=v1.0.0 docker compose -f docker-compose.prod.yaml --env-file .env up -d
 ```
 
 - Bot: `APP_ENVIRONMENT=prod` (конфиг `conf/prod.yaml`)
 - Webapp: http://localhost:5173 (nginx :80 в контейнере)
 - API: http://localhost:8000 (и `/api` через webapp)
-- CloudPub: `docker compose -f deploy/docker-compose.prod.yaml logs -f cloudpub`
+- CloudPub: `docker compose -f docker-compose.prod.yaml logs -f cloudpub`
