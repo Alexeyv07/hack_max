@@ -197,7 +197,15 @@
 
 	<div class="toolbar">
 		<button class="back" type="button" onclick={onclose} aria-label="Назад к ленте">
-			<span aria-hidden="true">←</span> Назад
+			<svg class="btn-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+				<path
+					fill="currentColor"
+					fill-rule="evenodd"
+					clip-rule="evenodd"
+					d="M9.53 2.47a.75.75 0 0 1 0 1.06L4.81 8.25H15a6.75 6.75 0 0 1 0 13.5h-3a.75.75 0 0 1 0-1.5h3a5.25 5.25 0 1 0 0-10.5H4.81l4.72 4.72a.75.75 0 1 1-1.06 1.06l-6-6a.75.75 0 0 1 0-1.06l6-6a.75.75 0 0 1 1.06 0Z"
+				/>
+			</svg>
+			Назад
 		</button>
 		<span class="toolbar-title">Карта событий</span>
 		<button
@@ -208,7 +216,17 @@
 			title={home ? home.address_text : homeStatus}
 			aria-label={home ? 'Вернуться к дому' : homeStatus}
 		>
-			<span aria-hidden="true">⌂</span> К дому
+			<svg class="btn-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+				<path
+					fill="currentColor"
+					d="M11.47 3.841a.75.75 0 0 1 1.06 0l8.69 8.69a.75.75 0 1 0 1.06-1.061l-8.689-8.69a2.25 2.25 0 0 0-3.182 0l-8.69 8.69a.75.75 0 1 0 1.061 1.06l8.69-8.689Z"
+				/>
+				<path
+					fill="currentColor"
+					d="m12 5.432 8.159 8.159c.03.03.06.058.091.086v6.198c0 1.035-.84 1.875-1.875 1.875H15a.75.75 0 0 1-.75-.75v-4.5a.75.75 0 0 0-.75-.75h-3a.75.75 0 0 0-.75.75V21a.75.75 0 0 1-.75.75H5.625a1.875 1.875 0 0 1-1.875-1.875v-6.198a2.29 2.29 0 0 0 .091-.086L12 5.432Z"
+				/>
+			</svg>
+			К дому
 		</button>
 	</div>
 
@@ -234,13 +252,45 @@
 					>{viewingHome && home ? 'Ваш дом' : selected.title || 'Событие'}</span
 				>
 			</span>
-			<span class="details-chevron" aria-hidden="true">{detailsCollapsed ? '▲' : '▼'}</span>
+			<span class="details-chevron" aria-hidden="true">
+				{#if detailsCollapsed}
+					<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+						<path
+							fill="currentColor"
+							fill-rule="evenodd"
+							clip-rule="evenodd"
+							d="M11.47 13.28a.75.75 0 0 0 1.06 0l7.5-7.5a.75.75 0 0 0-1.06-1.06L12 11.69 5.03 4.72a.75.75 0 0 0-1.06 1.06l7.5 7.5Z"
+						/>
+						<path
+							fill="currentColor"
+							fill-rule="evenodd"
+							clip-rule="evenodd"
+							d="M11.47 19.28a.75.75 0 0 0 1.06 0l7.5-7.5a.75.75 0 1 0-1.06-1.06L12 17.69l-6.97-6.97a.75.75 0 0 0-1.06 1.06l7.5 7.5Z"
+						/>
+					</svg>
+				{:else}
+					<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+						<path
+							fill="currentColor"
+							fill-rule="evenodd"
+							clip-rule="evenodd"
+							d="M11.47 10.72a.75.75 0 0 1 1.06 0l7.5 7.5a.75.75 0 1 1-1.06 1.06L12 12.31l-6.97 6.97a.75.75 0 0 1-1.06-1.06l7.5-7.5Z"
+						/>
+						<path
+							fill="currentColor"
+							fill-rule="evenodd"
+							clip-rule="evenodd"
+							d="M11.47 4.72a.75.75 0 0 1 1.06 0l7.5 7.5a.75.75 0 1 1-1.06 1.06L12 6.31l-6.97 6.97a.75.75 0 0 1-1.06-1.06l7.5-7.5Z"
+						/>
+					</svg>
+				{/if}
+			</span>
 		</button>
 		<div id="map-details-content" class="details-content" hidden={detailsCollapsed}>
 			{#if viewingHome && home}
 				<div class="details-location">{home.address_text}</div>
 			{:else}
-				{#if selected.location}<div class="details-location">⌖ {selected.location}</div>{/if}
+				{#if selected.location}<div class="details-location">{selected.location}</div>{/if}
 				{#if selected.geo_by === 'city'}
 					<div class="approximate">
 						Известен только город. Точное место события неизвестно, поэтому маркер на карте не
@@ -269,9 +319,10 @@
 		z-index: 1000;
 		width: 100vw;
 		height: 100dvh;
-		background: #152a30;
-		color: #fff;
+		background: var(--bg-canvas);
+		color: var(--text-primary);
 		touch-action: auto;
+		font-family: var(--font);
 	}
 	.map {
 		position: absolute;
@@ -282,9 +333,13 @@
 		inset: 0;
 		display: grid;
 		place-items: center;
-		padding: 2rem;
-		background: linear-gradient(145deg, #18313b, #263e3b);
-		text-align: center;
+		padding: var(--space-8);
+		background: var(--bg-surface);
+		color: var(--text-secondary);
+		font-size: var(--fs-14);
+		text-align: left;
+		justify-items: start;
+		align-content: center;
 	}
 	.toolbar {
 		position: absolute;
@@ -292,45 +347,57 @@
 		left: 0;
 		right: 0;
 		top: 0;
-		padding: calc(0.85rem + env(safe-area-inset-top)) 1rem 0.9rem;
-		background: linear-gradient(rgba(7, 17, 23, 0.78), transparent);
+		padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+		background: var(--bg-canvas);
+		border-bottom: 1px solid var(--border);
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 8px;
 		pointer-events: none;
 	}
 	.back {
 		pointer-events: auto;
-		border: 1px solid rgba(255, 255, 255, 0.23);
-		border-radius: 12px;
-		background: rgba(8, 24, 32, 0.82);
-		backdrop-filter: blur(10px);
-		color: #fff;
-		font-weight: 700;
-		padding: 0.65rem 1rem;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-md);
+		background: var(--bg-elevated);
+		color: var(--text-primary);
+		font-weight: 500;
+		font-size: var(--fs-14);
+		padding: 8px 12px;
+		min-height: 36px;
 		cursor: pointer;
+		transition: background var(--ease);
 	}
-	.back span {
-		margin-right: 0.3rem;
-		font-size: 1.2rem;
+	.back:hover:not(:disabled) {
+		background: var(--bg-raised);
+	}
+	.btn-icon {
+		flex-shrink: 0;
+		display: block;
 	}
 	.home-button {
 		margin-left: auto;
 		white-space: nowrap;
 	}
 	.home-button:disabled {
-		opacity: 0.55;
+		opacity: 0.45;
 		cursor: default;
 	}
 	.status {
 		position: absolute;
-		top: calc(4.7rem + env(safe-area-inset-top));
-		left: 1rem;
-		right: 1rem;
-		padding: 0.4rem 0.65rem;
-		border-radius: 8px;
-		background: #102029e6;
-		font-size: 0.75rem;
+		top: calc(56px + env(safe-area-inset-top));
+		left: 12px;
+		right: 12px;
+		padding: 8px 12px;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--border);
+		background: var(--bg-elevated);
+		color: var(--text-secondary);
+		font-size: var(--fs-12);
+		font-family: var(--font-mono);
 		pointer-events: none;
 	}
 	@media (max-width: 380px) {
@@ -339,17 +406,16 @@
 		}
 	}
 	.toolbar-title {
-		font-size: 0.88rem;
-		font-weight: 700;
-		text-shadow: 0 1px 5px #000;
+		font-size: var(--fs-14);
+		font-weight: 500;
+		color: var(--text-secondary);
 	}
 	.details {
 		position: absolute;
 		z-index: 2;
-		/* Reserve attribution space when the presentation override is disabled. */
-		bottom: calc(4.3rem + env(safe-area-inset-bottom));
-		left: 1rem;
-		right: 1rem;
+		bottom: calc(68px + env(safe-area-inset-bottom));
+		left: 12px;
+		right: 12px;
 		max-height: min(
 			34dvh,
 			calc(100dvh - 12rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))
@@ -357,35 +423,35 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		border-radius: 17px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-lg);
 		padding: 0;
-		background: rgba(12, 28, 35, 0.88);
-		backdrop-filter: blur(16px);
-		box-shadow: 0 9px 30px rgba(0, 0, 0, 0.3);
+		background: var(--bg-elevated);
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 	}
 	.compact-map .details {
-		bottom: calc(1rem + env(safe-area-inset-bottom));
+		bottom: calc(12px + env(safe-area-inset-bottom));
 	}
 	.details-toggle {
 		flex-shrink: 0;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 1rem;
+		gap: 12px;
 		width: 100%;
-		min-height: 52px;
-		padding: 0.85rem 1rem;
+		min-height: 48px;
+		padding: 12px;
 		border: 0;
 		color: inherit;
 		background: transparent;
 		text-align: left;
 		cursor: pointer;
+		font: inherit;
 	}
 	.details-toggle:focus-visible {
-		outline: 2px solid white;
-		outline-offset: -4px;
-		border-radius: 16px;
+		outline: 2px solid var(--accent);
+		outline-offset: -2px;
+		border-radius: var(--radius-lg);
 	}
 	.details-heading {
 		display: -webkit-box;
@@ -393,14 +459,19 @@
 		line-clamp: 2;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
+		font-size: var(--fs-14);
+		font-weight: 600;
+		letter-spacing: -0.01em;
 	}
 	.details-chevron {
 		flex-shrink: 0;
-		font-size: 0.8rem;
+		display: grid;
+		place-items: center;
+		color: var(--text-tertiary);
 	}
 	.details-content {
 		min-height: 0;
-		padding: 0 1rem 1rem;
+		padding: 0 12px 12px;
 		overflow-y: auto;
 		max-height: 24dvh;
 	}
@@ -408,37 +479,39 @@
 		display: none;
 	}
 	.details-title {
-		font-weight: 750;
+		font-weight: 500;
 		display: flex;
 		align-items: baseline;
-		gap: 0.55rem;
+		gap: 8px;
 		line-height: 1.4;
 	}
 	.dot {
-		width: 0.6rem;
-		height: 0.6rem;
-		flex: 0 0 0.6rem;
+		width: 8px;
+		height: 8px;
+		flex: 0 0 8px;
 		border-radius: 50%;
-		background: #e53935;
+		background: var(--danger);
 	}
 	.dot.important {
-		background: #fb8c00;
+		background: var(--warning);
 	}
 	.details-location {
-		margin-top: 0.3rem;
-		font-size: 0.75rem;
-		opacity: 0.75;
+		margin-top: 4px;
+		font-size: var(--fs-12);
+		font-family: var(--font-mono);
+		color: var(--text-tertiary);
 	}
 	.approximate {
-		margin-top: 0.4rem;
-		color: #d5e6ef;
-		font-size: 0.76rem;
-		line-height: 1.3;
+		margin-top: 8px;
+		color: var(--text-secondary);
+		font-size: var(--fs-12);
+		line-height: 1.4;
 	}
 	.details p {
-		margin: 0.45rem 0 0;
-		font-size: 0.87rem;
+		margin: 8px 0 0;
+		font-size: var(--fs-14);
 		line-height: 1.45;
+		color: var(--text-secondary);
 		white-space: pre-wrap;
 	}
 </style>

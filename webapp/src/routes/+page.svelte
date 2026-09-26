@@ -297,13 +297,12 @@
 		height: 100dvh;
 		max-height: 100dvh;
 		overflow: hidden;
-		background: #0a1014;
-		color: #eef3f6;
+		background: var(--bg-canvas);
+		color: var(--text-primary);
 		touch-action: pan-y;
-		/* На широком экране колонка как телефон, по краям фон страницы. */
 		width: min(100%, 28rem);
 		margin-inline: auto;
-		box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
+		border-inline: 1px solid var(--border);
 	}
 
 	.rail {

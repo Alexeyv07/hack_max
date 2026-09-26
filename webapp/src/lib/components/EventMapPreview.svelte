@@ -65,7 +65,7 @@
 		width: 100%;
 		height: 100%;
 		overflow: hidden;
-		background: #152b31;
+		background: var(--bg-elevated);
 	}
 	.map {
 		position: absolute;
@@ -77,23 +77,25 @@
 		inset: 0;
 		display: grid;
 		place-items: center;
-		color: #d9e8ee;
-		font-size: 0.9rem;
-		background: linear-gradient(145deg, #142c36, #213d3c);
+		color: var(--text-secondary);
+		font-size: var(--fs-14);
+		background: var(--bg-surface);
 	}
 	.clean-preview .note {
-		bottom: 0.75rem;
+		bottom: 12px;
 	}
 	.note {
 		position: absolute;
-		left: 0.75rem;
+		left: 12px;
 		bottom: 4.3rem;
 		max-width: calc(100% - 5rem);
-		padding: 0.35rem 0.6rem;
-		border-radius: 8px;
-		background: rgba(11, 25, 31, 0.77);
-		color: #fff;
-		font-size: 0.73rem;
+		padding: 4px 8px;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--border);
+		background: var(--bg-raised);
+		color: var(--text-secondary);
+		font-size: var(--fs-12);
+		font-family: var(--font-mono);
 		line-height: 1.35;
 		pointer-events: none;
 	}
