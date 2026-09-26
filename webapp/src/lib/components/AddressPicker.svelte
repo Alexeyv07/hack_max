@@ -295,6 +295,14 @@
 		}
 		error = '';
 		saveDraft();
+		if (selected) {
+			void tick().then(() => {
+				document.getElementById('address-confirm')?.scrollIntoView({
+					behavior: 'smooth',
+					block: 'nearest'
+				});
+			});
+		}
 	}
 
 	function clearSelection() {
@@ -303,7 +311,9 @@
 		saveDraft();
 	}
 
-	const visibleOptions = $derived(selected ? options.filter((item) => item.id === selected.id) : options);
+	const visibleOptions = $derived(
+		selected ? options.filter((item) => item.id === selected.id) : options
+	);
 
 	async function confirm() {
 		if (!selected) return;
@@ -399,7 +409,12 @@
 
 	{#if !result}
 		{#if mode === 'map'}
-			<div class="map-shell" role="application" aria-label="Карта выбора дома">
+			<div
+				class="map-shell"
+				class:compact={!!selected}
+				role="application"
+				aria-label="Карта выбора дома"
+			>
 				<div class="map" class:yandex-map-clean={HIDE_YANDEX_ATTRIBUTION} bind:this={mapElement}></div>
 				<div class="pin" aria-hidden="true">
 					<span class="pin-dot"></span>
@@ -419,7 +434,9 @@
 					<div class="map-loading">Загружаем Яндекс Карты…</div>
 				{/if}
 			</div>
-			<button class="secondary" type="button" onclick={locate}>Моя геопозиция</button>
+			{#if !selected}
+				<button class="secondary" type="button" onclick={locate}>Моя геопозиция</button>
+			{/if}
 		{:else}
 			<div class="search-box">
 				<input
@@ -460,14 +477,13 @@
 				{/each}
 			</div>
 			{#if selected}
-				<div class="confirm-wrap">
+				<div class="confirm-wrap" id="address-confirm">
 					<button class="primary" type="button" disabled={loading} onclick={confirm}>
 						{loading ? 'Сохраняем…' : 'Подтвердить адрес'}
 					</button>
 					<button class="secondary" type="button" disabled={loading} onclick={clearSelection}>
 						Выбрать другой
 					</button>
-					<p class="selection-hint muted">Нажмите на адрес ещё раз, чтобы снова увидеть список</p>
 				</div>
 			{:else}
 				<p class="selection-status muted">Нажмите на нужный адрес в списке.</p>
@@ -488,8 +504,16 @@
 					«Читать все сообщения». После этого чат подключится автоматически —
 					дополнительных команд не нужно.
 				</p>
-				<button class="secondary" type="button" onclick={() => (showAdminHelp = false)}>
-					← Я не администратор
+				<button class="secondary back-link" type="button" onclick={() => (showAdminHelp = false)}>
+					<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+						<path
+							fill="currentColor"
+							fill-rule="evenodd"
+							clip-rule="evenodd"
+							d="M9.53 2.47a.75.75 0 0 1 0 1.06L4.81 8.25H15a6.75 6.75 0 0 1 0 13.5h-3a.75.75 0 0 1 0-1.5h3a5.25 5.25 0 1 0 0-10.5H4.81l4.72 4.72a.75.75 0 1 1-1.06 1.06l-6-6a.75.75 0 0 1 0-1.06l6-6a.75.75 0 0 1 1.06 0Z"
+						/>
+					</svg>
+					Я не администратор
 				</button>
 			{:else}
 				<p>
@@ -549,6 +573,13 @@
 		border: 1px solid var(--border);
 		background: var(--bg-elevated);
 		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+		transition:
+			height var(--ease),
+			min-height var(--ease);
+	}
+	.map-shell.compact {
+		height: 22dvh;
+		min-height: 140px;
 	}
 	.map {
 		position: absolute;
@@ -692,11 +723,6 @@
 		font-size: var(--fs-12);
 		color: var(--text-secondary);
 	}
-	.selection-hint {
-		margin: 4px 0 0;
-		font-size: var(--fs-12);
-		line-height: 1.35;
-	}
 	.hint-text {
 		margin: 8px 0 12px;
 		color: var(--text-tertiary);
@@ -770,6 +796,12 @@
 	}
 	.secondary:hover:not(:disabled) {
 		background: var(--bg-elevated);
+	}
+	.back-link {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
 	}
 	.done {
 		display: grid;

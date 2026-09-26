@@ -288,10 +288,34 @@
 		<FullEventMap event={mapEvent} onclose={() => (mapEvent = null)} />
 	{/if}
 </div>
-
+{:else}
+	<div class="boot" aria-live="polite" aria-busy="true">
+		<div class="boot-skel skeleton" aria-hidden="true"></div>
+		<p>Открываем…</p>
+	</div>
 {/if}
 
 <style>
+	.boot {
+		height: 100dvh;
+		display: grid;
+		align-content: center;
+		justify-items: start;
+		gap: 12px;
+		padding: 32px 20px;
+		background: var(--bg-canvas);
+		color: var(--text-tertiary);
+		font-size: var(--fs-14);
+		max-width: 28rem;
+		margin-inline: auto;
+	}
+
+	.boot-skel {
+		width: 96px;
+		height: 8px;
+		border-radius: 2px;
+	}
+
 	.feed-root {
 		position: relative;
 		height: 100dvh;

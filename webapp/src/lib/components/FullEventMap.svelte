@@ -337,9 +337,7 @@
 		background: var(--bg-surface);
 		color: var(--text-secondary);
 		font-size: var(--fs-14);
-		text-align: left;
-		justify-items: start;
-		align-content: center;
+		text-align: center;
 	}
 	.toolbar {
 		position: absolute;

@@ -74,15 +74,15 @@ export function addEventGeography(
 	const point = eventPoint(event);
 	if (!point) return;
 	if (event.geo_by === 'street') {
-		const color = event.disaster_flag || event.importance === 1 ? '#e53935' : '#fb8c00';
+		const color = event.disaster_flag || event.importance === 1 ? '#c45c5c' : '#c4924a';
 		map.addChild(
 			new ymaps3.YMapFeature({
 				geometry: streetContextGeometry(point),
 				style: {
 					fill:
 						event.disaster_flag || event.importance === 1
-							? 'rgba(229, 57, 53, 0.13)'
-							: 'rgba(251, 140, 0, 0.13)',
+							? 'rgba(196, 92, 92, 0.14)'
+							: 'rgba(196, 146, 74, 0.14)',
 					stroke: [{ color, width: 2, dash: [6, 8] }],
 					simplificationRate: 0
 				}
