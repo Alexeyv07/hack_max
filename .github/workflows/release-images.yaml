@@ -35,7 +35,7 @@ jobs:
           - name: webapp
             image: hack_max-webapp
             context: .
-            dockerfile: deploy/webapp/Dockerfile
+            dockerfile: webapp/Dockerfile
             needs_onnx: false
 
     steps:
@@ -72,7 +72,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
+          username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Docker metadata
@@ -96,15 +96,50 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
-      # Pull без docker login: пакет публичный.
+      # Pull без docker login: пакет должен быть public.
+      # GITHUB_TOKEN часто не может PATCH /user/packages (404) — пробуем
+      # /users/{owner}/..., иначе optional GH_PAT, иначе инструкция в UI (один раз).
       - name: Make GHCR package public
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+          OWNER: ${{ github.repository_owner }}
           PACKAGE: ${{ matrix.image }}
         run: |
-          set -euo pipefail
-          # user-owned packages (github.com/Alexeyv07/...)
-          gh api --method PATCH \
-            -H "Accept: application/vnd.github+json" \
-            "/user/packages/container/${PACKAGE}" \
-            -f visibility=public
+          set -uo pipefail
+          api_get() {
+            gh api "/users/${OWNER}/packages/container/${PACKAGE}" "$@"
+          }
+
+          if ! status="$(api_get --jq .visibility 2>/dev/null)"; then
+            echo "::warning::Package ${OWNER}/${PACKAGE} not readable via API yet."
+            echo "Make it public once: https://github.com/users/${OWNER}/packages/container/${PACKAGE}/settings"
+            echo "(Package settings → Change visibility → Public)"
+            exit 0
+          fi
+
+          echo "Current visibility: ${status}"
+          if [ "${status}" = "public" ]; then
+            echo "Already public."
+            exit 0
+          fi
+
+          if gh api --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              "/users/${OWNER}/packages/container/${PACKAGE}" \
+              -f visibility=public; then
+            echo "Package is now public."
+            exit 0
+          fi
+
+          if gh api --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              "/user/packages/container/${PACKAGE}" \
+              -f visibility=public; then
+            echo "Package is now public (via /user)."
+            exit 0
+          fi
+
+          echo "::warning::Could not set ${PACKAGE} public via API (need owner PAT or UI)."
+          echo "One-time UI: https://github.com/users/${OWNER}/packages/container/${PACKAGE}/settings"
+          echo "→ Change visibility → Public. After that anonymous pull works without docker login."
+          exit 0

@@ -13,7 +13,7 @@
 conf/                  # local.yaml / prod.yaml (+ ml_dedup, ml_enrich)
 db/migrations/         # SQL up/down (вместо Alembic)
 docker/postgres/       # образ Postgres: migrate + COPY seed
-deploy/                # prod: compose + webapp Dockerfile; ONNX → GitHub Release `models`
+DEPLOY.md              # prod GHCR + ONNX Release `models` + docker-compose.prod.yaml
 src/
   project/             # config, logging, database, sql_migrate
   auth/                # пользователи Max
@@ -75,7 +75,7 @@ python ml/dedup/eval_threshold.py --config ml/dedup/config.yaml
 ```
 
 Артефакты → `ml/*/artifacts/` (в git не коммитим тяжёлые `.onnx`; в local compose
-монтируются, в prod — внутри bot-образа из GitHub Release `models`, см. `deploy/`).
+монтируются, в prod — внутри bot-образа из GitHub Release `models`, см. `DEPLOY.md`).
 
 ## Запуск
 
@@ -91,8 +91,8 @@ docker compose up -d postgres webapp cloudpub
 python -m main
 
 # Prod — публичные образы GHCR (тег v* → Actions), ONNX внутри bot:
-# см. deploy/README.md (куда залить ONNX в Release `models`)
-# docker compose -f deploy/docker-compose.prod.yaml --env-file .env up -d
+# см. DEPLOY.md (куда залить ONNX в Release `models`)
+# docker compose -f docker-compose.prod.yaml --env-file .env up -d
 ```
 
 ## Миграции (SQL)

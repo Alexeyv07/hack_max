@@ -1,4 +1,4 @@
-# Контекст сборки бота. Не тащить train-мусор и webapp.
+# Shared build context (bot + webapp + postgres). Не тащить train-мусор и node_modules.
 .git
 .venv
 venv
@@ -15,7 +15,12 @@ __pycache__
 .env.*
 !.env.example
 
-webapp
+# webapp source нужен для webapp/Dockerfile; артефакты — нет
+webapp/node_modules
+webapp/.svelte-kit
+webapp/build
+webapp/.vercel
+webapp/.output
 node_modules
 **/.svelte-kit
 

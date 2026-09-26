@@ -66,7 +66,7 @@ fetch → ParserCandidate ─normalize─▶ EventDraft ──resolve──▶ N
 - Ручной прогон classify: `python scripts/classify_try.py` (`PYTHONPATH=src`).
 - Docker bot: extra `ml-runtime` (onnxruntime + transformers + spacy); веса из
   `ml/*/artifacts` — в prod-образе (Release `models` → Actions), в local compose
-  монтируются с хоста. См. [`deploy/README.md`](deploy/README.md).
+  монтируются с хоста. См. [`DEPLOY.md`](DEPLOY.md).
 
 ## News parser (KAN-11)
 
@@ -201,8 +201,8 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
 ## Deploy (prod)
 
 - Образы GHCR (public): `hack_max-postgres` / `hack_max-bot` / `hack_max-webapp` — сборка при теге `v*`.
-- ONNX: GitHub Release tag `models` (не в git). Инструкция: [`deploy/README.md`](deploy/README.md).
-- Локально/на сервере: `docker compose -f deploy/docker-compose.prod.yaml --env-file .env up -d`
+- ONNX: GitHub Release tag `models` (не в git). Инструкция: [`DEPLOY.md`](DEPLOY.md).
+- Локально/на сервере: `docker compose -f docker-compose.prod.yaml --env-file .env up -d`
   (`APP_ENVIRONMENT=prod`, pull без `docker login`).
 
 ## Конфиг
@@ -222,7 +222,7 @@ python -m main
 # docker compose up -d --build
 # docker compose logs -f cloudpub
 # локально: http://localhost:5173
-# prod: docker compose -f deploy/docker-compose.prod.yaml --env-file .env up -d
+# prod: docker compose -f docker-compose.prod.yaml --env-file .env up -d
 
 # ML classify (KAN-13), отдельно от runtime:
 pip install torch --index-url https://download.pytorch.org/whl/cu124

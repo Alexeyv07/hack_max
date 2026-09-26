@@ -1,6 +1,6 @@
 # Prod stack: public GHCR images, secrets from .env, APP_ENVIRONMENT=prod.
 # Usage (from repo root):
-#   docker compose -f deploy/docker-compose.prod.yaml --env-file .env up -d
+#   docker compose -f docker-compose.prod.yaml --env-file .env up -d
 #
 # .env — только секреты: MAX_BOT_TOKEN, CLOUDPUB_TOKEN, AITUNNEL_API_KEY
 # IMAGE_TAG — тег образов (default: latest). Пример: IMAGE_TAG=v1.0.0
@@ -32,7 +32,7 @@ services:
     image: ghcr.io/alexeyv07/hack_max-bot:${IMAGE_TAG:-latest}
     container_name: hack_max_bot
     env_file:
-      - ../.env
+      - .env
     environment:
       APP_ENVIRONMENT: prod
       DATABASE_HOST: postgres
@@ -70,8 +70,8 @@ services:
       HOME: /home/cloudpub
     entrypoint: ["/bin/sh", "/cloudpub-entrypoint.sh"]
     volumes:
-      - ../docker/cloudpub-entrypoint.sh:/cloudpub-entrypoint.sh:ro
-      - ../docker/cloudpub:/home/cloudpub
+      - ./docker/cloudpub-entrypoint.sh:/cloudpub-entrypoint.sh:ro
+      - ./docker/cloudpub:/home/cloudpub
     depends_on:
       - webapp
 

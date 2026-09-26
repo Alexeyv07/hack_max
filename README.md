@@ -34,7 +34,7 @@ AITUNNEL_API_KEY=...
 Для запуска достаточно выполнить команду (решение атомарно для любого типа остановки и перезапуска):
 
 ```commandline
-docker compose -f deploy/docker-compose.prod.yaml --env-file .env up -d
+docker compose -f docker-compose.prod.yaml --env-file .env up -d
 ```
 
 
