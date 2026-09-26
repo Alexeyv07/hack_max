@@ -1,0 +1,79 @@
+# Prod stack: public GHCR images, secrets from .env, APP_ENVIRONMENT=prod.
+# Usage (from repo root):
+#   docker compose -f deploy/docker-compose.prod.yaml --env-file .env up -d
+#
+# .env — только секреты: MAX_BOT_TOKEN, CLOUDPUB_TOKEN, AITUNNEL_API_KEY
+# IMAGE_TAG — тег образов (default: latest). Пример: IMAGE_TAG=v1.0.0
+# Pull без docker login (пакеты public после release workflow).
+
+name: hack_max_prod
+
+services:
+  postgres:
+    image: ghcr.io/alexeyv07/hack_max-postgres:${IMAGE_TAG:-latest}
+    container_name: hack_max_postgres
+    environment:
+      POSTGRES_DB: hack_max
+      POSTGRES_USER: hack_max
+      POSTGRES_PASSWORD: hack_max
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hack_max -d hack_max"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
+
+  bot:
+    image: ghcr.io/alexeyv07/hack_max-bot:${IMAGE_TAG:-latest}
+    container_name: hack_max_bot
+    env_file:
+      - ../.env
+    environment:
+      APP_ENVIRONMENT: prod
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: hack_max
+      DATABASE_USER: hack_max
+      DATABASE_PASSWORD: hack_max
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  webapp:
+    image: ghcr.io/alexeyv07/hack_max-webapp:${IMAGE_TAG:-latest}
+    container_name: hack_max_webapp
+    ports:
+      - "5173:80"
+    depends_on:
+      - bot
+    restart: unless-stopped
+
+  # https://cloudpub.ru/docs/docker
+  # Sticky URL: agent_id в entrypoint + volume ./docker/cloudpub.
+  cloudpub:
+    image: cloudpub/cloudpub:latest
+    container_name: hack_max_cloudpub
+    restart: unless-stopped
+    network_mode: "service:webapp"
+    environment:
+      TOKEN: ${CLOUDPUB_TOKEN:?set CLOUDPUB_TOKEN in .env}
+      HOME: /home/cloudpub
+    entrypoint: ["/bin/sh", "/cloudpub-entrypoint.sh"]
+    volumes:
+      - ../docker/cloudpub-entrypoint.sh:/cloudpub-entrypoint.sh:ro
+      - ../docker/cloudpub:/home/cloudpub
+    depends_on:
+      - webapp
+
+volumes:
+  postgres_data:

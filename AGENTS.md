@@ -65,7 +65,8 @@ fetch → ParserCandidate ─normalize─▶ EventDraft ──resolve──▶ N
   не импортировать.
 - Ручной прогон classify: `python scripts/classify_try.py` (`PYTHONPATH=src`).
 - Docker bot: extra `ml-runtime` (onnxruntime + transformers + spacy); веса из
-  `ml/*/artifacts` копируются в образ и монтируются в compose.
+  `ml/*/artifacts` — в prod-образе (Release `models` → Actions), в local compose
+  монтируются с хоста. См. [`deploy/README.md`](deploy/README.md).
 
 ## News parser (KAN-11)
 
@@ -197,10 +198,17 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
   CloudPub (`docker compose logs cloudpub`).
 - Identity кнопки: `GET /me` → `web_app` (username) + `contact_id`.
 
+## Deploy (prod)
+
+- Образы GHCR (public): `hack_max-postgres` / `hack_max-bot` / `hack_max-webapp` — сборка при теге `v*`.
+- ONNX: GitHub Release tag `models` (не в git). Инструкция: [`deploy/README.md`](deploy/README.md).
+- Локально/на сервере: `docker compose -f deploy/docker-compose.prod.yaml --env-file .env up -d`
+  (`APP_ENVIRONMENT=prod`, pull без `docker login`).
+
 ## Конфиг
 
 - `APP_ENVIRONMENT=local|prod` → `conf/local.yaml` / `conf/prod.yaml`.
-- Секреты только в `.env` (`MAX_BOT_TOKEN`, `CLOUDPUB_TOKEN`, пароли).
+- Секреты только в `.env`: `MAX_BOT_TOKEN`, `CLOUDPUB_TOKEN`, `AITUNNEL_API_KEY`.
 - Env перекрывает YAML (`DATABASE_HOST`, `API_PORT`, `API_CORS_ORIGINS`, …).
 
 ## Команды
@@ -214,6 +222,7 @@ python -m main
 # docker compose up -d --build
 # docker compose logs -f cloudpub
 # локально: http://localhost:5173
+# prod: docker compose -f deploy/docker-compose.prod.yaml --env-file .env up -d
 
 # ML classify (KAN-13), отдельно от runtime:
 pip install torch --index-url https://download.pytorch.org/whl/cu124
