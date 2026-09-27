@@ -476,13 +476,19 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
             )
             return
 
-        await announce_connected_group(
-            bot,
-            int(target_chat_id),
-            requester_added=outcome.requester_added,
-            address_text=address.address_text,
-            additional=outcome.message is not None,
-        )
+        greeting_failed = False
+        try:
+            await announce_connected_group(
+                bot,
+                int(target_chat_id),
+                requester_added=outcome.requester_added,
+                address_text=address.address_text,
+                additional=outcome.message is not None,
+                new_message=True,
+            )
+        except Exception:
+            logger.exception("Адрес сохранён, но приветствие не отправлено в групповой чат")
+            greeting_failed = True
         await context.set_data({})
         await _complete_with_home(
             event,
@@ -491,6 +497,11 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
             notice=(
                 f"✅ Чат привязан к адресу: {address.address_text}. "
                 "Добавить ещё дом можно в «Управлять чатами»."
+                + (
+                    "\n⚠️ Приветствие не удалось отправить в группу. Попробуйте привязку ещё раз."
+                    if greeting_failed
+                    else ""
+                )
             ),
         )
         return
@@ -717,6 +728,7 @@ async def _confirm_admin_group(
     if outcome is None or not outcome.connected:
         await _show_admin_setup(event, context, bot, address_id=address_id, failed=True)
         return
+    greeting_failed = False
     try:
         await announce_connected_group(
             bot,
@@ -724,12 +736,21 @@ async def _confirm_admin_group(
             requester_added=outcome.requester_added,
             address_text=address.address_text,
             additional=outcome.message is not None,
+            new_message=True,
         )
     except Exception:
-        logger.exception("Привязка сохранена, но не удалось обновить сообщение группы")
+        logger.exception("Привязка сохранена, но приветствие не отправлено в групповой чат")
+        greeting_failed = True
     await context.set_data({})
     await event.edit(
-        text=f"✅ Адрес {address.address_text} успешно привязан к чату.",
+        text=(
+            f"✅ Адрес {address.address_text} успешно привязан к чату."
+            + (
+                "\n⚠️ Приветствие не удалось отправить в группу. Попробуйте привязку ещё раз."
+                if greeting_failed
+                else ""
+            )
+        ),
         attachments=[admin_success_keyboard()],
         notify=False,
     )
@@ -778,6 +799,7 @@ async def _finish_added_group_when_ready(
                         if connected_address is not None
                         else "адрес не найден в справочнике — сообщите администратору"
                     ),
+                    new_message=True,
                 )
                 return
         except asyncio.CancelledError:
@@ -1028,6 +1050,18 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             elif target == "street_root":
                 await context.update_data(street_prefix=None)
                 await _show_street(event, context)
+            elif target == "postal":
+                data = await context.get_data()
+                await context.set_state(ChatLinkStates.postal)
+                await event.edit(
+                    text=(
+                        "Введите шестизначный почтовый индекс. Он только сузит список адресов.\n\n"
+                        f"{docs_html('Как выбрать адрес', page='chat-link')}"
+                    ),
+                    attachments=[postal_input_keyboard(from_manage=bool(data.get("from_manage")))],
+                    notify=False,
+                    format=Format.HTML,
+                )
             elif target == "postal_street":
                 await _show_postal_street(event, context)
             return
@@ -1156,8 +1190,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             )
             return
 
-        back = "manage" if from_manage else "root"
-        markup, page, pages = list_keyboard(streets, kind="postal_street", page=0, back=back)
+        markup, page, pages = list_keyboard(streets, kind="postal_street", page=0, back="postal")
         mid = await _reply_to_postal_input(
             event,
             context,

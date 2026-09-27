@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from maxapi.utils.deep_linking import create_start_link
 from sqlalchemy import delete
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -73,11 +74,11 @@ def _target_is_still_due(
     return local_now >= digest_scheduled_at(target.chat_id, local_now.date(), config)
 
 
-def _bot_join_link(bot: Any) -> str | None:
+def _bot_join_link(bot: Any, chat_id: int) -> str | None:
     username = getattr(getattr(bot, "me", None), "username", None)
     if not username:
         return None
-    return f"https://max.ru/{username}"
+    return create_start_link(username, f"chat_{chat_id}")
 
 
 async def run_priority_cycle(
@@ -253,7 +254,14 @@ async def run_digest_cycle(
         if text is None:
             continue
 
-        text = decorate_digest(text, bot_link=_bot_join_link(bot))
+        link = _bot_join_link(bot, target.chat_id)
+        if not link:
+            logger.warning(
+                "Не отправляем суммаризацию без ссылки на бота",
+                extra={"chat_id": target.chat_id},
+            )
+            continue
+        text = decorate_digest(text, bot_link=link)
         try:
             await bot.send_message(
                 chat_id=target.chat_id,

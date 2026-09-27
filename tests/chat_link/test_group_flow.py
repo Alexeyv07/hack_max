@@ -451,7 +451,9 @@ def test_group_announcement_edits_same_message_after_address_added(db_session, m
     )
     asyncio.run(announce_connected_group(bot, -9001, address_text=first.address_text))
     kwargs = bot.send_message.await_args.kwargs
-    assert first.address_text in kwargs["text"]
+    assert kwargs["text"].startswith(f"Домовой чат по адресу:\n• {first.address_text}\n\n")
+    assert "✅ Подключён к сервису окружающих вас новостей «Касается меня»." in kwargs["text"]
+    assert "откройте бота «Касается меня»" in kwargs["text"]
     assert kwargs["attachments"][0].path == str(FIRST_START_IMAGE_PATH)
     assert db_session.get(ChatRow, -9001).welcome_mid == "group-mid"
 
@@ -474,12 +476,95 @@ def test_group_announcement_edits_same_message_after_address_added(db_session, m
     bot.edit_message.assert_awaited_once()
     assert bot.edit_message.await_args.args[0] == "group-mid"
     edited = bot.edit_message.await_args.kwargs["text"]
-    assert first.address_text in edited and second.address_text in edited
+    assert edited.startswith("Домовой чат по адресам:\n")
+    assert f"• {first.address_text}" in edited and f"• {second.address_text}" in edited
     assert remove_chat_address(db_session, -9001, second.id)
     asyncio.run(announce_connected_group(bot, -9001))
     assert bot.edit_message.await_count == 2
     after_removal = bot.edit_message.await_args.kwargs["text"]
     assert first.address_text in after_removal and second.address_text not in after_removal
+
+
+def test_group_setup_explains_welcome_after_binding() -> None:
+    from chat_link.handlers.group import announce_group_address_setup
+
+    bot = SimpleNamespace(
+        get_me_from_chat=AsyncMock(
+            return_value=SimpleNamespace(is_admin=False, is_owner=False, permissions=[])
+        ),
+        send_message=AsyncMock(),
+    )
+    asyncio.run(announce_group_address_setup(bot, -9001))
+    message = bot.send_message.await_args.kwargs
+    assert message["chat_id"] == -9001
+    assert (
+        "2. Перейдите в бота и завершите привязку к чату. "
+        "После успешной привязки в чат придёт приветственное сообщение."
+    ) in message["text"]
+    assert "Проверить еще раз" not in message["text"]
+
+
+def test_successful_binding_sends_new_welcome_instead_of_editing_old(db_session, monkeypatch):
+    from contextlib import contextmanager
+
+    import chat_link.handlers.group as group
+    from user_chat.db import ChatRow
+
+    @contextmanager
+    def same_session():
+        yield db_session
+
+    monkeypatch.setattr(group, "session_scope", same_session)
+    address = _address(db_session)
+    create_chat(db_session, ChatCreate(chat_id=-9001, address_id=address.id, chat_type="chat"))
+    db_session.get(ChatRow, -9001).welcome_mid = "hidden-old-mid"
+    reply = SimpleNamespace(message=SimpleNamespace(body=SimpleNamespace(mid="new-mid")))
+    bot = SimpleNamespace(
+        me=SimpleNamespace(username="test_bot"),
+        send_message=AsyncMock(return_value=reply),
+        edit_message=AsyncMock(),
+        delete_message=AsyncMock(),
+    )
+
+    asyncio.run(announce_connected_group(bot, -9001, new_message=True))
+
+    bot.send_message.assert_awaited_once()
+    bot.edit_message.assert_not_awaited()
+    bot.delete_message.assert_awaited_once_with("hidden-old-mid")
+    assert db_session.get(ChatRow, -9001).welcome_mid == "new-mid"
+    welcome_text = bot.send_message.await_args.kwargs["text"]
+    assert welcome_text.startswith(f"Домовой чат по адресу:\n• {address.address_text}")
+    assert "откройте сервис по кнопке ниже:" in welcome_text
+    button = bot.send_message.await_args.kwargs["attachments"][1].payload.buttons[0][0]
+    assert button.text == "Указать свой адрес"
+    assert "chat_-9001" in button.url
+
+
+def test_group_welcome_falls_back_to_text_if_image_is_missing(db_session, monkeypatch):
+    from contextlib import contextmanager
+
+    import chat_link.handlers.group as group
+
+    @contextmanager
+    def same_session():
+        yield db_session
+
+    monkeypatch.setattr(group, "session_scope", same_session)
+    address = _address(db_session)
+    create_chat(db_session, ChatCreate(chat_id=-9001, address_id=address.id, chat_type="chat"))
+    reply = SimpleNamespace(message=SimpleNamespace(body=SimpleNamespace(mid="new-mid")))
+    bot = SimpleNamespace(
+        me=SimpleNamespace(username="test_bot"),
+        send_message=AsyncMock(side_effect=[FileNotFoundError("image"), reply]),
+    )
+
+    asyncio.run(announce_connected_group(bot, -9001, new_message=True))
+
+    assert bot.send_message.await_count == 2
+    first, second = bot.send_message.await_args_list
+    assert len(first.kwargs["attachments"]) == 2  # Обложка и ссылка в личку.
+    assert len(second.kwargs["attachments"]) == 1  # При повторе только ссылка.
+    assert second.kwargs["attachments"][0].payload.buttons[0][0].text == "Указать свой адрес"
 
 
 def test_group_address_lookup_shows_only_connected_group(db_session) -> None:
@@ -538,5 +623,58 @@ def test_referral_prompts_personal_address_and_preserves_membership(db_session) 
         bind_referral_member(FakeBot(members={101}), db_session, chat_id=-9050, max_user_id=101)
     )
     assert outcome.joined
-    assert "Укажите свой адрес" in outcome.message
-    assert list_memberships_for_user(db_session, 101) == []
+    assert "Адрес чата сохранён" in outcome.message
+    assert list_memberships_for_user(db_session, 101)[0].address_id == address.id
+
+
+def test_referral_saves_every_chat_address_without_guessing_residence(db_session) -> None:
+    from auth.db import UserRow
+    from auth.handlers.managed_addresses import list_managed_addresses, remove_managed_address
+    from user_chat.handlers import add_chat_address, remove_chat_address
+
+    first = _address(db_session)
+    second = AddressRow(
+        address_text="Москва, Соседская, д. 2",
+        latitude=Decimal("55.7500000"),
+        longitude=Decimal("37.6100000"),
+    )
+    db_session.add(second)
+    db_session.flush()
+    user = _user(db_session, 212)
+    create_chat(db_session, ChatCreate(chat_id=-9110, address_id=first.id, title="Наш двор"))
+    add_chat_address(db_session, -9110, second.id)
+
+    outside = asyncio.run(
+        bind_referral_member(FakeBot(), db_session, chat_id=-9110, max_user_id=212)
+    )
+    assert not outside.joined
+    assert list_managed_addresses(db_session, 212) == []
+
+    inside = asyncio.run(
+        bind_referral_member(FakeBot(members={212}), db_session, chat_id=-9110, max_user_id=212)
+    )
+    assert inside.joined
+    assert "Все 2 адреса" in inside.message
+    assert {item.id for item in list_managed_addresses(db_session, 212)} == {
+        first.id,
+        second.id,
+    }
+    assert db_session.get(UserRow, user.id).address_id is None
+    assert list_memberships_for_user(db_session, 212) == []
+
+    # Повторный переход ничего не дублирует.
+    asyncio.run(
+        bind_referral_member(FakeBot(members={212}), db_session, chat_id=-9110, max_user_id=212)
+    )
+    assert len(list_managed_addresses(db_session, 212)) == 2
+
+    # Личное удаление не отвязывает дом от группы.
+    assert remove_managed_address(db_session, max_user_id=212, address_id=first.id)
+    assert {item.id for item in list_managed_addresses(db_session, 212)} == {second.id}
+    assert {address.id for address in list_chat_addresses(db_session, -9110)} == {
+        first.id,
+        second.id,
+    }
+    # Отвязка администратором убирает этот дом из списка всех жителей.
+    assert remove_chat_address(db_session, -9110, second.id)
+    assert list_managed_addresses(db_session, 212) == []

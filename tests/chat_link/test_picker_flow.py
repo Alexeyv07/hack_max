@@ -172,7 +172,49 @@ def test_admin_can_add_next_address_without_readding_bot(monkeypatch) -> None:
     assert connect.await_args.kwargs["chat_id"] == -100500
     assert context.data == {}
     announce.assert_awaited_once()
+    assert announce.await_args.kwargs["new_message"] is True
     event.edit.assert_not_awaited()
+
+
+def test_native_admin_confirmation_sends_fresh_welcome(monkeypatch) -> None:
+    @contextmanager
+    def fake_session_scope():
+        yield object()
+
+    monkeypatch.setattr(flow, "session_scope", fake_session_scope)
+    monkeypatch.setattr(
+        flow,
+        "get_address_catalog",
+        lambda: SimpleNamespace(get=lambda address_id: SimpleNamespace(address_text="Дом 2")),
+    )
+    monkeypatch.setattr(
+        flow,
+        "eligible_admin_group",
+        AsyncMock(return_value=SimpleNamespace(chat_id=-321, title="Наш двор")),
+    )
+    monkeypatch.setattr(
+        flow,
+        "connect_added_group_to_address",
+        AsyncMock(return_value=ConnectOutcome(True, -321, True)),
+    )
+    announce = AsyncMock()
+    monkeypatch.setattr(flow, "announce_connected_group", announce)
+    context = FakeContext()
+    event = SimpleNamespace(
+        callback=SimpleNamespace(user=SimpleNamespace(user_id=101)),
+        edit=AsyncMock(),
+        ack=AsyncMock(),
+    )
+
+    asyncio.run(flow._confirm_admin_group(event, context, object(), address_id=2, chat_id=-321))
+
+    assert announce.await_args.kwargs["new_message"] is True
+    assert "успешно привязан" in event.edit.await_args.kwargs["text"]
+
+    announce.side_effect = RuntimeError("MAX unavailable")
+    event.edit.reset_mock()
+    asyncio.run(flow._confirm_admin_group(event, context, object(), address_id=2, chat_id=-321))
+    assert "Приветствие не удалось отправить" in event.edit.await_args.kwargs["text"]
 
 
 class PostalCatalog:
@@ -701,3 +743,28 @@ def test_add_address_from_chat_menu_preserves_target_and_back(monkeypatch) -> No
     event.callback.payload = "cl:back:chats"
     asyncio.run(dp.handlers["message_callback"](event, context))
     assert "Управление чатами" in bot.edit_message.await_args.kwargs["text"]
+
+
+def test_postal_street_back_returns_to_postal_input(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = _postal_bot()
+    monkeypatch.setattr(flow, "get_address_catalog", lambda: PostalCatalog())
+    flow.register_chat_link_commands(dp, bot)
+    context = FakeContext({"flow_mid": "postal-mid"})
+
+    asyncio.run(dp.handlers["message_created"](_postal_event("129226"), context))
+    street_buttons = bot.send_message.await_args.kwargs["attachments"][0].payload.buttons
+    assert any(button.payload == "cl:back:postal" for row in street_buttons for button in row)
+
+    event = SimpleNamespace(
+        callback=SimpleNamespace(payload="cl:back:postal", user=SimpleNamespace(user_id=123)),
+        edit=AsyncMock(),
+        message=SimpleNamespace(body=SimpleNamespace(mid="new-mid")),
+    )
+    asyncio.run(dp.handlers["message_callback"](event, context))
+    assert "Введите шестизначный" in event.edit.await_args.kwargs["text"]
+    assert context.data["postal_code"] == "129226"
+    assert (
+        event.edit.await_args.kwargs["attachments"][0].payload.buttons[0][0].payload
+        == "cl:back:root"
+    )

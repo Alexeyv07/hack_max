@@ -468,6 +468,7 @@ async def select_address(
                 outcome.message or "Не удалось привязать чат к адресу",
             )
         session.commit()
+        greeting_failed = False
         try:
             await announce_connected_group(
                 bot,
@@ -475,13 +476,22 @@ async def select_address(
                 requester_added=outcome.requester_added,
                 address_text=address.address_text,
                 additional=outcome.message is not None,
+                new_message=True,
             )
         except Exception:
-            logger.exception("Адрес сохранён, но не удалось обновить сообщение группы")
+            logger.exception("Адрес сохранён, но приветствие не отправлено в групповой чат")
+            greeting_failed = True
         await _send_admin_screen(
             bot,
             max_user_id,
-            f"✅ Адрес {address.address_text} успешно привязан к чату.",
+            (
+                f"✅ Адрес {address.address_text} успешно привязан к чату."
+                + (
+                    "\n⚠️ Приветствие не удалось отправить в группу. Попробуйте привязку ещё раз."
+                    if greeting_failed
+                    else ""
+                )
+            ),
             admin_success_keyboard(),
         )
         return AddressSelectResponse(

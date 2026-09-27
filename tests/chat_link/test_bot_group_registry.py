@@ -13,7 +13,7 @@ from maxapi.exceptions.max import MaxApiError
 from sqlalchemy import select
 
 from chat_link.api import routes
-from chat_link.api.schemas import AdminAddressRequest, AdminGroupRequest
+from chat_link.api.schemas import AddressSelectRequest, AdminAddressRequest, AdminGroupRequest
 from chat_link.db import BotGroupRow
 from chat_link.handlers.registry import (
     deactivate_bot_group,
@@ -21,6 +21,7 @@ from chat_link.handlers.registry import (
     eligible_admin_groups,
     register_bot_group,
 )
+from chat_link.models import ConnectOutcome
 from project.database import Base
 
 
@@ -136,6 +137,37 @@ def test_swagger_documents_admin_flow_and_keeps_select_schema():
     assert paths["/chat-link/select"]["post"]["responses"]["200"]["content"]["application/json"][
         "schema"
     ]["$ref"].endswith("AddressSelectResponse")
+
+
+def test_webapp_confirm_sends_fresh_group_welcome_after_binding(db_session, monkeypatch):
+    address = SimpleNamespace(id=22, address_text="Дом 22", latitude=55.75, longitude=37.61)
+    monkeypatch.setattr(
+        routes, "get_address_catalog", lambda: SimpleNamespace(get=lambda address_id: address)
+    )
+    monkeypatch.setattr(routes, "get_max_bot", lambda: _bot())
+    connect = AsyncMock(return_value=ConnectOutcome(True, -321, True))
+    announce = AsyncMock()
+    send_screen = AsyncMock()
+    monkeypatch.setattr(routes, "connect_added_group_to_address", connect)
+    monkeypatch.setattr(routes, "announce_connected_group", announce)
+    monkeypatch.setattr(routes, "_send_admin_screen", send_screen)
+
+    result = asyncio.run(
+        routes.select_address(AddressSelectRequest(address_id=22, chat_id=-321), db_session, 22)
+    )
+
+    assert result.mode == "group_connected"
+    announce.assert_awaited_once()
+    assert announce.await_args.args[1] == -321
+    assert announce.await_args.kwargs["new_message"] is True
+    assert "успешно привязан" in send_screen.await_args.args[2]
+
+    announce.side_effect = RuntimeError("MAX refused the message")
+    send_screen.reset_mock()
+    asyncio.run(
+        routes.select_address(AddressSelectRequest(address_id=22, chat_id=-321), db_session, 22)
+    )
+    assert "Приветствие не удалось отправить" in send_screen.await_args.args[2]
 
 
 def test_private_callback_after_webapp_works_without_fsm(monkeypatch):

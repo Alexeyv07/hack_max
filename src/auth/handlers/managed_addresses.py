@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from address.db.address import AddressRow
 from auth.db.user import UserRow
-from user_chat.db import ChatRow, users_chat
+from user_chat.db import ChatRow, user_chat_addresses, users_chat
 from user_chat.handlers.membership import linked_group_ids
 
 
@@ -34,9 +34,22 @@ def list_managed_addresses(session: Session, max_user_id: int) -> list[ManagedAd
         .order_by(AddressRow.address_text, AddressRow.id, ChatRow.title)
     ).all()
 
+    # Переход по групповой ссылке сохраняет сразу все адреса чата; при этом
+    # users_chat.address_id остаётся единственным явно выбранным домом.
+    referral_rows = session.execute(
+        select(AddressRow.id, AddressRow.address_text, ChatRow.title)
+        .join(user_chat_addresses, user_chat_addresses.c.address_id == AddressRow.id)
+        .join(ChatRow, ChatRow.chat_id == user_chat_addresses.c.chat_id)
+        .where(
+            user_chat_addresses.c.user_id == user.id,
+            ChatRow.chat_type == "chat",
+        )
+        .order_by(AddressRow.address_text, AddressRow.id, ChatRow.title)
+    ).all()
+
     addresses: dict[int, str] = {}
     chats_by_address: dict[int, set[str]] = {}
-    for address_id, text, chat_title in rows:
+    for address_id, text, chat_title in [*rows, *referral_rows]:
         addresses[address_id] = text
         chats_by_address.setdefault(address_id, set()).add(chat_title)
 
@@ -64,6 +77,12 @@ def remove_managed_address(session: Session, *, max_user_id: int, address_id: in
         address.id == address_id for address in list_managed_addresses(session, max_user_id)
     ):
         return False
+    session.execute(
+        delete(user_chat_addresses).where(
+            user_chat_addresses.c.user_id == user.id,
+            user_chat_addresses.c.address_id == address_id,
+        )
+    )
     session.execute(
         update(users_chat)
         .where(users_chat.c.user_id == user.id, users_chat.c.address_id == address_id)

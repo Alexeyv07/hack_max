@@ -63,7 +63,8 @@ def test_first_welcome_matches_product_copy() -> None:
     text = start.build_welcome_text("Алексей")
     assert text.startswith("Здравствуйте, Алексей!")
     assert "Это сервис «КасаетсяМеня»" in text
-    assert "что произойдёт, когда и касается ли это вашего дома и корпуса" in text
+    assert "Помогаем не пропустить важное о вашем доме" in text
+    assert "Не упустите то, что вас касается" in text
     assert "Укажите свой адрес" in text
 
 

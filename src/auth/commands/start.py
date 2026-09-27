@@ -51,14 +51,12 @@ def build_welcome_text(
     text = (
         f"Здравствуйте, {safe_name}!\n\n"
         "Это сервис «КасаетсяМеня» 🕊️\n\n"
-        "- Помогаем не пропустить важное о вашем доме: когда отключат воду, "
-        "где идут работы и что изменилось 👷‍♂️\n\n"
-        "- Вам не нужно перечитывать весь чат соседей 🙋\n\n"
-        "- Мы собираем сообщения об одном событии в понятную карточку: "
-        "<b>что произойдёт, когда и касается ли это вашего дома и корпуса.</b> 🚀\n\n"
-        "- Если сроки изменятся — обновим информацию 📣\n\n"
-        "Также кроме новостей вашего двора и округи мы собираем для вас "
-        "подборку актуальных новостей вашего города. Не упустите то, что вас касается ❗\n\n"
+        "Помогаем не пропустить важное о вашем доме: когда отключат воду, \
+        где идут работы и что изменилось, \
+        вам не нужно перечитывать весь чат соседей 🧑‍🔧\n\n"
+        "Также кроме новостей вашего двора и округи мы собираем для вас \
+        подборку актуальных новостей вашего города и вы можете смотреть расположение событий на карте. \
+        Не упустите то, что вас касается ❗\n\n"
         f"{docs_html('О сервисе', page='overview')}\n\n"
         "Укажите свой адрес, чтобы подключить сервис к чату вашего дома:"
     )
@@ -153,6 +151,7 @@ async def _render_welcome(
     target_chat_id: int | None = None,
     resident_chat_id: int | None = None,
     recipient_chat_id: int | None = None,
+    referral_complete: bool = False,
 ) -> None:
     can_choose_address = await asyncio.to_thread(_can_choose_address, user.max_user_id)
     can_choose_address = (
@@ -190,14 +189,17 @@ async def _render_welcome(
         recipient = getattr(message, "recipient", None)
         chat_id = getattr(recipient, "chat_id", None)
     is_new = getattr(user, "is_new", False)
-    render_home = (
+    render_home = referral_complete or (
         show_events
         and not is_new
         and not any((admin_token, notice, target_chat_id, resident_chat_id))
     )
     if render_home:
         with session_scope() as session:
-            result = await send_home(bot, session, user.max_user_id, recipient_chat_id=chat_id)
+            home_kwargs = {"notice": notice} if notice else {}
+            result = await send_home(
+                bot, session, user.max_user_id, recipient_chat_id=chat_id, **home_kwargs
+            )
     else:
         # Полная презентация сервиса и её обложка — только при первом входе.
         # При повторном /start без адреса сразу предлагаем выбор дома.
@@ -295,6 +297,7 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
         target_chat_id = None
         resident_chat_id = None
         notice = None
+        referral_complete = False
         if payload.startswith(CHAT_BIND_PREFIX):
             try:
                 parsed_chat_id = int(payload.removeprefix(CHAT_BIND_PREFIX))
@@ -330,7 +333,7 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
                     )
                 notice = outcome.message
                 if outcome.joined:
-                    resident_chat_id = chat_id
+                    referral_complete = True
         await _render_welcome(
             bot,
             event,
@@ -340,6 +343,7 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             notice=notice,
             target_chat_id=target_chat_id,
             resident_chat_id=resident_chat_id,
+            referral_complete=referral_complete,
         )
 
     @dp.message_created(CommandStart())

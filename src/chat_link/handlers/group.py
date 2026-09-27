@@ -7,8 +7,10 @@ from maxapi.exceptions.max import MaxApiError
 from maxapi.types import LinkButton
 from maxapi.utils.deep_linking import create_start_link
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from auth.db.user import UserRow
 from chat_link.handlers.links import (
     create_request,
     finalize_group,
@@ -20,15 +22,20 @@ from chat_link.models import ConnectOutcome, JoinOutcome
 from project.bot_media import first_start_image
 from project.database import session_scope
 from project.docs_links import docs_html
-from user_chat.db import ChatRow
+from project.logging_setup import get_logger
+from user_chat.db import ChatRow, users_chat
 from user_chat.handlers import (
     add_chat_address,
     bind_known_chat_member,
     get_chat,
     list_chat_addresses,
     list_chats_by_address,
+    save_member_addresses,
+    set_member_address,
 )
 from user_chat.models import Chat
+
+logger = get_logger(__name__)
 
 
 def _permission_names(member: Any) -> set[str]:
@@ -89,13 +96,43 @@ async def bind_referral_member(
             False,
             "Сначала вступите в домовой чат, затем откройте эту ссылку ещё раз.",
         )
+    if not list_chat_addresses(session, chat_id):
+        return JoinOutcome(False, "Для этого чата пока не указаны адреса.")
     try:
         bind_known_chat_member(session, chat_id, max_user_id=max_user_id)
+        addresses = save_member_addresses(session, chat_id, max_user_id=max_user_id)
+        # Единственный дом однозначен. Для дворового чата с несколькими домами
+        # не угадываем адрес проживания: все дома уже сохранены в личном списке.
+        if len(addresses) == 1:
+            selected = session.scalar(
+                select(users_chat.c.address_id)
+                .join(UserRow, UserRow.id == users_chat.c.user_id)
+                .where(
+                    users_chat.c.chat_id == chat_id,
+                    UserRow.max_user_id == max_user_id,
+                )
+            )
+            if selected is None:
+                set_member_address(
+                    session, chat_id, max_user_id=max_user_id, address_id=addresses[0].id
+                )
+            user = session.scalar(select(UserRow).where(UserRow.max_user_id == max_user_id))
+            if user is not None and user.address_id is None:
+                user.address_id = addresses[0].id
+        session.flush()
     except ValueError:
         return JoinOutcome(False, "Этот домовой чат ещё не подключён к сервису.")
     return JoinOutcome(
         True,
-        "Членство в чате подтверждено. Укажите свой адрес, чтобы видеть события рядом с домом.",
+        (
+            "✅ Адрес чата сохранён в «Мои адреса»."
+            if len(addresses) == 1
+            else (
+                f"✅ Все {len(addresses)} адреса чата сохранены в «Мои адреса». "
+                "Чтобы получать новости именно рядом со своим домом, "
+                "укажите адрес проживания через «Мои адреса» → «Добавить адрес»."
+            )
+        ),
     )
 
 
@@ -329,7 +366,8 @@ async def announce_group_address_setup(bot: Any, chat_id: int) -> None:
     text = reminder + (
         "Бот добавлен в чат. Чтобы подключить этот чат к дому, администратору нужно:\n"
         "1. Назначить бота администратором с правом «Читать все сообщения».\n"
-        "2. Перейти обратно в бота и завершить указание адреса с помощью кнопки «Проверить еще раз».\n\n"
+        "2. Перейдите в бота и завершите привязку к чату. "
+        "После успешной привязки в чат придёт приветственное сообщение.\n\n"
         "Каждый адрес должен быть свободен от привязки к другому чату.\n\n"
         f"{docs_html('Как подключить домовой чат', page='chat-link')}."
     )
@@ -347,8 +385,9 @@ async def announce_connected_group(
     requester_added: bool = True,
     address_text: str = "",
     additional: bool = False,
+    new_message: bool = False,
 ) -> None:
-    """Одно закреплённое по смыслу сообщение: обновляем список при изменениях."""
+    """После подключения шлём новое приветствие; при прочих изменениях обновляем его."""
     username = getattr(getattr(bot, "me", None), "username", None)
     referral = create_start_link(username, f"chat_{chat_id}") if username else None
     with session_scope() as session:
@@ -357,35 +396,56 @@ async def announce_connected_group(
             return
         addresses = [address.address_text for address in list_chat_addresses(session, chat_id)]
         address_block = "\n".join(f"• {address}" for address in addresses)
-        text = (
-            "✅ Домовой чат подключён к адресам:\n"
-            f"{address_block}\n\n"
-            "Проверьте, что адреса указаны верно. Если заметили ошибку, "
-            "сообщите администратору чата.\n\n"
-            "Чат может объединять несколько домов. Каждый житель должен указать свой адрес, "
-            "чтобы видеть события рядом с ним."
+        address_heading = (
+            "Домовой чат по адресу:" if len(addresses) == 1 else "Домовой чат по адресам:"
         )
-        if referral:
-            text += "\n\nСоседи могут указать дом кнопкой ниже после вступления в чат."
-        if not requester_added:
-            text += "\n\nИнициатору нужно вступить в этот чат и нажать «Указать свой адрес» ниже."
+        next_step = (
+            "откройте сервис по кнопке ниже:"
+            if referral
+            else "откройте бота «Касается меня» и укажите свой адрес."
+        )
+        text = (
+            f"{address_heading}\n{address_block}\n\n"
+            "✅ Подключён к сервису окружающих вас новостей «Касается меня».\n\n"
+            "Чтобы получать информацию из чата и быть в курсе всех новостей города, "
+            f"{next_step}"
+        )
         keyboard = _connected_group_keyboard(referral)
         attachments = [first_start_image(bot), *([keyboard] if keyboard is not None else [])]
-        if chat.welcome_mid:
+        old_mid = chat.welcome_mid
+        if old_mid and not new_message:
             try:
-                await bot.edit_message(
-                    chat.welcome_mid, text=text, attachments=attachments, notify=False
-                )
+                await bot.edit_message(old_mid, text=text, attachments=attachments, notify=False)
                 return
             except MaxApiError as exc:
                 if exc.code not in {400, 404}:
                     raise
                 # Сообщение удалено в MAX: создадим новое и запомним его id.
-        result = await bot.send_message(chat_id=chat_id, text=text, attachments=attachments)
+        try:
+            result = await bot.send_message(chat_id=chat_id, text=text, attachments=attachments)
+        except (FileNotFoundError, MaxApiError) as exc:
+            if isinstance(exc, MaxApiError) and exc.code != 400:
+                raise
+            # Изображения может не быть в старом Docker-образе, либо MAX
+            # отверг вложение. Приветствие с рабочей ссылкой важнее обложки.
+            logger.warning("Не удалось отправить обложку приветствия, повторяем без неё")
+            result = await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                attachments=[keyboard] if keyboard is not None else [],
+            )
         body = getattr(getattr(result, "message", None), "body", None)
         mid = getattr(body, "mid", None)
         if mid:
             chat.welcome_mid = str(mid)
+            if new_message and old_mid and old_mid != str(mid):
+                delete = getattr(bot, "delete_message", None)
+                if callable(delete):
+                    try:
+                        await delete(old_mid)
+                    except Exception:
+                        # Историю могли очистить; новое приветствие уже отправлено.
+                        logger.debug("Не удалось удалить старое приветствие группы", exc_info=True)
 
 
 def _connected_group_keyboard(referral: str | None) -> Any | None:

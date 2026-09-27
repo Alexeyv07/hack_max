@@ -138,7 +138,9 @@ def test_31_messages_are_summarized_and_cursor_moves(session_factory) -> None:
     kwargs = bot.send_message.await_args.kwargs
     assert kwargs["chat_id"] == -7002
     assert kwargs["text"].startswith("#итого\n\n• Первая тема")
-    assert kwargs["text"].endswith("[Присоединиться к боту](https://max.ru/test_bot)")
+    assert kwargs["text"].endswith(
+        "[Присоединиться к боту](https://max.ru/test_bot?start=chat_-7002)"
+    )
     assert kwargs["format"] == "markdown"
 
     with session_factory() as session:
