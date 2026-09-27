@@ -12,7 +12,7 @@
     {
       "table": "users",
       "file": "users.csv.gz",
-      "rows": 2,
+      "rows": 3,
       "columns": [
         "id",
         "max_user_id",
@@ -31,7 +31,7 @@
     {
       "table": "chats",
       "file": "chats.csv.gz",
-      "rows": 0,
+      "rows": 1,
       "columns": [
         "chat_id",
         "title",
@@ -44,7 +44,7 @@
     {
       "table": "users_chat",
       "file": "users_chat.csv.gz",
-      "rows": 0,
+      "rows": 3,
       "columns": [
         "user_id",
         "chat_id",
@@ -54,8 +54,18 @@
     {
       "table": "chat_addresses",
       "file": "chat_addresses.csv.gz",
-      "rows": 0,
+      "rows": 1,
       "columns": [
+        "chat_id",
+        "address_id"
+      ]
+    },
+    {
+      "table": "user_chat_addresses",
+      "file": "user_chat_addresses.csv.gz",
+      "rows": 3,
+      "columns": [
+        "user_id",
         "chat_id",
         "address_id"
       ]
@@ -63,7 +73,7 @@
     {
       "table": "chat_links",
       "file": "chat_links.csv.gz",
-      "rows": 6,
+      "rows": 3,
       "columns": [
         "id",
         "token",
@@ -72,6 +82,19 @@
         "address_id",
         "chat_id",
         "status",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "table": "bot_group_registry",
+      "file": "bot_group_registry.csv.gz",
+      "rows": 1,
+      "columns": [
+        "chat_id",
+        "title",
+        "added_by_user_id",
+        "is_active",
         "created_at",
         "updated_at"
       ]
@@ -119,7 +142,7 @@
     {
       "table": "notify_digests",
       "file": "notify_digests.csv.gz",
-      "rows": 0,
+      "rows": 1,
       "columns": [
         "chat_id",
         "last_digest_date",
@@ -131,7 +154,7 @@
     {
       "table": "notify_chat_messages",
       "file": "notify_chat_messages.csv.gz",
-      "rows": 0,
+      "rows": 9,
       "columns": [
         "id",
         "chat_id",
@@ -143,7 +166,7 @@
     {
       "table": "notify_deliveries",
       "file": "notify_deliveries.csv.gz",
-      "rows": 2,
+      "rows": 0,
       "columns": [
         "id",
         "user_id",

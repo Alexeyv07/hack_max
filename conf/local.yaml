@@ -70,7 +70,7 @@ notify:
   summarizer_retry_count: 1
 
 runtime:
-  enable_bot: false
+  enable_bot: true
   enable_api: true
   enable_news_parser: false
   enable_mc_parser: false
