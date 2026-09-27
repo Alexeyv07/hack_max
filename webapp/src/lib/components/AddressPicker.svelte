@@ -205,12 +205,20 @@
 	}
 
 	async function initYandexMap(draft: PickerDraft | null) {
-		if (!mapElement) return;
+		if (!mapElement) {
+			await tick();
+		}
+		if (!mapElement) {
+			mapReady = false;
+			mapLoadError = 'Карта не успела открыться. Нажмите «Повторить».';
+			return;
+		}
 		mapLoadError = '';
 		try {
 			const ymaps3 = await loadYandexMaps();
 			if (mapDisposed || !mapElement) return;
 
+			yandexMap?.destroy();
 			yandexMap = new ymaps3.YMap(mapElement, {
 				location: { center: [lon, lat], zoom: mapZoom },
 				behaviors: ['drag', 'pinchZoom', 'scrollZoom', 'dblClick', 'oneFingerZoom'],
@@ -529,7 +537,10 @@
 
 		if (!result) {
 			if (mode === 'map') {
-				void initYandexMap(draft);
+				// bind:this на .map ещё может быть пустым в onMount — без tick карта молча не стартует.
+				void tick().then(() => {
+					if (!mapDisposed) void initYandexMap(draft);
+				});
 			} else if (query.trim().length >= 3) {
 				void runSearch(query, { preserveSelectedId: selected?.id });
 			}
