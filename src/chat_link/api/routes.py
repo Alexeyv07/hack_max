@@ -10,17 +10,35 @@ from maxapi.utils.deep_linking import create_start_link
 
 from auth.commands.home import send_home
 from auth.commands.start import ADDRESS_PICKER_TEXT
+from auth.handlers import get_user_by_max_id
 from auth.handlers.residence import get_personal_address, set_personal_address
 from chat_link.api.schemas import (
     AddressOption,
     AddressSearchResponse,
     AddressSelectRequest,
     AddressSelectResponse,
+    AdminAddressRequest,
+    AdminGroupRequest,
+    AdminGroupsResponse,
+    AdminInvitationRequest,
     ApiError,
     ChatLinkNavigationRequest,
+    ChatOption,
     GroupAddressRemovedResponse,
     PersonalResidenceResponse,
     PostalAddressSearchResponse,
+)
+from chat_link.commands.admin_screens import (
+    admin_confirm_keyboard,
+    admin_confirm_text,
+    admin_groups_keyboard,
+    admin_success_keyboard,
+    invitation_keyboard,
+    invitation_preview,
+    invitation_text,
+    no_chat_text,
+    waiting_admin_keyboard,
+    waiting_admin_text,
 )
 from chat_link.commands.keyboards import method_keyboard, setup_keyboard
 from chat_link.commands.residence_screens import (
@@ -33,9 +51,13 @@ from chat_link.handlers import (
     bind_existing_chat_member,
     bot_can_read_group,
     connect_added_group_to_address,
+    eligible_admin_group,
+    eligible_admin_groups,
     get_address_catalog,
 )
+from chat_link.handlers.links import get_request_by_token, pending_for_address
 from chat_link.handlers.residence_selection import resolve_residence
+from chat_link.models import ChatLinkStatus
 from project.api_deps import DbSession, get_max_user_id
 from project.logging_setup import get_logger
 from project.max_runtime import get_max_bot
@@ -103,6 +125,32 @@ def _option(row, score: float | None = None) -> AddressOption:
         longitude=row.longitude,
         score=score,
     )
+
+
+def _admin_address(address_id: int):
+    address = get_address_catalog().get(address_id)
+    if address is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Адрес не найден")
+    return address
+
+
+def _admin_bot():
+    bot = get_max_bot()
+    if bot is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "MAX-бот сейчас недоступен")
+    return bot
+
+
+async def _send_admin_screen(bot, max_user_id: int, text: str, keyboard) -> None:
+    try:
+        await bot.send_message(
+            user_id=max_user_id, text=text, attachments=[keyboard], format=Format.HTML
+        )
+    except Exception as exc:
+        logger.exception("Не удалось синхронизировать админский экран с личкой MAX")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Не удалось показать этот экран в боте"
+        ) from exc
 
 
 @router.get(
@@ -380,21 +428,53 @@ async def select_address(
                 address_id=payload.address_id,
             )
         except ValueError as exc:
+            await _send_admin_screen(
+                bot,
+                max_user_id,
+                waiting_admin_text(address.address_text, failed=True),
+                waiting_admin_keyboard(address.id),
+            )
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        except Exception as exc:
+            logger.exception("Сбой при завершении привязки чата через MAX")
+            await _send_admin_screen(
+                bot,
+                max_user_id,
+                waiting_admin_text(address.address_text, failed=True),
+                waiting_admin_keyboard(address.id),
+            )
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE, "Не удалось проверить права через MAX"
+            ) from exc
         if not outcome.connected:
+            session.commit()
+            await _send_admin_screen(
+                bot,
+                max_user_id,
+                waiting_admin_text(address.address_text, failed=True),
+                waiting_admin_keyboard(address.id),
+            )
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 outcome.message or "Не удалось привязать чат к адресу",
             )
         session.commit()
-        await announce_connected_group(
+        try:
+            await announce_connected_group(
+                bot,
+                payload.chat_id,
+                requester_added=outcome.requester_added,
+                address_text=address.address_text,
+                additional=outcome.message is not None,
+            )
+        except Exception:
+            logger.exception("Адрес сохранён, но не удалось обновить сообщение группы")
+        await _send_admin_screen(
             bot,
-            payload.chat_id,
-            requester_added=outcome.requester_added,
-            address_text=address.address_text,
-            additional=outcome.message is not None,
+            max_user_id,
+            f"✅ Адрес {address.address_text} успешно привязан к чату.",
+            admin_success_keyboard(),
         )
-        await _send_selected_home(bot, session, max_user_id)
         return AddressSelectResponse(
             address=_option(address),
             mode="group_connected",
@@ -429,11 +509,12 @@ async def select_address(
         notice = residence_wait_text(address.address_text)
         attachments = [residence_result_keyboard(address.id, member=False)]
     else:
-        notice = (
-            f"По адресу {address.address_text} пока нет подключённого домового чата. "
-            "Скопируйте приглашение для администратора или нажмите «Я администратор»."
-        )
-        attachments = [setup_keyboard(admin_link, address.address_text)]
+        notice = no_chat_text(address.address_text)
+        attachments = [
+            setup_keyboard(
+                admin_link, address.address_text, address_id=address.id, token=outcome.token
+            )
+        ]
     try:
         await bot.send_message(
             user_id=max_user_id,
@@ -441,8 +522,13 @@ async def select_address(
             attachments=attachments,
             format=Format.HTML,
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("Не удалось отправить результат выбора адреса в MAX")
+        if outcome.mode == "no_chat":
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "Не удалось показать шаг в боте. Повторите выбор адреса.",
+            ) from exc
     return AddressSelectResponse(
         address=_option(address),
         mode=outcome.mode,
@@ -450,6 +536,190 @@ async def select_address(
         admin_link=admin_link,
         chats=[],
     )
+
+
+@router.post(
+    "/admin/invitation",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Показать приглашение для администратора в личке бота",
+    response_description="Экран с кнопками «Скопировать» и «Назад» отправлен; тело пустое",
+    responses={
+        204: {"description": "Приглашение отправлено в личный чат MAX."},
+        403: {"description": "Заявка принадлежит другому пользователю.", "model": ApiError},
+        404: {"description": "Адрес или заявка не найдены.", "model": ApiError},
+        503: {"description": "MAX недоступен или отправка не удалась.", "model": ApiError},
+        **_AUTH_ERRORS,
+    },
+)
+async def show_admin_invitation(
+    payload: AdminInvitationRequest, session: DbSession, max_user_id: MaxUserId
+) -> Response:
+    """Тело: `{"address_id": 881, "token": "abc123"}`. Экран WebApp дублируется в ЛС."""
+    address = _admin_address(payload.address_id)
+    request = get_request_by_token(session, payload.token)
+    if (
+        request is None
+        or request.address_id != address.id
+        or request.status != ChatLinkStatus.WAITING_GROUP
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Приглашение больше не доступно")
+    user = get_user_by_max_id(session, max_user_id)
+    if user is None or user.id != request.requester_user_id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Приглашение принадлежит другому пользователю"
+        )
+    bot = _admin_bot()
+    username = getattr(getattr(bot, "me", None), "username", None)
+    if not username:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Не удалось создать ссылку")
+    text = invitation_text(
+        address.address_text, create_start_link(username, f"chat_admin_{payload.token}")
+    )
+    await _send_admin_screen(
+        bot,
+        max_user_id,
+        invitation_preview(text),
+        invitation_keyboard(address_id=address.id, text=text),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/admin/back",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Вернуться к экрану адреса без подключённого чата",
+    response_description="Исходный экран отправлен в личный чат MAX; тело пустое",
+    responses={
+        204: {"description": "Экран отправлен в ЛС."},
+        404: {"description": "Адрес или активная заявка не найдены.", "model": ApiError},
+        503: {"description": "MAX недоступен.", "model": ApiError},
+        **_AUTH_ERRORS,
+    },
+)
+async def back_to_no_chat(
+    payload: AdminAddressRequest, session: DbSession, max_user_id: MaxUserId
+) -> Response:
+    """Не создаёт новую заявку и не инвалидирует старую ссылку администратора."""
+    address = _admin_address(payload.address_id)
+    request = pending_for_address(session, max_user_id=max_user_id, address_id=address.id)
+    if request is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Заявка устарела, выберите адрес заново")
+    bot = _admin_bot()
+    username = getattr(getattr(bot, "me", None), "username", None)
+    link = create_start_link(username, f"chat_admin_{request.token}") if username else None
+    await _send_admin_screen(
+        bot,
+        max_user_id,
+        no_chat_text(address.address_text),
+        setup_keyboard(link, address.address_text, address_id=address.id, token=request.token),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/admin/check",
+    response_model=AdminGroupsResponse,
+    summary="Проверить группы, в которых пользователь и бот — администраторы",
+    response_description="Актуальный список проверенных групп; тот же экран отправлен в ЛС",
+    responses={
+        200: {
+            "model": AdminGroupsResponse,
+            "description": "Список или пустой массив; права проверены через MAX.",
+        },
+        404: {"description": "Адрес не найден.", "model": ApiError},
+        503: {
+            "description": "Не удалось проверить права через MAX или показать экран в ЛС.",
+            "model": ApiError,
+        },
+        **_AUTH_ERRORS,
+    },
+)
+async def check_admin_groups(
+    payload: AdminAddressRequest, session: DbSession, max_user_id: MaxUserId
+) -> AdminGroupsResponse:
+    """`{"address_id": 881}`; проверка выполняется заново при каждом «Проверить еще раз».
+
+    Группа должна быть активной в реестре, иметь тип CHAT, админа-бота с
+    `read_all_messages` и участника-администратора с текущим `X-Max-User-Id`.
+    Сбой MAX — 503, а не пустой список.
+    """
+    address = _admin_address(payload.address_id)
+    bot = _admin_bot()
+    try:
+        groups = await eligible_admin_groups(bot, session, max_user_id=max_user_id)
+    except Exception as exc:
+        logger.exception("Не удалось проверить список админских групп")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Не удалось проверить чаты через MAX"
+        ) from exc
+    if groups:
+        text = "Чаты, к которым можно привязать адрес:"
+        keyboard = admin_groups_keyboard(address.id, groups)
+    else:
+        text = waiting_admin_text(address.address_text)
+        keyboard = waiting_admin_keyboard(address.id)
+    await _send_admin_screen(bot, max_user_id, text, keyboard)
+    return AdminGroupsResponse(
+        items=[ChatOption(chat_id=group.chat_id, title=group.title) for group in groups]
+    )
+
+
+@router.post(
+    "/admin/confirm",
+    response_model=ChatOption,
+    summary="Проверить выбранную группу и показать подтверждение привязки",
+    response_description="Проверенный чат; в ЛС отправлен полный адрес и кнопка подтверждения",
+    responses={
+        200: {"model": ChatOption},
+        404: {"description": "Адрес не найден.", "model": ApiError},
+        409: {
+            "description": "Группа отсутствует в реестре или нужные права не подтверждены.",
+            "model": ApiError,
+        },
+        503: {"description": "Сбой MAX при проверке или отправке сообщения.", "model": ApiError},
+        **_AUTH_ERRORS,
+    },
+)
+async def confirm_admin_group(
+    payload: AdminGroupRequest, session: DbSession, max_user_id: MaxUserId
+) -> ChatOption:
+    """`{"address_id": 881, "chat_id": -123456789}`; привязку НЕ создаёт.
+
+    Само изменение выполняется через существующий `/chat-link/select`, с
+    `chat_id` и `address_id`, после повторной проверки прав.
+    """
+    address = _admin_address(payload.address_id)
+    bot = _admin_bot()
+    try:
+        group = await eligible_admin_group(
+            bot, session, chat_id=payload.chat_id, max_user_id=max_user_id
+        )
+    except Exception as exc:
+        logger.exception("Не удалось подтвердить права на группу")
+        await _send_admin_screen(
+            bot,
+            max_user_id,
+            waiting_admin_text(address.address_text, failed=True),
+            waiting_admin_keyboard(address.id),
+        )
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Не удалось проверить чат через MAX"
+        ) from exc
+    if group is None:
+        await _send_admin_screen(
+            bot,
+            max_user_id,
+            waiting_admin_text(address.address_text, failed=True),
+            waiting_admin_keyboard(address.id),
+        )
+        raise HTTPException(status.HTTP_409_CONFLICT, "Бот или пользователь не имеют нужных прав")
+    await _send_admin_screen(
+        bot,
+        max_user_id,
+        admin_confirm_text(address.address_text, group),
+        admin_confirm_keyboard(address.id, group.chat_id),
+    )
+    return ChatOption(chat_id=group.chat_id, title=group.title)
 
 
 @router.post(

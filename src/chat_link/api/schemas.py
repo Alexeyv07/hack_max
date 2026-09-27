@@ -157,6 +157,50 @@ class ChatOption(BaseModel):
     )
 
 
+class AdminAddressRequest(BaseModel):
+    """Адрес выбран и сохранён на время подключения домового чата."""
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"address_id": 881}]})
+
+    address_id: int = Field(ge=1, description="ID ранее выбранного адреса.", examples=[881])
+
+
+class AdminInvitationRequest(AdminAddressRequest):
+    """Предпросмотр приглашения, полученного при выборе дома."""
+
+    model_config = ConfigDict(
+        json_schema_extra={"examples": [{"address_id": 881, "token": "abc123"}]}
+    )
+
+    token: str = Field(min_length=1, description="Токен заявки из ответа `/select`.")
+
+
+class AdminGroupRequest(AdminAddressRequest):
+    """Подтвердить показ конкретного MAX-чата перед привязкой."""
+
+    model_config = ConfigDict(
+        json_schema_extra={"examples": [{"address_id": 881, "chat_id": -123456789}]}
+    )
+
+    chat_id: int = Field(description="MAX ID выбранного группового чата.", examples=[-123456789])
+
+
+class AdminGroupsResponse(BaseModel):
+    """Группы, в которых и пользователь, и бот — администраторы с нужными правами."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"items": [{"chat_id": -123456789, "title": "Наш двор", "invite_link": None}]}
+            ]
+        }
+    )
+
+    items: list[ChatOption] = Field(
+        description="Подходящие группы; пустой список означает, что проверка MAX прошла, но таких групп нет."
+    )
+
+
 class AddressSelectResponse(BaseModel):
     """Результат выбора адреса / онбординга чата."""
 

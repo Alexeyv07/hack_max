@@ -50,6 +50,10 @@ def test_bot_added_uses_user_who_added_bot(monkeypatch) -> None:
         yield object()
 
     monkeypatch.setattr(flow, "session_scope", fake_session_scope)
+    registered = []
+    monkeypatch.setattr(
+        flow, "register_bot_group", lambda session, chat_id, **kw: registered.append((chat_id, kw))
+    )
     monkeypatch.setattr(flow, "get_chat", lambda session, chat_id: None)
     monkeypatch.setattr(flow, "pending_for_actor", lambda session, user_id: None)
     monkeypatch.setattr(flow, "announce_group_address_setup", announce)
@@ -68,7 +72,9 @@ def test_bot_added_uses_user_who_added_bot(monkeypatch) -> None:
     asyncio.run(dp.handlers["bot_added"](event))
 
     announce.assert_awaited_once_with(bot, -100500)
-    assert scheduled == [(-100500, 321)]
+    assert registered[0][0] == -100500
+    assert registered[0][1]["actor_max_user_id"] == 321
+    assert scheduled == []  # новая группа не привязывается без явного подтверждения
 
 
 def test_bot_added_ignores_channels(monkeypatch) -> None:
@@ -169,6 +175,11 @@ def test_bot_removed_detaches_chat_and_cancels_pending_connect(monkeypatch) -> N
     monkeypatch.setattr(flow, "session_scope", fake_session_scope)
     monkeypatch.setattr(
         flow,
+        "deactivate_bot_group",
+        lambda session, chat_id: detached.append(("inactive", chat_id)),
+    )
+    monkeypatch.setattr(
+        flow,
         "detach_chat",
         lambda session, chat_id: detached.append(chat_id) or True,
     )
@@ -181,7 +192,7 @@ def test_bot_removed_detaches_chat_and_cancels_pending_connect(monkeypatch) -> N
     )
     asyncio.run(dp.handlers["bot_removed"](event))
 
-    assert detached == [-100500]
+    assert detached == [("inactive", -100500), -100500]
     assert task.cancelled
     assert -100500 not in flow._GROUP_CONNECT_TASKS
 

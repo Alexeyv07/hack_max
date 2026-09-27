@@ -16,8 +16,19 @@ from auth.commands.manage_addresses import build_manage_list_view
 from auth.commands.start import ADDRESS_PICKER_TEXT, build_welcome_keyboard, user_can_see_events
 from auth.handlers import get_user_by_max_id
 from auth.handlers.residence import set_personal_address
+from chat_link.commands.admin_screens import (
+    admin_confirm_keyboard,
+    admin_confirm_text,
+    admin_groups_keyboard,
+    admin_success_keyboard,
+    invitation_keyboard,
+    invitation_preview,
+    invitation_text,
+    no_chat_text,
+    waiting_admin_keyboard,
+    waiting_admin_text,
+)
 from chat_link.commands.keyboards import (
-    admin_setup_keyboard,
     list_keyboard,
     method_keyboard,
     postal_input_keyboard,
@@ -39,10 +50,17 @@ from chat_link.handlers import (
     connect_added_group_to_address,
     connected_group_address,
     connected_group_keyboard,
+    deactivate_bot_group,
+    eligible_admin_group,
+    eligible_admin_groups,
     get_address_catalog,
     pending_for_actor,
+    pending_for_address,
+    register_bot_group,
 )
+from chat_link.handlers.links import get_request_by_token
 from chat_link.handlers.residence_selection import resolve_residence
+from chat_link.models import ChatLinkStatus
 from project.bot_media import other_messages_image
 from project.database import session_scope
 from project.docs_links import docs_html
@@ -526,10 +544,19 @@ async def _finish_residence(
     )
 
 
-async def _show_resident_setup(event: Any, context: Any, bot: Any) -> None:
+async def _show_resident_setup(
+    event: Any, context: Any, bot: Any, *, address_id: int | None = None
+) -> None:
     data = await context.get_data()
-    address_id = data.get("address_id")
-    token = data.get("link_token")
+    if address_id is None:
+        address_id = data.get("address_id")
+    token = data.get("link_token") if data.get("address_id") == address_id else None
+    if address_id is not None and not token:
+        with session_scope() as session:
+            request = pending_for_address(
+                session, max_user_id=_callback_user_id(event), address_id=address_id
+            )
+        token = request.token if request is not None else None
     address = get_address_catalog().get(address_id) if address_id is not None else None
     if address is None or not token:
         await event.edit(
@@ -541,26 +568,26 @@ async def _show_resident_setup(event: Any, context: Any, bot: Any) -> None:
 
     username = getattr(getattr(bot, "me", None), "username", None)
     admin_link = create_start_link(username, f"chat_admin_{token}") if username else None
-    text = (
-        f"Адрес: {address.address_text}\n\n"
-        "Для этого дома пока нет подключённого чата.\n\n"
-        "Скопируйте пригласительное сообщение и отправьте его администратору "
-        "вашего домового чата. Если вы сами администратор, нажмите кнопку ниже.\n\n"
-        f"{docs_html('Как подключить домовой чат', page='chat-link')}."
-    )
+    await context.update_data(address_id=address_id, link_token=token)
+    text = no_chat_text(address.address_text)
     if not admin_link:
         text += "\n\nСейчас ссылку для администратора создать не удалось. Попробуйте ещё раз позже."
     await event.edit(
         text=text,
-        attachments=[setup_keyboard(admin_link, address.address_text)],
+        attachments=[
+            setup_keyboard(admin_link, address.address_text, address_id=address_id, token=token)
+        ],
         notify=False,
         format=Format.HTML,
     )
 
 
-async def _show_admin_setup(event: Any, context: Any, bot: Any) -> None:
+async def _show_admin_setup(
+    event: Any, context: Any, bot: Any, *, address_id: int | None = None, failed: bool = False
+) -> None:
     data = await context.get_data()
-    address_id = data.get("address_id")
+    if address_id is None:
+        address_id = data.get("address_id")
     address = get_address_catalog().get(address_id) if address_id is not None else None
     if address is None:
         await event.edit(
@@ -570,19 +597,111 @@ async def _show_admin_setup(event: Any, context: Any, bot: Any) -> None:
         )
         return
 
+    await context.update_data(address_id=address_id)
+    if not failed:
+        try:
+            with session_scope() as session:
+                groups = await eligible_admin_groups(
+                    bot, session, max_user_id=_callback_user_id(event)
+                )
+        except Exception:
+            logger.exception("Не удалось проверить группы пользователя в MAX")
+            await event.edit(
+                text="Не удалось проверить чаты через MAX. Попробуйте ещё раз позже.",
+                attachments=[waiting_admin_keyboard(address_id)],
+                notify=False,
+            )
+            return
+        if groups:
+            await event.edit(
+                text="Чаты, к которым можно привязать адрес:",
+                attachments=[admin_groups_keyboard(address_id, groups)],
+                notify=False,
+            )
+            return
     await event.edit(
-        text=(
-            f"Адрес: {address.address_text}\n\n"
-            "Если бот уже есть в вашем чате соседей — повторно добавлять его не нужно. "
-            "Напишите в группу команду /address и нажмите "
-            "«Добавить адрес чата (админ)». Потом выберите этот дом в личных сообщениях с ботом.\n\n"
-            "Если бота в чате ещё нет: добавьте его в группу и сделайте администратором "
-            "с правом «Читать все сообщения». После этого можно выбрать первый адрес.\n\n"
-            f"{docs_html('Подключение чата', page='chat-link')}."
-        ),
-        attachments=[admin_setup_keyboard()],
+        text=waiting_admin_text(address.address_text, failed=failed),
+        attachments=[waiting_admin_keyboard(address_id)],
         notify=False,
         format=Format.HTML,
+    )
+
+
+async def _show_admin_confirm(
+    event: Any, context: Any, bot: Any, *, address_id: int, chat_id: int
+) -> None:
+    address = get_address_catalog().get(address_id)
+    if address is None:
+        await _ack_callback(event, notification="Адрес не найден, выберите его заново")
+        return
+    try:
+        with session_scope() as session:
+            group = await eligible_admin_group(
+                bot, session, chat_id=chat_id, max_user_id=_callback_user_id(event)
+            )
+    except Exception:
+        logger.exception("Не удалось перепроверить права на группу")
+        await event.edit(
+            text="MAX сейчас не отвечает. Повторите проверку позже.",
+            attachments=[waiting_admin_keyboard(address_id)],
+            notify=False,
+        )
+        return
+    if group is None:
+        await _show_admin_setup(event, context, bot, address_id=address_id, failed=True)
+        return
+    await context.update_data(address_id=address_id, target_chat_id=chat_id)
+    await event.edit(
+        text=admin_confirm_text(address.address_text, group),
+        attachments=[admin_confirm_keyboard(address_id, chat_id)],
+        notify=False,
+        format=Format.HTML,
+    )
+
+
+async def _confirm_admin_group(
+    event: Any, context: Any, bot: Any, *, address_id: int, chat_id: int
+) -> None:
+    address = get_address_catalog().get(address_id)
+    if address is None:
+        await _ack_callback(event, notification="Адрес больше не найден")
+        return
+    try:
+        with session_scope() as session:
+            group = await eligible_admin_group(
+                bot, session, chat_id=chat_id, max_user_id=_callback_user_id(event)
+            )
+            if group is None:
+                outcome = None
+            else:
+                outcome = await connect_added_group_to_address(
+                    bot,
+                    session,
+                    chat_id=chat_id,
+                    admin_max_user_id=_callback_user_id(event),
+                    address_id=address_id,
+                )
+    except Exception:
+        logger.exception("Не удалось завершить привязку чата")
+        outcome = None
+    if outcome is None or not outcome.connected:
+        await _show_admin_setup(event, context, bot, address_id=address_id, failed=True)
+        return
+    try:
+        await announce_connected_group(
+            bot,
+            chat_id,
+            requester_added=outcome.requester_added,
+            address_text=address.address_text,
+            additional=outcome.message is not None,
+        )
+    except Exception:
+        logger.exception("Привязка сохранена, но не удалось обновить сообщение группы")
+    await context.set_data({})
+    await event.edit(
+        text=f"✅ Адрес {address.address_text} успешно привязан к чату.",
+        attachments=[admin_success_keyboard()],
+        notify=False,
     )
 
 
@@ -800,8 +919,78 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                 logger.exception("Не удалось изменить адреса группового чата")
                 await event.ack(notification="Не удалось изменить адреса, попробуйте позже")
             return
-        if payload == "cl:admin:help":
-            await _show_admin_setup(event, context, bot)
+        if payload.startswith("cl:invite:"):
+            parts = payload.split(":")
+            if len(parts) != 4 or not parts[3].isdigit():
+                await _ack_callback(event, notification="Некорректное приглашение")
+                return
+            token, address_id = parts[2], int(parts[3])
+            with session_scope() as session:
+                request = get_request_by_token(session, token)
+                user = get_user_by_max_id(session, _callback_user_id(event))
+            address = get_address_catalog().get(address_id)
+            if (
+                request is None
+                or user is None
+                or request.requester_user_id != user.id
+                or request.address_id != address_id
+                or request.status != ChatLinkStatus.WAITING_GROUP
+                or address is None
+            ):
+                await _ack_callback(event, notification="Приглашение устарело")
+                return
+            username = getattr(getattr(bot, "me", None), "username", None)
+            if not username:
+                await _ack_callback(event, notification="Не удалось создать ссылку")
+                return
+            text = invitation_text(
+                address.address_text, create_start_link(username, f"chat_admin_{token}")
+            )
+            await event.edit(
+                text=invitation_preview(text),
+                attachments=[invitation_keyboard(address_id=address_id, text=text)],
+                format=Format.HTML,
+                notify=False,
+            )
+            return
+        if payload == "cl:admin:home":
+            await context.set_data({})
+            await _complete_with_home(event, bot, _callback_user_id(event))
+            return
+        if payload.startswith("cl:admin:pick:") or payload.startswith("cl:admin:confirm:"):
+            parts = payload.split(":")
+            if len(parts) != 5:
+                await _ack_callback(event, notification="Некорректная кнопка")
+                return
+            try:
+                address_id, chat_id = int(parts[3]), int(parts[4])
+            except ValueError:
+                await _ack_callback(event, notification="Некорректная кнопка")
+                return
+            if parts[2] == "pick":
+                await _show_admin_confirm(
+                    event, context, bot, address_id=address_id, chat_id=chat_id
+                )
+            else:
+                await _confirm_admin_group(
+                    event, context, bot, address_id=address_id, chat_id=chat_id
+                )
+            return
+        if payload.startswith("cl:admin:help") or payload.startswith("cl:admin:retry:"):
+            parts = payload.split(":")
+            if len(parts) not in (3, 4) or (len(parts) == 4 and not parts[3].isdigit()):
+                await _ack_callback(event, notification="Некорректная кнопка")
+                return
+            await _show_admin_setup(
+                event, context, bot, address_id=int(parts[3]) if len(parts) == 4 else None
+            )
+            return
+        if payload.startswith("cl:admin:back:"):
+            parts = payload.split(":")
+            if len(parts) != 4 or not parts[3].isdigit():
+                await _ack_callback(event, notification="Некорректная кнопка")
+                return
+            await _show_resident_setup(event, context, bot, address_id=int(parts[3]))
             return
         if payload == "cl:admin:user":
             await _show_resident_setup(event, context, bot)
@@ -1041,22 +1230,37 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             return
         try:
             chat_id = int(event.chat_id)
-            actor_max_user_id = int(event.user.user_id)
+            actor_id = getattr(getattr(event, "user", None), "user_id", None)
+            actor_max_user_id = int(actor_id) if actor_id is not None else None
             with session_scope() as session:
+                register_bot_group(
+                    session,
+                    chat_id,
+                    actor_max_user_id=actor_max_user_id,
+                    title=getattr(getattr(event, "chat", None), "title", None),
+                )
                 existing = get_chat(session, chat_id)
-                pending = pending_for_actor(session, actor_max_user_id)
+                pending = (
+                    pending_for_actor(session, actor_max_user_id)
+                    if actor_max_user_id is not None
+                    else None
+                )
             if existing is not None and existing.chat_type == "chat":
                 return
 
-            if pending is None:
-                await announce_group_address_setup(bot, chat_id)
+            await announce_group_address_setup(bot, chat_id)
             # Оставляем совместимость со старым flow: если заявка уже была создана
             # до добавления бота, она всё ещё сможет завершиться автоматически.
-            _schedule_added_group_connect(
-                bot,
-                chat_id=chat_id,
-                actor_max_user_id=actor_max_user_id,
-            )
+            if (
+                actor_max_user_id is not None
+                and pending is not None
+                and pending.admin_user_id is not None
+            ):
+                _schedule_added_group_connect(
+                    bot,
+                    chat_id=chat_id,
+                    actor_max_user_id=actor_max_user_id,
+                )
         except Exception:
             logger.exception("Не удалось обработать добавление бота в групповой чат")
 
@@ -1070,6 +1274,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             task.cancel()
         try:
             with session_scope() as session:
+                deactivate_bot_group(session, chat_id)
                 detached = detach_chat(session, chat_id)
             if detached:
                 logger.info("Домовой чат откреплён после bot_removed", extra={"chat_id": chat_id})

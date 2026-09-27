@@ -146,17 +146,31 @@ def prefix_groups(values: list[str], *, base_prefix: str = "") -> list[str]:
     return sorted({value[: start + 1] for value in compact if value.startswith(base_prefix)})
 
 
-def setup_keyboard(admin_link: str | None, address_text: str = ""):
+def setup_keyboard(
+    admin_link: str | None,
+    address_text: str = "",
+    *,
+    address_id: int | None = None,
+    token: str | None = None,
+):
     """Экран обычного жителя после выбора дома."""
     builder = InlineKeyboardBuilder()
-    if admin_link:
+    if admin_link and address_id is not None and token:
+        builder.row(
+            CallbackButton(
+                text="Скопировать пригласительное сообщение",
+                payload=f"cl:invite:{token}:{address_id}",
+            )
+        )
+    elif admin_link:
         invitation = (
             f"Здравствуйте! Помогите подключить домовой чат по адресу {address_text} "
             f"к боту «КасаетсяМеня»: {admin_link}"
         )
         builder.row(ClipboardButton(text="Скопировать ссылку", payload=invitation))
-    builder.row(CallbackButton(text="Я администратор", payload="cl:admin:help"))
-    builder.row(CallbackButton(text="← Выбрать другой адрес", payload="cl:method:native"))
+    help_payload = f"cl:admin:help:{address_id}" if address_id is not None else "cl:admin:help"
+    builder.row(CallbackButton(text="Я админ чата", payload=help_payload))
+    builder.row(CallbackButton(text="Выбрать другой адрес", payload="cl:back:root"))
     return builder.as_markup()
 
 
