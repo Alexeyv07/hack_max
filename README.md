@@ -46,12 +46,12 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 
 <table>
 <tr>
-<td width="20%" valign="top" align="center">
+<td width="30%" valign="top" align="center">
   <img src="media/qr-link-chat.png" alt="QR-код чата MAX" height="260">
   <br>
   <sub><a href="https://max.ru/join/UO3tG6zt7eEQvjqZ5xbAU1ofQTL3bzvzqObFIzFmC_U">Или по ссылке →</a></sub>
 </td>
-<td width="80%" valign="top">
+<td width="70%" valign="top">
 
 Все тестовые данные после запуска контейнеров уже используются. Для тестирования решения были заготовлены:
 
@@ -66,35 +66,76 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 
 ## Пользовательские сценарии
 
-...Изображение во всю ширину с вертикальными скринами
-...Изображение вертикальное с видео сценария, справа текст описывающий сценарий
-
 ### Добавление бота через чат соседей
 
 ![template_flow.png](media/template_flow.png)
 
+<table>
+<tr>
+<td width="30%" valign="top" align="center">
+  <img src="media/qr-link-chat.png" alt="QR-код чата MAX" height="260">
+</td>
+<td width="70%" valign="top">
+
 ...упомянуть суммаризацию
+
+</td>
+</tr>
+</table>
 
 ### Добавление бота в ваш чат
 
 ![template_flow.png](media/template_flow.png)
 
+<table>
+<tr>
+<td width="30%" valign="top" align="center">
+  <img src="media/qr-link-chat.png" alt="QR-код чата MAX" height="260">
+</td>
+<td width="70%" valign="top">
+
 ...будучи админом
 ...удалить потом этот чат
+
+</td>
+</tr>
+</table>
 
 ### Просмотр новостной ленты
 
 ![template_flow.png](media/template_flow.png)
 
+<table>
+<tr>
+<td width="30%" valign="top" align="center">
+  <img src="media/qr-link-chat.png" alt="QR-код чата MAX" height="260">
+</td>
+<td width="70%" valign="top">
+
 ...уточнить, что новости старые потому что бот не парсил очень долгое время
 ...понтануться, что у нас есть дедубликация
+
+</td>
+</tr>
+</table>
 
 ### Просмотр уведомлений
 
 ![template_flow.png](media/template_flow.png)
 
+<table>
+<tr>
+<td width="30%" valign="top" align="center">
+  <img src="media/qr-link-chat.png" alt="QR-код чата MAX" height="260">
+</td>
+<td width="70%" valign="top">
+
 ...в будующем стоит сделать настройку
 ...перепуш уведомлений
+
+</td>
+</tr>
+</table>
 
 ## Архитектура
 
