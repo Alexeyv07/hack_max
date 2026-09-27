@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from maxapi.enums.format import Format
 from maxapi.utils.deep_linking import create_start_link
 
 from auth.commands.home import send_home
+from auth.commands.start import ADDRESS_PICKER_TEXT
 from auth.handlers.residence import get_personal_address, set_personal_address
 from chat_link.api.schemas import (
     AddressOption,
@@ -16,11 +17,17 @@ from chat_link.api.schemas import (
     AddressSelectRequest,
     AddressSelectResponse,
     ApiError,
+    ChatLinkNavigationRequest,
     GroupAddressRemovedResponse,
     PersonalResidenceResponse,
     PostalAddressSearchResponse,
 )
 from chat_link.commands.keyboards import method_keyboard, setup_keyboard
+from chat_link.commands.residence_screens import (
+    residence_result_keyboard,
+    residence_success_text,
+    residence_wait_text,
+)
 from chat_link.handlers import (
     announce_connected_group,
     bind_existing_chat_member,
@@ -32,7 +39,14 @@ from chat_link.handlers.residence_selection import resolve_residence
 from project.api_deps import DbSession, get_max_user_id
 from project.logging_setup import get_logger
 from project.max_runtime import get_max_bot
-from user_chat.handlers import get_chat, linked_group_ids, remove_chat_address, set_member_address
+from user_chat.handlers import (
+    get_chat,
+    linked_group_ids,
+    list_chat_addresses,
+    remove_chat_address,
+    remove_user_from_chat,
+    set_member_address,
+)
 
 router = APIRouter(prefix="/chat-link", tags=["ChatLink"])
 MaxUserId = Annotated[int, Depends(get_max_user_id)]
@@ -55,6 +69,30 @@ async def _send_selected_home(bot, session, max_user_id: int, *, notice: str | N
         await send_home(bot, session, max_user_id, notice=notice)
     except Exception:
         logger.exception("Не удалось отправить главную после выбора адреса через WebApp")
+
+
+async def _send_residence_screen(
+    bot, session, max_user_id: int, address, *, member: bool, resident_chat_id: int | None = None
+) -> None:
+    """Дать возможность продолжить WebApp-сценарий в личке, даже если WebView закрыт."""
+    session.commit()
+    try:
+        await bot.send_message(
+            user_id=max_user_id,
+            text=(
+                residence_success_text(address.address_text)
+                if member
+                else residence_wait_text(address.address_text)
+            ),
+            attachments=[
+                residence_result_keyboard(
+                    address.id, member=member, resident_chat_id=resident_chat_id
+                )
+            ],
+            format=Format.HTML,
+        )
+    except Exception:
+        logger.exception("Не удалось отправить экран выбора адреса в MAX")
 
 
 def _option(row, score: float | None = None) -> AddressOption:
@@ -216,7 +254,14 @@ def get_residence(session: DbSession, max_user_id: MaxUserId) -> PersonalResiden
     summary="Выбрать адрес / привязать домовой чат",
     response_description="Исход онбординга (`mode`) + опциональный admin deep-link",
     responses={
-        status.HTTP_200_OK: {"model": AddressSelectResponse},
+        status.HTTP_200_OK: {
+            "model": AddressSelectResponse,
+            "description": (
+                "`resident_address` — членство в выбранном чате подтверждено; "
+                "`not_member` — членство не подтверждено, при `onboarding=true` "
+                "пользователь может повторить проверку."
+            ),
+        },
         status.HTTP_403_FORBIDDEN: {
             "description": "Пользователь не состоит в указанном чате.",
             "model": ApiError,
@@ -257,7 +302,17 @@ async def select_address(
 
     `chat_id` и `resident_chat_id` **взаимоисключающие**.
 
-    При успехе бот может отправить пользователю экран «главная» / notice в Max.
+    ### Пример: житель уже состоит в домовом чате
+    `{"address_id": 881, "resident_chat_id": 123456789, "onboarding": true}`
+    → HTTP 200, `mode=resident_address`. В личку приходит сообщение об успехе
+    с кнопкой «На главную».
+
+    ### Пример: житель ещё не вступил
+    Тот же запрос → HTTP 200, `mode=not_member`. В личку приходит предложение
+    вступить через «Госуслуги Дом» с кнопками «Проверить еще раз» и «Назад».
+    Повторная проверка выполняется заново через MAX. Без `onboarding=true`
+    в сценарии с `resident_chat_id` сохраняется прежний HTTP 403.
+
     Требует живой процесс бота (`runtime.enable_bot`) для проверок членства.
     """
     address = get_address_catalog().get(payload.address_id)
@@ -275,6 +330,26 @@ async def select_address(
             if not await bind_existing_chat_member(
                 bot, session, chat_id=payload.resident_chat_id, max_user_id=max_user_id
             ):
+                if payload.onboarding:
+                    if not any(
+                        item.id == payload.address_id
+                        for item in list_chat_addresses(session, payload.resident_chat_id)
+                    ):
+                        raise HTTPException(
+                            status.HTTP_409_CONFLICT, "Выбранный адрес не привязан к этому чату"
+                        )
+                    remove_user_from_chat(
+                        session, payload.resident_chat_id, max_user_id=max_user_id
+                    )
+                    await _send_residence_screen(
+                        bot,
+                        session,
+                        max_user_id,
+                        address,
+                        member=False,
+                        resident_chat_id=payload.resident_chat_id,
+                    )
+                    return AddressSelectResponse(address=_option(address), mode="not_member")
                 raise HTTPException(status.HTTP_403_FORBIDDEN, "Сначала вступите в этот чат")
             set_member_address(
                 session,
@@ -291,7 +366,7 @@ async def select_address(
             raise HTTPException(
                 status.HTTP_503_SERVICE_UNAVAILABLE, "Не удалось проверить членство через MAX"
             ) from exc
-        await _send_selected_home(bot, session, max_user_id)
+        await _send_residence_screen(bot, session, max_user_id, address, member=True)
         return AddressSelectResponse(address=_option(address), mode="resident_address", chats=[])
     if payload.chat_id is not None:
         if bot is None:
@@ -341,7 +416,7 @@ async def select_address(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Не удалось проверить членство через MAX"
         ) from exc
     if outcome.mode == "personal_address":
-        await _send_selected_home(bot, session, max_user_id)
+        await _send_residence_screen(bot, session, max_user_id, address, member=True)
         return AddressSelectResponse(address=_option(address), mode="personal_address", chats=[])
 
     admin_link = None
@@ -351,12 +426,8 @@ async def select_address(
             admin_link = create_start_link(username, f"chat_admin_{outcome.token}")
     session.commit()
     if outcome.mode == "not_member":
-        notice = (
-            f"По адресу {address.address_text} уже подключён домовой чат, "
-            "но вы не состоите в нём. Присоединитесь через приложение «Госуслуги Дом», "
-            "затем повторите выбор адреса."
-        )
-        attachments = [method_keyboard(bot)]
+        notice = residence_wait_text(address.address_text)
+        attachments = [residence_result_keyboard(address.id, member=False)]
     else:
         notice = (
             f"По адресу {address.address_text} пока нет подключённого домового чата. "
@@ -379,6 +450,55 @@ async def select_address(
         admin_link=admin_link,
         chats=[],
     )
+
+
+@router.post(
+    "/navigation",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Синхронизировать переход в миниапке с личным чатом бота",
+    response_description="Экран отправлен в личку; тело ответа отсутствует (204)",
+    responses={
+        status.HTTP_204_NO_CONTENT: {
+            "description": "Экран отправлен пользователю в личные сообщения."
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "description": "MAX-бот недоступен или не удалось отправить экран.",
+            "model": ApiError,
+        },
+        **_AUTH_ERRORS,
+    },
+)
+async def navigate_chat_link(
+    payload: ChatLinkNavigationRequest, session: DbSession, max_user_id: MaxUserId
+) -> Response:
+    """
+    Повторить переход из миниапки в личном чате бота.
+
+    - `{"action": "home"}` — показать главное меню после кнопки «На главную».
+    - `{"action": "choose_address"}` — показать выбор способа ввода адреса после «Назад».
+
+    При успехе возвращает HTTP 204 **без JSON-тела**. Наличие заголовка
+    `X-Max-User-Id` обязательно; при ошибке отправки экрана возвращается 503.
+    """
+    bot = get_max_bot()
+    if bot is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "MAX-бот сейчас недоступен")
+    try:
+        if payload.action == "home":
+            await send_home(bot, session, max_user_id)
+        else:
+            await bot.send_message(
+                user_id=max_user_id,
+                text=ADDRESS_PICKER_TEXT,
+                attachments=[method_keyboard(bot)],
+                format=Format.HTML,
+            )
+    except Exception as exc:
+        logger.exception("Не удалось синхронизировать экран миниапки с личкой")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Не удалось показать экран в боте"
+        ) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete(

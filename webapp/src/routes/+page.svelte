@@ -185,6 +185,13 @@
 		else setScope('nearby');
 	}
 
+	function returnToFeed() {
+		clearActiveChatLinkMode();
+		startParam = null;
+		refreshHints();
+		void loadMore('nearby', true);
+	}
+
 	onMount(() => {
 		let cancelled = false;
 		readyMaxWebApp();
@@ -219,9 +226,9 @@
 </script>
 
 {#if pickerStart?.mode === 'map'}
-	<AddressPicker mode="map" targetChatId={pickerStart.targetChatId} residentChatId={pickerStart.residentChatId} />
+	<AddressPicker mode="map" targetChatId={pickerStart.targetChatId} residentChatId={pickerStart.residentChatId} onHome={returnToFeed} />
 {:else if pickerStart?.mode === 'text'}
-	<AddressPicker mode="text" targetChatId={pickerStart.targetChatId} residentChatId={pickerStart.residentChatId} />
+	<AddressPicker mode="text" targetChatId={pickerStart.targetChatId} residentChatId={pickerStart.residentChatId} onHome={returnToFeed} />
 {:else if bridgeReady}
 <div
 	class="feed-root"

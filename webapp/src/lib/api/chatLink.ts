@@ -91,10 +91,23 @@ export async function selectAddress(
 			body: JSON.stringify({
 				address_id: addressId,
 				chat_id: targetChatId,
-				resident_chat_id: residentChatId
+				resident_chat_id: residentChatId,
+				onboarding: true
 			})
 		})
 	);
+}
+
+export async function navigateChatLink(action: 'home' | 'choose_address'): Promise<void> {
+	const response = await fetch(apiUrl('/chat-link/navigation'), {
+		method: 'POST',
+		headers: await authenticatedHeaders(),
+		body: JSON.stringify({ action })
+	});
+	if (!response.ok) {
+		const data = await response.json().catch(() => ({}));
+		throw new Error(data.detail || `HTTP ${response.status}`);
+	}
 }
 
 /** The selected home, not the device's current geolocation. */

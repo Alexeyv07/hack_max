@@ -76,6 +76,50 @@ def test_admin_setup_explains_how_to_add_address_to_existing_chat(monkeypatch) -
     assert "Добавить адрес чата (админ)" in text
 
 
+def test_native_resident_retry_shows_success_only_after_max_confirms(monkeypatch) -> None:
+    @contextmanager
+    def fake_session_scope():
+        yield object()
+
+    lookup = AsyncMock(side_effect=[None, object()])
+    resolve = AsyncMock(
+        side_effect=[
+            SimpleNamespace(mode="not_member", token=None),
+            SimpleNamespace(mode="personal_address", token=None),
+        ]
+    )
+    monkeypatch.setattr(flow, "session_scope", fake_session_scope)
+    monkeypatch.setattr(flow, "resolve_residence", resolve)
+    monkeypatch.setattr(
+        flow,
+        "get_address_catalog",
+        lambda: SimpleNamespace(get=lambda address_id: SimpleNamespace(address_text="Дом 1")),
+    )
+    bot = SimpleNamespace(get_chat_member=lookup)
+    dp = FakeDispatcher()
+    flow.register_chat_link_commands(dp, bot)
+    context = FakeContext()
+    event = SimpleNamespace(
+        callback=SimpleNamespace(payload="", user=SimpleNamespace(user_id=101)),
+        edit=AsyncMock(),
+        ack=AsyncMock(),
+        message=SimpleNamespace(body=SimpleNamespace(mid="mid")),
+    )
+
+    asyncio.run(flow._finish_residence(event, context, bot, 12))
+    buttons = event.edit.await_args.kwargs["attachments"][0].payload.buttons
+    assert [row[0].text for row in buttons] == ["Проверить еще раз", "Назад"]
+    assert buttons[0][0].payload == "cl:residence:retry:12"
+
+    event.callback.payload = buttons[0][0].payload
+    asyncio.run(dp.handlers["message_callback"](event, context))
+    buttons = event.edit.await_args.kwargs["attachments"][0].payload.buttons
+    assert "Чат успешно добавлен" in event.edit.await_args.kwargs["text"]
+    assert buttons[0][0].text == "На главную"
+    assert context.data == {}
+    assert resolve.await_count == 2
+
+
 def test_add_more_addresses_button_reuses_group_binding_flow() -> None:
     button = add_more_addresses_keyboard().payload.buttons[0][0]
     assert button.text == "Добавить ещё адрес"

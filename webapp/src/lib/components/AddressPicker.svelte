@@ -3,6 +3,7 @@
 	import { onMount, tick } from 'svelte';
 	import {
 		nearestAddresses,
+		navigateChatLink,
 		searchAddresses,
 		selectAddress,
 		type AddressOption,
@@ -17,10 +18,11 @@
 	import { getMaxUserIdForStorage } from '$lib/maxUser';
 	import { loadYandexMaps, type YandexMapInstance } from '$lib/yandexMaps';
 
-	let { mode, targetChatId = null, residentChatId = null }: {
+	let { mode, targetChatId = null, residentChatId = null, onHome }: {
 		mode: 'map' | 'text';
 		targetChatId?: number | null;
 		residentChatId?: number | null;
+		onHome?: () => void;
 	} = $props();
 
 	type PickerDraft = {
@@ -337,6 +339,46 @@
 		}
 	}
 
+	async function checkAgain() {
+		if (!result || result.mode !== 'not_member') return;
+		loading = true;
+		error = '';
+		try {
+			result = await selectAddress(result.address.id, targetChatId, residentChatId);
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Не удалось проверить членство';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function goHome() {
+		loading = true;
+		error = '';
+		try {
+			await navigateChatLink('home');
+			clearDraft();
+			onHome?.();
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Не удалось вернуться на главную';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function backToAddress() {
+		loading = true;
+		error = '';
+		try {
+			await navigateChatLink('choose_address');
+			await startAnother();
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Не удалось вернуться к выбору адреса';
+		} finally {
+			loading = false;
+		}
+	}
+
 	async function copyAdminLink() {
 		if (!result?.admin_link) return;
 		try {
@@ -407,7 +449,15 @@
 </script>
 
 <div class="picker">
-	<h1>{result ? 'Адрес выбран' : mode === 'map' ? 'Укажите дом на карте' : 'Введите адрес'}</h1>
+	<h1>
+		{result?.mode === 'not_member'
+			? 'Подключение к чату'
+			: result
+				? 'Адрес выбран'
+				: mode === 'map'
+					? 'Укажите дом на карте'
+					: 'Введите адрес'}
+	</h1>
 
 	{#if !result}
 		{#if mode === 'map'}
@@ -499,7 +549,12 @@
 			{:else if result.mode === 'already_member'}
 				<p>Вы состоите в этом домовом чате. Чат привязан к вашему профилю.</p>
 			{:else if result.mode === 'resident_address' || result.mode === 'personal_address'}
-				<p>Ваш адрес сохранён. Новости рядом доступны.</p>
+				<p>✅ Чат успешно добавлен.</p>
+			{:else if result.mode === 'not_member'}
+				<p>
+					Вы пока не состоите в домовом чате. Присоединитесь к нему через сервис
+					«Госуслуги Дом» и нажмите «Проверить еще раз».
+				</p>
 			{:else if showAdminHelp}
 				<p>
 					Добавьте бота в нужный групповой чат и назначьте его администратором с правом
@@ -534,7 +589,14 @@
 			{#if result.mode === 'group_connected'}
 				<button class="secondary" type="button" onclick={startAnother}>Добавить ещё дом к чату</button>
 			{:else if result.mode === 'resident_address' || result.mode === 'personal_address'}
-				<button class="secondary" type="button" onclick={startAnother}>Изменить свой адрес</button>
+				<button class="primary" type="button" disabled={loading} onclick={goHome}>На главную</button>
+			{:else if result.mode === 'not_member'}
+				<button class="primary" type="button" disabled={loading} onclick={checkAgain}>
+					Проверить еще раз
+				</button>
+				<button class="secondary" type="button" disabled={loading} onclick={backToAddress}>
+					Назад
+				</button>
 			{:else}
 				<button class="secondary" type="button" onclick={startAnother}>Выбрать другой адрес</button>
 			{/if}

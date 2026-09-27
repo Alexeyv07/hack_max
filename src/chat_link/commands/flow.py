@@ -24,6 +24,11 @@ from chat_link.commands.keyboards import (
     prefix_groups,
     setup_keyboard,
 )
+from chat_link.commands.residence_screens import (
+    residence_result_keyboard,
+    residence_success_text,
+    residence_wait_text,
+)
 from chat_link.commands.states import ChatLinkStates
 from chat_link.handlers import (
     announce_connected_group,
@@ -396,35 +401,8 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
     target_chat_id = data.get("target_chat_id")
     resident_chat_id = data.get("resident_chat_id")
     if resident_chat_id is not None:
-        try:
-            with session_scope() as session:
-                if not await bind_existing_chat_member(
-                    bot, session, chat_id=int(resident_chat_id), max_user_id=user_id
-                ):
-                    raise ValueError("Сначала вступите в этот групповой чат.")
-                set_member_address(
-                    session, int(resident_chat_id), max_user_id=user_id, address_id=address_id
-                )
-                set_personal_address(session, max_user_id=user_id, address_id=address_id)
-        except ValueError as exc:
-            await event.edit(
-                text=f"Не удалось сохранить адрес.\n\n{exc}",
-                attachments=[
-                    method_keyboard(
-                        bot,
-                        resident_chat_id=int(resident_chat_id),
-                        from_manage=bool(data.get("from_manage")),
-                    )
-                ],
-                notify=False,
-            )
-            return
-        await context.set_data({})
-        await _complete_with_home(
-            event,
-            bot,
-            user_id,
-            notice=f"✅ Ваш адрес сохранён: {address.address_text}",
+        await _finish_residence(
+            event, context, bot, address_id, resident_chat_id=int(resident_chat_id)
         )
         return
     if target_chat_id is not None:
@@ -469,12 +447,51 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
         )
         return
 
-    # Личный выбор: членство проверяется у чата ИМЕННО выбранного дома.
+    await _finish_residence(event, context, bot, address_id)
+
+
+async def _finish_residence(
+    event: Any,
+    context: Any,
+    bot: Any,
+    address_id: int,
+    *,
+    resident_chat_id: int | None = None,
+) -> None:
+    """Одинаковая проверка из picker-а и из кнопки повторной проверки."""
+    user_id = _callback_user_id(event)
+    address = get_address_catalog().get(address_id)
+    if address is None:
+        await event.ack(notification="Адрес больше не доступен. Выберите адрес заново.")
+        return
     try:
         with session_scope() as session:
-            outcome = await resolve_residence(
-                bot, session, max_user_id=user_id, address_id=address_id
-            )
+            if resident_chat_id is not None:
+                member = await bind_existing_chat_member(
+                    bot, session, chat_id=resident_chat_id, max_user_id=user_id
+                )
+                if member:
+                    set_member_address(
+                        session, resident_chat_id, max_user_id=user_id, address_id=address_id
+                    )
+                    set_personal_address(session, max_user_id=user_id, address_id=address_id)
+                else:
+                    if not any(
+                        item.id == address_id
+                        for item in list_chat_addresses(session, resident_chat_id)
+                    ):
+                        raise ValueError("Выбранный адрес не привязан к этому чату")
+                    remove_user_from_chat(session, resident_chat_id, max_user_id=user_id)
+                mode = "personal_address" if member else "not_member"
+                token = None
+            else:
+                outcome = await resolve_residence(
+                    bot, session, max_user_id=user_id, address_id=address_id
+                )
+                mode, token = outcome.mode, outcome.token
+    except ValueError as exc:
+        await event.ack(notification=str(exc))
+        return
     except Exception:
         logger.exception("Не удалось проверить выбранный дом в MAX")
         await event.edit(
@@ -484,28 +501,28 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
         )
         return
     await context.update_data(address_id=address_id)
-    if outcome.mode == "not_member":
+    if mode == "not_member":
         await event.edit(
-            text=(
-                f"По адресу {address.address_text} уже подключён домовой чат, "
-                "но вашего членства в нём не найдено.\n\n"
-                "Присоединитесь к домовому чату через приложение «Госуслуги Дом», "
-                "затем вернитесь к боту и выберите адрес снова."
-            ),
-            attachments=[method_keyboard(bot, from_manage=bool(data.get("from_manage")))],
+            text=residence_wait_text(address.address_text),
+            attachments=[
+                residence_result_keyboard(
+                    address_id, member=False, resident_chat_id=resident_chat_id
+                )
+            ],
             notify=False,
+            format=Format.HTML,
         )
         return
-    if outcome.mode == "no_chat":
-        await context.update_data(link_token=outcome.token)
+    if mode == "no_chat":
+        await context.update_data(link_token=token)
         await _show_resident_setup(event, context, bot)
         return
     await context.set_data({})
-    await _complete_with_home(
-        event,
-        bot,
-        user_id,
-        notice=f"✅ Ваш адрес сохранён: {address.address_text}",
+    await event.edit(
+        text=residence_success_text(address.address_text),
+        attachments=[residence_result_keyboard(address_id, member=True)],
+        notify=False,
+        format=Format.HTML,
     )
 
 
@@ -791,6 +808,25 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             return
         if payload == "cl:noop":
             await _ack_callback(event)
+            return
+        if payload == "cl:residence:back":
+            await _show_methods(event, context, bot)
+            return
+        if payload.startswith("cl:residence:retry:"):
+            parts = payload.split(":")
+            try:
+                if len(parts) not in (4, 5):
+                    raise ValueError("Некорректная кнопка")
+                address_id = int(parts[3])
+                resident_chat_id = int(parts[4]) if len(parts) == 5 else None
+                if address_id <= 0:
+                    raise ValueError("Некорректный адрес")
+            except ValueError:
+                await _ack_callback(event, notification="Некорректная кнопка")
+                return
+            await _finish_residence(
+                event, context, bot, address_id, resident_chat_id=resident_chat_id
+            )
             return
         parts = payload.split(":")
         if payload == "cl:method:native":

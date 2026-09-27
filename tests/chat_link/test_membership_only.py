@@ -15,7 +15,7 @@ from sqlalchemy import select, text
 from address.db import AddressRow
 from auth.db import UserRow
 from chat_link.api import routes
-from chat_link.api.schemas import AddressSelectRequest
+from chat_link.api.schemas import AddressSelectRequest, ChatLinkNavigationRequest
 from chat_link.db import ChatLinkRow
 from chat_link.models import ChatLinkStatus
 from user_chat.db import ChatRow, chat_addresses
@@ -194,7 +194,122 @@ def test_plain_selection_shows_join_advice_for_non_member(db_session, monkeypatc
     assert db_session.get(UserRow, resident.id).address_id is None
     assert list_chat_members(db_session, chat.chat_id) == []
     assert "Госуслуги Дом" in bot.send_message.await_args.kwargs["text"]
+    buttons = bot.send_message.await_args.kwargs["attachments"][0].payload.buttons
+    assert [row[0].text for row in buttons] == ["Проверить еще раз", "Назад"]
+    assert buttons[0][0].payload == f"cl:residence:retry:{address.id}"
     bot.get_chat_member.assert_awaited_once_with(chat.chat_id, resident.max_user_id)
+
+
+def test_webapp_retry_checks_max_again_and_mirrors_both_screens(db_session, monkeypatch):
+    address, _admin, resident, chat = _seed(db_session)
+    lookup = AsyncMock(side_effect=[None, SimpleNamespace(is_admin=False)])
+    bot = SimpleNamespace(get_chat_member=lookup, send_message=AsyncMock())
+    _configure(monkeypatch, db_session, bot)
+    payload = AddressSelectRequest(
+        address_id=address.id, resident_chat_id=chat.chat_id, onboarding=True
+    )
+
+    waiting = asyncio.run(routes.select_address(payload, db_session, resident.max_user_id))
+    assert waiting.mode == "not_member"
+    assert db_session.get(UserRow, resident.id).address_id is None
+    wait_message = bot.send_message.await_args.kwargs
+    assert "Госуслуги Дом" in wait_message["text"]
+    assert [row[0].text for row in wait_message["attachments"][0].payload.buttons] == [
+        "Проверить еще раз",
+        "Назад",
+    ]
+    assert (
+        wait_message["attachments"][0].payload.buttons[0][0].payload
+        == f"cl:residence:retry:{address.id}:{chat.chat_id}"
+    )
+
+    success = asyncio.run(routes.select_address(payload, db_session, resident.max_user_id))
+    assert success.mode == "resident_address"
+    assert db_session.get(UserRow, resident.id).address_id == address.id
+    success_message = bot.send_message.await_args.kwargs
+    assert "Чат успешно добавлен" in success_message["text"]
+    assert success_message["attachments"][0].payload.buttons[0][0].text == "На главную"
+    assert success_message["attachments"][0].payload.buttons[0][0].payload == "home:addresses:home"
+    assert lookup.await_count == 2
+
+
+def test_webapp_does_not_offer_join_for_address_not_linked_to_target_chat(db_session, monkeypatch):
+    _address, _admin, resident, chat = _seed(db_session)
+    foreign = AddressRow(
+        address_text="Москва, Другой дом, д. 7",
+        latitude=Decimal("55.7503000"),
+        longitude=Decimal("37.6103000"),
+    )
+    db_session.add(foreign)
+    db_session.flush()
+    bot = SimpleNamespace(get_chat_member=AsyncMock(return_value=None), send_message=AsyncMock())
+    _configure(monkeypatch, db_session, bot)
+
+    with pytest.raises(HTTPException) as error:
+        _select(db_session, foreign.id, resident.max_user_id, resident_chat_id=chat.chat_id)
+    assert error.value.status_code == 403  # старый контракт без onboarding
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(
+            routes.select_address(
+                AddressSelectRequest(
+                    address_id=foreign.id, resident_chat_id=chat.chat_id, onboarding=True
+                ),
+                db_session,
+                resident.max_user_id,
+            )
+        )
+    assert error.value.status_code == 409
+    bot.send_message.assert_not_awaited()
+
+
+def test_webapp_navigation_mirrors_home_and_picker(db_session, monkeypatch):
+    _address, _admin, resident, _chat = _seed(db_session)
+    bot = SimpleNamespace(send_message=AsyncMock(), me=SimpleNamespace(username="test_bot"))
+    _configure(monkeypatch, db_session, bot)
+    home = AsyncMock()
+    monkeypatch.setattr(routes, "send_home", home)
+
+    response = asyncio.run(
+        routes.navigate_chat_link(
+            ChatLinkNavigationRequest(action="choose_address"), db_session, resident.max_user_id
+        )
+    )
+    assert response.status_code == 204
+    assert "Выберите удобный способ" in bot.send_message.await_args.kwargs["text"]
+    assert (
+        bot.send_message.await_args.kwargs["attachments"][0].payload.buttons[0][0].text
+        == "Выбрать адрес"
+    )
+
+    response = asyncio.run(
+        routes.navigate_chat_link(
+            ChatLinkNavigationRequest(action="home"), db_session, resident.max_user_id
+        )
+    )
+    assert response.status_code == 204
+    home.assert_awaited_once_with(bot, db_session, resident.max_user_id)
+
+
+def test_navigation_is_documented_without_removing_select_contract():
+    from events.api.app import create_app
+
+    spec = create_app().openapi()
+    assert "post" in spec["paths"]["/chat-link/navigation"]
+    assert "post" in spec["paths"]["/chat-link/select"]
+    request = spec["components"]["schemas"]["AddressSelectRequest"]
+    assert request["properties"]["onboarding"]["default"] is False
+    assert "mode" in spec["components"]["schemas"]["AddressSelectResponse"]["properties"]
+    onboarding_request = {"address_id": 881, "resident_chat_id": 123456789, "onboarding": True}
+    assert onboarding_request in request["examples"]
+    response_examples = spec["components"]["schemas"]["AddressSelectResponse"]["examples"]
+    assert {item["mode"] for item in response_examples} >= {"resident_address", "not_member"}
+
+    navigation = spec["paths"]["/chat-link/navigation"]["post"]
+    assert navigation["responses"]["204"]["description"]
+    assert "content" not in navigation["responses"]["204"]
+    navigation_examples = spec["components"]["schemas"]["ChatLinkNavigationRequest"]["examples"]
+    assert navigation_examples == [{"action": "home"}, {"action": "choose_address"}]
 
 
 def test_migration_closes_old_admin_approvals(db_session):

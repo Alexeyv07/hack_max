@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -89,6 +91,7 @@ class AddressSelectRequest(BaseModel):
                 {"address_id": 881},
                 {"address_id": 881, "chat_id": 123456789},
                 {"address_id": 881, "resident_chat_id": 123456789},
+                {"address_id": 881, "resident_chat_id": 123456789, "onboarding": True},
             ]
         }
     )
@@ -115,6 +118,30 @@ class AddressSelectRequest(BaseModel):
             "**Нельзя** передавать вместе с `chat_id`."
         ),
         examples=[123456789],
+    )
+    onboarding: bool = Field(
+        default=False,
+        description=(
+            "Для миниапки: при отсутствии членства в `resident_chat_id` вернуть "
+            "`mode=not_member` (200) с возможностью повторной проверки. "
+            "Без этого флага сохраняется прежний ответ 403."
+        ),
+    )
+
+
+class ChatLinkNavigationRequest(BaseModel):
+    """Синхронизировать экран миниапки с личным чатом бота."""
+
+    model_config = ConfigDict(
+        json_schema_extra={"examples": [{"action": "home"}, {"action": "choose_address"}]}
+    )
+
+    action: Literal["home", "choose_address"] = Field(
+        description=(
+            "`home` — отправить главное меню в личку; "
+            "`choose_address` — отправить экран выбора способа ввода адреса."
+        ),
+        examples=["home", "choose_address"],
     )
 
 
@@ -160,6 +187,32 @@ class AddressSelectResponse(BaseModel):
                     "mode": "no_chat",
                     "token": "abc123",
                     "admin_link": "https://max.ru/...",
+                    "chats": [],
+                },
+                {
+                    "address": {
+                        "id": 881,
+                        "address_text": "Москва, Варшавское шоссе, 28к1",
+                        "latitude": 55.65012,
+                        "longitude": 37.61890,
+                        "score": None,
+                    },
+                    "mode": "resident_address",
+                    "token": None,
+                    "admin_link": None,
+                    "chats": [],
+                },
+                {
+                    "address": {
+                        "id": 881,
+                        "address_text": "Москва, Варшавское шоссе, 28к1",
+                        "latitude": 55.65012,
+                        "longitude": 37.61890,
+                        "score": None,
+                    },
+                    "mode": "not_member",
+                    "token": None,
+                    "admin_link": None,
                     "chats": [],
                 },
             ]
