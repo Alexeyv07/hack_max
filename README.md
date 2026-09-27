@@ -71,24 +71,30 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 
 ### Добавление бота через чат соседей
 
+![template_flow.png](media/template_flow.png)
+
 ...упомянуть суммаризацию
 
 ### Добавление бота в ваш чат
 
+![template_flow.png](media/template_flow.png)
+
 ...будучи админом
-
-### Отсоединение от какого-то чата соседей
-
-...кратко
+...удалить потом этот чат
 
 ### Просмотр новостной ленты
+
+![template_flow.png](media/template_flow.png)
 
 ...уточнить, что новости старые потому что бот не парсил очень долгое время
 ...понтануться, что у нас есть дедубликация
 
 ### Просмотр уведомлений
 
+![template_flow.png](media/template_flow.png)
+
 ...в будующем стоит сделать настройку
+...перепуш уведомлений
 
 ## Архитектура
 
@@ -107,10 +113,6 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 
 Для примера предлагаем следующие запросы, которые можно выполнить через Swagger UI:
 
-<div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap;">
-
-<div style="flex:1 1 60%; min-width:200px; overflow-x:auto;">
-
 | # | Метод и путь                                                                                                         | Зачем дергать           | Ожидание                                                |
 |---|----------------------------------------------------------------------------------------------------------------------|-------------------------|---------------------------------------------------------|
 | 1 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/health`                                  | Процесс API жив         | `{"status":"ok"}`                                       |
@@ -118,12 +120,4 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 | 3 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/events/map?limit=50`                     | Точки карты             | `200`, `count` > 0, у точек есть `lat`/`lon`/`category` |
 | 4 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/chat-link/addresses/search?q=Варшавское` | Каталог адресов         | `200`, непустой `items` с `address_text`                |
 
-</div>
-
-<div style="flex:1 1 35%; max-width:280px;">
-
-<img src="media/openapi.webp" alt="openapi demo" style="width:100%; border-radius:12px; display:block;">
-
-</div>
-
-</div>
+<img src="media/openapi.gif" alt="openapi demo" style="max-width:280px; border-radius:12px; display:block; margin: 0 auto;">
