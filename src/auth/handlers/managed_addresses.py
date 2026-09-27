@@ -17,6 +17,7 @@ from user_chat.handlers.membership import linked_group_ids
 class ManagedAddress:
     id: int
     text: str
+    chat_titles: tuple[str, ...] = ()
 
 
 def list_managed_addresses(session: Session, max_user_id: int) -> list[ManagedAddress]:
@@ -26,28 +27,32 @@ def list_managed_addresses(session: Session, max_user_id: int) -> list[ManagedAd
         return []
 
     rows = session.execute(
-        select(AddressRow.id, AddressRow.address_text)
+        select(AddressRow.id, AddressRow.address_text, ChatRow.title)
         .join(users_chat, users_chat.c.address_id == AddressRow.id)
         .join(ChatRow, ChatRow.chat_id == users_chat.c.chat_id)
         .where(users_chat.c.user_id == user.id, ChatRow.chat_type == "chat")
-        .distinct()
-        .order_by(AddressRow.address_text, AddressRow.id)
+        .order_by(AddressRow.address_text, AddressRow.id, ChatRow.title)
     ).all()
 
-    addresses = {address_id: text for address_id, text in rows}
+    addresses: dict[int, str] = {}
+    chats_by_address: dict[int, set[str]] = {}
+    for address_id, text, chat_title in rows:
+        addresses[address_id] = text
+        chats_by_address.setdefault(address_id, set()).add(chat_title)
 
     # Личный адрес может отличаться от выбранных адресов в других группах.
-    if (
-        user.address_id is not None
-        and user.address_id not in addresses
-        and linked_group_ids(session, max_user_id, address_id=user.address_id)
-    ):
-        personal = session.get(AddressRow, user.address_id)
-        if personal is not None:
-            addresses[personal.id] = personal.address_text
+    if user.address_id is not None and user.address_id not in addresses:
+        group_ids = linked_group_ids(session, max_user_id, address_id=user.address_id)
+        if group_ids:
+            personal = session.get(AddressRow, user.address_id)
+            if personal is not None:
+                addresses[personal.id] = personal.address_text
+                chats_by_address[personal.id] = set(
+                    session.scalars(select(ChatRow.title).where(ChatRow.chat_id.in_(group_ids)))
+                )
 
     return [
-        ManagedAddress(id_, text)
+        ManagedAddress(id_, text, tuple(sorted(chats_by_address.get(id_, ()))))
         for id_, text in sorted(addresses.items(), key=lambda x: (x[1], x[0]))
     ]
 

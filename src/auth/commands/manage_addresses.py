@@ -51,7 +51,6 @@ def _list_view(
     if notice:
         text += f"\n\n{escape(notice)}"
     builder = InlineKeyboardBuilder()
-    builder.row(CallbackButton(text="Добавить адрес", payload="chat_link:start:manage"))
     for address in addresses[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]:
         builder.row(
             CallbackButton(
@@ -69,7 +68,8 @@ def _list_view(
         if page + 1 < pages:
             navigation.append(CallbackButton(text="›", payload=f"{_LIST_PREFIX}{page + 1}"))
         builder.row(*navigation)
-    builder.row(CallbackButton(text="← Главная", payload=_HOME_PAYLOAD))
+    builder.row(CallbackButton(text="Добавить адрес", payload="chat_link:start:manage"))
+    builder.row(CallbackButton(text="Назад", payload=_HOME_PAYLOAD))
     return text, builder.as_markup()
 
 
@@ -78,13 +78,24 @@ def _detail_view(address: ManagedAddress, page: int) -> tuple[str, Any]:
     builder.row(
         CallbackButton(text="Удалить адрес", payload=f"{_DELETE_PREFIX}{address.id}:{page}")
     )
-    builder.row(CallbackButton(text="← Назад", payload=f"{_LIST_PREFIX}{page}"))
+    builder.row(CallbackButton(text="Назад", payload=f"{_LIST_PREFIX}{page}"))
+    if address.chat_titles:
+        chats = "\n".join(f"• {escape(title)}" for title in address.chat_titles)
+    else:
+        chats = "Не указан"
     text = (
         f"<b>{escape(address.text)}</b>\n\n"
-        "Вы можете удалить этот адрес из своего списка. "
-        "Привязка дома к групповому чату при этом сохранится.\n\n"
+        f"<b>{'Чаты' if len(address.chat_titles) > 1 else 'Чат'}:</b>\n{chats}\n\n"
+        "Вы можете удалить этот адрес из своего списка.\n\n"
         f"{docs_html('Управление адресами', page='addresses')}"
     )
+    return text, builder.as_markup()
+
+
+def _delete_result_view(removed: bool) -> tuple[str, Any]:
+    builder = InlineKeyboardBuilder()
+    builder.row(CallbackButton(text="На главную", payload=_HOME_PAYLOAD))
+    text = "✅ Адрес успешно удалён." if removed else "Адрес уже удалён."
     return text, builder.as_markup()
 
 
@@ -227,10 +238,7 @@ def register_manage_addresses(dp: Any, bot: Any) -> None:
                 removed = remove_managed_address(
                     session, max_user_id=max_user_id, address_id=address_id
                 )
-                addresses = list_managed_addresses(session, max_user_id)
-                text, keyboard = _list_view(
-                    addresses, page, notice="✅ Адрес удалён." if removed else "Адрес уже удалён."
-                )
+                text, keyboard = _delete_result_view(removed)
             else:
                 addresses = list_managed_addresses(session, max_user_id)
                 if action == "open":
