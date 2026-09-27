@@ -162,3 +162,4 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 | 4 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/chat-link/addresses/search?q=Варшавское` | Каталог адресов         | `200`, непустой `items` с `address_text`                |
 
 <img src="media/openapi.gif" alt="openapi demo" style="max-width:280px; border-radius:12px; display:block; margin: 0 auto;">
+
