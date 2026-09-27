@@ -77,6 +77,7 @@ for table in \
   chats \
   users_chat \
   chat_addresses \
+  user_chat_addresses \
   chat_links \
   bot_group_registry \
   news_parser_cursors \

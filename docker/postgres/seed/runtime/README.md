@@ -1,4 +1,4 @@
-# Runtime seed (users, chats, memberships, notify, cursors, …)
+# Runtime seed (users, chats, memberships, user_chat_addresses, bot_group_registry, notify, cursors, …)
 
 Собрать с живой БД (без addresses/events — они в `../addresses.csv.gz` и `../events.csv.gz`):
 

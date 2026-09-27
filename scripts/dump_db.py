@@ -36,8 +36,9 @@ LOAD_ORDER: tuple[str, ...] = (
     "chats",
     "users_chat",
     "chat_addresses",
+    "user_chat_addresses",  # 0026: после users_chat + chat_addresses
     "chat_links",
-    "bot_group_registry",
+    "bot_group_registry",  # 0025
     "news_parser_cursors",
     "mc_parser_cursors",
     "notify_cursors",
