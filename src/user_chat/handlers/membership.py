@@ -11,7 +11,7 @@ from address.db.address import AddressRow
 from auth.db.user import UserRow
 from auth.handlers.authorize import get_user_by_max_id
 from project.config import get_settings
-from user_chat.db import ChatRow, chat_addresses, users_chat
+from user_chat.db import ChatRow, chat_addresses, user_chat_addresses, users_chat
 from user_chat.models.chat import ChatMember
 from user_chat.models.membership import ChatMembership
 
@@ -34,6 +34,44 @@ def add_user_to_chat(session: Session, chat_id: int, *, max_user_id: int) -> boo
     )
     session.expire(chat, ["users"])
     return result.rowcount == 1
+
+
+def save_member_addresses(session: Session, chat_id: int, *, max_user_id: int) -> list[AddressRow]:
+    """Сохранить ВСЕ дома подтверждённого MAX-чата в личном списке жителя.
+
+    Membership должен быть подтверждён до вызова. Повторный переход по ссылке
+    не создаёт дубликатов; выбор конкретного дома пользователя не заменяем.
+    """
+    user = get_user_by_max_id(session, max_user_id)
+    chat = session.get(ChatRow, chat_id)
+    if user is None or chat is None or chat.chat_type != "chat":
+        raise ValueError("Домовой чат не подключён")
+    if (
+        session.scalar(
+            select(users_chat.c.user_id).where(
+                users_chat.c.user_id == user.id, users_chat.c.chat_id == chat_id
+            )
+        )
+        is None
+    ):
+        raise ValueError("Сначала вступите в групповой чат")
+    addresses = list(
+        session.scalars(
+            select(AddressRow)
+            .join(chat_addresses, chat_addresses.c.address_id == AddressRow.id)
+            .where(chat_addresses.c.chat_id == chat_id)
+            .order_by(AddressRow.id)
+        )
+    )
+    insert = sqlite_insert if session.get_bind().dialect.name == "sqlite" else pg_insert
+    for address in addresses:
+        session.execute(
+            insert(user_chat_addresses)
+            .values(user_id=user.id, chat_id=chat_id, address_id=address.id)
+            .on_conflict_do_nothing(index_elements=["user_id", "chat_id", "address_id"])
+        )
+    session.flush()
+    return addresses
 
 
 def set_member_address(
@@ -64,6 +102,14 @@ def set_member_address(
         users_chat.update()
         .where(users_chat.c.chat_id == chat_id, users_chat.c.user_id == user.id)
         .values(address_id=address_id)
+    )
+    # Ручной выбор сохраняет лишь выбранный дом; полная коллекция домов
+    # добавляется только при переходе по ссылке конкретного чата.
+    insert = sqlite_insert if session.get_bind().dialect.name == "sqlite" else pg_insert
+    session.execute(
+        insert(user_chat_addresses)
+        .values(user_id=user.id, chat_id=chat_id, address_id=address_id)
+        .on_conflict_do_nothing(index_elements=["user_id", "chat_id", "address_id"])
     )
     session.flush()
 

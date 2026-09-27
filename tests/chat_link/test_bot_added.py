@@ -147,7 +147,9 @@ def test_group_auto_connect_waits_for_bot_admin_rights(monkeypatch) -> None:
     assert ready.await_count == 2
     sleep.assert_awaited_once_with(0)
     connect.assert_awaited_once()
-    announce.assert_awaited_once_with(bot, -100500, requester_added=True, address_text="Дом 17")
+    announce.assert_awaited_once_with(
+        bot, -100500, requester_added=True, address_text="Дом 17", new_message=True
+    )
     bot.send_message.assert_not_awaited()
 
 
@@ -221,6 +223,8 @@ def test_bot_added_reminds_when_not_admin(monkeypatch) -> None:
     text = bot.send_message.await_args.kwargs["text"]
     assert "пока не имеет необходимых прав" in text
     assert "Читать все сообщения" in text
+    assert "attachments" not in bot.send_message.await_args.kwargs
+    assert "Не удалось создать кнопку" not in text
 
 
 def test_postal_input_ignores_group_message() -> None:

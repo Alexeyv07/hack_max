@@ -11,13 +11,21 @@ from maxapi.enums.format import Format
 from maxapi.types import CallbackButton
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
-from auth.commands.home import MANAGE_ADDRESSES_PAYLOAD, build_home_keyboard, build_home_text
+from auth.commands.home import (
+    HELP_PAYLOAD,
+    MANAGE_ADDRESSES_PAYLOAD,
+    build_home_keyboard,
+    build_home_text,
+    has_connected_admin_chats,
+)
+from auth.commands.manage_chats import handle_manage_chats
 from auth.handlers.managed_addresses import (
     ManagedAddress,
     list_managed_addresses,
     remove_managed_address,
 )
 from project.bot_media import home_image, other_messages_image
+from project.bot_screens import remember_screen, send_screen
 from project.database import session_scope
 from project.docs_links import docs_html
 from project.logging_setup import get_logger
@@ -153,6 +161,8 @@ async def _show_screen(
                 notify=False,
                 notification=notification,
             )
+            mid = getattr(getattr(getattr(event, "message", None), "body", None), "mid", None)
+            await remember_screen(bot, max_user_id, str(mid) if mid else None)
             return
         except Exception:
             logger.debug("event.edit не удался, пробуем edit_message", exc_info=True)
@@ -168,12 +178,15 @@ async def _show_screen(
                 notify=False,
             )
             await _safe_ack(event, notification)
+            await remember_screen(bot, max_user_id, str(mid))
             return
         except Exception:
             logger.exception("Не удалось обновить экран управления адресами")
 
     await _safe_ack(event, notification)
-    await bot.send_message(
+    await send_screen(
+        bot,
+        max_user_id,
         user_id=max_user_id,
         text=text,
         attachments=attachments,
@@ -191,16 +204,39 @@ def register_manage_addresses(dp: Any, bot: Any) -> None:
         payload = str(getattr(event.callback, "payload", "") or "")
         max_user_id = int(event.callback.user.user_id)
 
+        if payload.startswith("home:chats"):
+            await handle_manage_chats(bot, event, max_user_id, payload, _show_screen)
+            return
+
+        if payload == HELP_PAYLOAD:
+            builder = InlineKeyboardBuilder()
+            builder.row(CallbackButton(text="На главную", payload=_HOME_PAYLOAD))
+            await _show_screen(
+                bot,
+                event,
+                max_user_id,
+                f"<b>Помощь и обратная связь</b>\n\n{docs_html('О сервисе', page='overview')}",
+                [other_messages_image(bot), builder.as_markup()],
+                notification="Помощь",
+            )
+            return
+
         if payload == _HOME_PAYLOAD:
             with session_scope() as session:
                 addresses = [item.text for item in list_managed_addresses(session, max_user_id)]
                 text = build_home_text(addresses)
+                has_admin_chats = await has_connected_admin_chats(bot, session, max_user_id)
             await _show_screen(
                 bot,
                 event,
                 max_user_id,
                 text,
-                [home_image(bot), build_home_keyboard(bot, has_addresses=bool(addresses))],
+                [
+                    home_image(bot),
+                    build_home_keyboard(
+                        bot, has_addresses=bool(addresses), has_admin_chats=has_admin_chats
+                    ),
+                ],
                 notification="Главная",
             )
             return

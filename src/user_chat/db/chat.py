@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Column, ForeignKey, Integer, String, Table
+from sqlalchemy import BigInteger, Column, ForeignKey, ForeignKeyConstraint, Integer, String, Table
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from project.database import Base
@@ -40,6 +40,27 @@ chat_addresses = Table(
         ForeignKey("addresses.id", ondelete="RESTRICT"),
         primary_key=True,
         index=True,
+    ),
+)
+
+
+# Адреса, сохранённые конкретным жителем по подтверждённой ссылке чата.
+# Не подменяем ими единственный выбранный дом в users_chat.address_id.
+user_chat_addresses = Table(
+    "user_chat_addresses",
+    Base.metadata,
+    Column("user_id", Integer, primary_key=True),
+    Column("chat_id", BigInteger, primary_key=True),
+    Column("address_id", Integer, primary_key=True),
+    ForeignKeyConstraint(
+        ["user_id", "chat_id"],
+        ["users_chat.user_id", "users_chat.chat_id"],
+        ondelete="CASCADE",
+    ),
+    ForeignKeyConstraint(
+        ["chat_id", "address_id"],
+        ["chat_addresses.chat_id", "chat_addresses.address_id"],
+        ondelete="CASCADE",
     ),
 )
 

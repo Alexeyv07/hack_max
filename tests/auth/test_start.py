@@ -63,7 +63,8 @@ def test_first_welcome_matches_product_copy() -> None:
     text = start.build_welcome_text("Алексей")
     assert text.startswith("Здравствуйте, Алексей!")
     assert "Это сервис «КасаетсяМеня»" in text
-    assert "что произойдёт, когда и касается ли это вашего дома и корпуса" in text
+    assert "Помогаем не пропустить важное о вашем доме" in text
+    assert "Не упустите то, что вас касается" in text
     assert "Укажите свой адрес" in text
 
 
@@ -211,6 +212,8 @@ def test_welcome_explicit_recipient_for_notify_callback(monkeypatch) -> None:
     bot = _bot()
     monkeypatch.setattr(start, "_show_events", lambda max_user_id: False)
     monkeypatch.setattr(start, "_can_choose_address", lambda max_user_id: True)
+    cover = object()
+    monkeypatch.setattr(start, "first_start_image", lambda bot: cover)
     context = FakeContext({"flow_mid": "previous-message"})
     message = SimpleNamespace(answer=AsyncMock())
     event = SimpleNamespace(message=message)
@@ -219,6 +222,7 @@ def test_welcome_explicit_recipient_for_notify_callback(monkeypatch) -> None:
 
     assert bot.send_message.await_args.kwargs["chat_id"] == 54321
     assert bot.send_message.await_args.kwargs["text"] == start.ADDRESS_PICKER_TEXT
+    assert bot.send_message.await_args.kwargs["attachments"][0] is cover
     assert context.data == {"flow_mid": "welcome-mid"}
     message.answer.assert_not_awaited()
     bot.edit_message.assert_not_awaited()
@@ -230,7 +234,7 @@ def test_manage_addresses_callback_is_registered() -> None:
     assert dp.handlers["message_callback"].__name__ == "on_manage_addresses_callback"
 
 
-def test_first_start_uses_first_image_only_once(monkeypatch) -> None:
+def test_start_without_connected_chat_repeats_full_welcome_with_image(monkeypatch) -> None:
     from project.bot_media import FIRST_START_IMAGE_PATH
 
     dp = FakeDispatcher()
@@ -251,8 +255,9 @@ def test_first_start_uses_first_image_only_once(monkeypatch) -> None:
     first = bot.send_message.await_args.kwargs["attachments"]
     assert first[0].path == str(FIRST_START_IMAGE_PATH)
     asyncio.run(dp.handlers["message_created"](event, FakeContext()))
-    second = bot.send_message.await_args.kwargs["attachments"]
-    assert not any(getattr(item, "path", None) == str(FIRST_START_IMAGE_PATH) for item in second)
+    second_message = bot.send_message.await_args.kwargs
+    assert second_message["attachments"][0].path == str(FIRST_START_IMAGE_PATH)
+    assert second_message["text"] == start.build_welcome_text("Алексей")
     assert bot.send_message.await_count == 2
 
 

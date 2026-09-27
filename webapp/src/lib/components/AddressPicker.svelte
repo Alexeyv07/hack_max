@@ -672,6 +672,9 @@
 			{:else if result.mode === 'no_chat' && adminStage === 'invite'}
 				<p>Пригласительное сообщение с обзором функций:</p>
 				<p>{inviteText}</p>
+				<div class="info-note" role="note">
+					Вы можете закрыть миниаппку и продолжить в личном чате с ботом — приглашение уже отправлено туда.
+				</div>
 				<button class="primary" type="button" onclick={copyAdminLink}>{linkCopied ? 'Скопировано' : 'Скопировать'}</button>
 				<button class="secondary" type="button" disabled={loading} onclick={backToNoChatScreen}>Назад</button>
 			{:else if result.mode === 'no_chat' && (adminStage === 'waiting' || adminStage === 'failed')}
@@ -1002,6 +1005,15 @@
 		margin: 0;
 		font-size: var(--fs-14);
 		color: var(--text-secondary);
+		line-height: 1.45;
+	}
+	.info-note {
+		padding: 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-md);
+		background: var(--bg-elevated);
+		color: var(--text-secondary);
+		font-size: var(--fs-14);
 		line-height: 1.45;
 	}
 	.muted {

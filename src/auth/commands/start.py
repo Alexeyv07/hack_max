@@ -18,6 +18,7 @@ from auth.handlers.authorize import authorize_from_event
 from auth.handlers.residence import get_personal_address
 from chat_link.handlers import bind_referral_member, claim_admin_request
 from project.bot_media import first_start_image
+from project.bot_screens import remember_screen, send_screen
 from project.database import session_scope
 from project.docs_links import docs_html
 from project.logging_setup import get_logger
@@ -50,14 +51,13 @@ def build_welcome_text(
     text = (
         f"Здравствуйте, {safe_name}!\n\n"
         "Это сервис «КасаетсяМеня» 🕊️\n\n"
-        "- Помогаем не пропустить важное о вашем доме: когда отключат воду, "
-        "где идут работы и что изменилось 👷‍♂️\n\n"
-        "- Вам не нужно перечитывать весь чат соседей 🙋\n\n"
-        "- Мы собираем сообщения об одном событии в понятную карточку: "
-        "<b>что произойдёт, когда и касается ли это вашего дома и корпуса.</b> 🚀\n\n"
-        "- Если сроки изменятся — обновим информацию 📣\n\n"
-        "Также кроме новостей вашего двора и округи мы собираем для вас "
-        "подборку актуальных новостей вашего города. Не упустите то, что вас касается ❗\n\n"
+        "Помогаем не пропустить важное о вашем доме: когда отключат воду, "
+        "где идут работы и что изменилось. Вам больше не нужно перечитывать "
+        "весь чат соседей 🧑‍🔧\n\n"
+        "Кроме новостей вашего двора и округа, мы собираем для вас "
+        "подборку актуальных новостей города. Вы также можете посмотреть "
+        "расположение событий на карте.\n\n"
+        "Не упустите то, что вас касается ❗\n\n"
         f"{docs_html('О сервисе', page='overview')}\n\n"
         "Укажите свой адрес, чтобы подключить сервис к чату вашего дома:"
     )
@@ -152,6 +152,8 @@ async def _render_welcome(
     target_chat_id: int | None = None,
     resident_chat_id: int | None = None,
     recipient_chat_id: int | None = None,
+    referral_complete: bool = False,
+    show_intro_on_reentry: bool = False,
 ) -> None:
     can_choose_address = await asyncio.to_thread(_can_choose_address, user.max_user_id)
     can_choose_address = (
@@ -174,12 +176,13 @@ async def _render_welcome(
         can_choose_address=can_choose_address,
     )
     attachments = [keyboard] if keyboard is not None else []
+    previous_mid = (await context.get_data()).get("flow_mid")
     await context.clear()
     if target_chat_id is not None:
         await context.update_data(target_chat_id=target_chat_id)
     if resident_chat_id is not None:
         await context.update_data(resident_chat_id=resident_chat_id)
-    # Каждый /start создаёт новый экран в конце переписки; прежние не редактируем.
+    # /start создаёт новый экран внизу; старый навигационный экран убираем после отправки.
     chat_id = (
         recipient_chat_id if recipient_chat_id is not None else getattr(event, "chat_id", None)
     )
@@ -188,40 +191,60 @@ async def _render_welcome(
         recipient = getattr(message, "recipient", None)
         chat_id = getattr(recipient, "chat_id", None)
     is_new = getattr(user, "is_new", False)
-    render_home = (
+    # Удаление диалога в MAX не удаляет пользователя из БД. При явном /start
+    # без подключённого чата повторно показываем приветствие и его обложку.
+    show_intro = is_new or (
+        show_intro_on_reentry
+        and not show_events
+        and not any((admin_token, notice, target_chat_id, resident_chat_id))
+    )
+    render_home = referral_complete or (
         show_events
         and not is_new
         and not any((admin_token, notice, target_chat_id, resident_chat_id))
     )
     if render_home:
         with session_scope() as session:
-            result = await send_home(bot, session, user.max_user_id, recipient_chat_id=chat_id)
+            home_kwargs = {"notice": notice} if notice else {}
+            result = await send_home(
+                bot, session, user.max_user_id, recipient_chat_id=chat_id, **home_kwargs
+            )
     else:
-        # Полная презентация сервиса и её обложка — только при первом входе.
-        # При повторном /start без адреса сразу предлагаем выбор дома.
+        # После повторного явного /start без подключённого дома приветствие
+        # должно быть таким же, как при первом входе.
         screen_text = (
             text
-            if is_new or any((admin_token, notice, target_chat_id, resident_chat_id))
+            if show_intro or any((admin_token, notice, target_chat_id, resident_chat_id))
             else ADDRESS_PICKER_TEXT
         )
-        screen_attachments = [first_start_image(bot), *attachments] if is_new else attachments
+        screen_attachments = [first_start_image(bot), *attachments] if show_intro else attachments
+        if screen_text == ADDRESS_PICKER_TEXT:
+            screen_attachments = [first_start_image(bot), *screen_attachments]
         if chat_id is not None:
-            result = await bot.send_message(
+            result = await send_screen(
+                bot,
+                user.max_user_id,
+                previous_mid=previous_mid,
                 chat_id=chat_id,
                 text=screen_text,
                 attachments=screen_attachments,
                 format=Format.HTML,
             )
         else:
-            result = await event.message.answer(
+            result = await send_screen(
+                bot,
+                user.max_user_id,
+                previous_mid=previous_mid,
+                user_id=user.max_user_id,
                 text=screen_text,
                 attachments=screen_attachments,
                 format=Format.HTML,
             )
     mid = _sent_mid(result)
     if mid:
+        await remember_screen(bot, user.max_user_id, mid, previous_mid=previous_mid)
         await context.update_data(flow_mid=mid)
-        if is_new and not render_home:
+        if show_intro and not render_home:
             await context.update_data(first_welcome_mid=mid)
 
 
@@ -244,29 +267,12 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
         recent_starts[user_id] = (source, now)
         return False
 
-    async def _delete_user_command(event: Any) -> None:
-        mid = getattr(getattr(getattr(event, "message", None), "body", None), "mid", None)
-        if not mid:
-            return
-        try:
-            await bot.delete_message(str(mid))
-        except Exception as exc:
-            # В личке MAX часто запрещает боту удалять сообщения пользователя (403).
-            code = getattr(exc, "code", None)
-            raw = getattr(exc, "raw", None) or {}
-            denied = code == 403 or (isinstance(raw, dict) and raw.get("code") == "access.denied")
-            if denied:
-                logger.debug("Нет права удалить команду пользователя mid=%s", mid)
-            else:
-                logger.debug("Не удалось удалить команду пользователя mid=%s", mid, exc_info=True)
-
     @dp.message_created(Command("home"))
     async def on_home(event: Any, context: Any = None) -> None:
-        """Показать главную; сообщение с командой убрать из истории."""
+        """Показать главную новым экраном после команды пользователя."""
         if not is_private_chat_event(event):
             return
         user = await asyncio.to_thread(authorize_from_event, event)
-        await _delete_user_command(event)
         if user is None:
             return
         chat_id = getattr(event, "chat_id", None)
@@ -275,7 +281,13 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             chat_id = getattr(recipient, "chat_id", None)
         try:
             with session_scope() as session:
-                await send_home(bot, session, user.max_user_id, recipient_chat_id=chat_id)
+                result = await send_home(bot, session, user.max_user_id, recipient_chat_id=chat_id)
+            previous_mid = (await context.get_data()).get("flow_mid") if context else None
+            mid = _sent_mid(result)
+            await remember_screen(bot, user.max_user_id, mid, previous_mid=previous_mid)
+            if context is not None and mid:
+                await context.clear()
+                await context.update_data(flow_mid=mid)
         except Exception:
             logger.exception("Не удалось отправить /home")
 
@@ -296,6 +308,7 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
         target_chat_id = None
         resident_chat_id = None
         notice = None
+        referral_complete = False
         if payload.startswith(CHAT_BIND_PREFIX):
             try:
                 parsed_chat_id = int(payload.removeprefix(CHAT_BIND_PREFIX))
@@ -331,7 +344,7 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
                     )
                 notice = outcome.message
                 if outcome.joined:
-                    resident_chat_id = chat_id
+                    referral_complete = True
         await _render_welcome(
             bot,
             event,
@@ -341,6 +354,8 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             notice=notice,
             target_chat_id=target_chat_id,
             resident_chat_id=resident_chat_id,
+            referral_complete=referral_complete,
+            show_intro_on_reentry=True,
         )
 
     @dp.message_created(CommandStart())
@@ -350,4 +365,4 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
         user = await asyncio.to_thread(authorize_from_event, event)
         if user is None or duplicate_start(user.max_user_id, "message_created"):
             return
-        await _render_welcome(bot, event, context, user)
+        await _render_welcome(bot, event, context, user, show_intro_on_reentry=True)

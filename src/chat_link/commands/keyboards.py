@@ -86,6 +86,7 @@ def method_keyboard(
     target_chat_id: int | None = None,
     resident_chat_id: int | None = None,
     from_manage: bool = False,
+    from_chats: bool = False,
 ):
     me = getattr(bot, "me", None)
     username = getattr(me, "username", None)
@@ -117,7 +118,9 @@ def method_keyboard(
             payload=f"chat_link_text{suffix}",
         )
     )
-    back_payload = "cl:back:manage" if from_manage else "cl:back:welcome"
+    back_payload = (
+        "cl:back:chats" if from_chats else "cl:back:manage" if from_manage else "cl:back:welcome"
+    )
     builder.row(CallbackButton(text="← Назад", payload=back_payload))
     return builder.as_markup()
 
