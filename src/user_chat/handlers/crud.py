@@ -124,23 +124,24 @@ def add_chat_address(session: Session, chat_id: int, address_id: int) -> bool:
 
 
 def remove_chat_address(session: Session, chat_id: int, address_id: int) -> bool:
-    """Удалить дополнительный адрес; последний дом нельзя удалить без отключения чата."""
+    """Снять связь адреса с чатом; последний адрес отключает привязку, не бота."""
     chat = session.get(ChatRow, chat_id)
     if chat is None or chat.chat_type != "chat":
         raise ValueError("Групповой чат не подключён")
     addresses = list_chat_addresses(session, chat_id)
     if not any(address.id == address_id for address in addresses):
         return False
-    if len(addresses) == 1:
-        raise ValueError(
-            "Это единственный адрес у чата. Чтобы убрать его, удалите бота из группового чата."
-        )
     session.execute(
         delete(chat_addresses).where(
             chat_addresses.c.chat_id == chat_id, chat_addresses.c.address_id == address_id
         )
     )
-    if chat.address_id == address_id:
+    if len(addresses) == 1:
+        # chats.address_id остаётся legacy FK для совместимости со старой схемой;
+        # при chat_type=removed он НЕ означает действующую связь с домом.
+        # bot_group_registry остаётся активным — бот физически остаётся в группе.
+        chat.chat_type = "removed"
+    elif chat.address_id == address_id:
         chat.address_id = next(address.id for address in addresses if address.id != address_id)
     session.execute(
         users_chat.update()

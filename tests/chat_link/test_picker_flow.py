@@ -554,7 +554,8 @@ def test_address_button_allows_outsider_to_choose_without_granting_feed(monkeypa
     bot.edit_message.assert_not_awaited()
 
 
-def test_group_admin_removes_address_and_updates_announcement(db_session, monkeypatch) -> None:
+def test_old_group_buttons_do_not_change_addresses(db_session, monkeypatch) -> None:
+    """Старые сообщения в группе больше не дают управлять адресами."""
     from decimal import Decimal
 
     from address.db import AddressRow
@@ -562,58 +563,39 @@ def test_group_admin_removes_address_and_updates_announcement(db_session, monkey
     from user_chat.models import ChatCreate
 
     first = AddressRow(
-        address_text="Москва, Админская улица, д. 1",
-        latitude=Decimal("55.7"),
-        longitude=Decimal("37.6"),
+        address_text="Москва, ул. Первая, д. 1", latitude=Decimal("55.7"), longitude=Decimal("37.6")
     )
     second = AddressRow(
-        address_text="Москва, Админская улица, д. 2",
-        latitude=Decimal("55.7"),
-        longitude=Decimal("37.6"),
+        address_text="Москва, ул. Первая, д. 2", latitude=Decimal("55.7"), longitude=Decimal("37.6")
     )
     db_session.add_all([first, second])
     db_session.flush()
     create_chat(db_session, ChatCreate(chat_id=-8123, address_id=first.id))
     add_chat_address(db_session, -8123, second.id)
 
-    @contextmanager
-    def same_session():
-        yield db_session
-
-    monkeypatch.setattr(flow, "session_scope", same_session)
-    monkeypatch.setattr(flow, "bot_can_read_group", AsyncMock(return_value=True))
-    announce = AsyncMock()
-    monkeypatch.setattr(flow, "announce_connected_group", announce)
-    bot = SimpleNamespace(
-        get_chat_member=AsyncMock(return_value=SimpleNamespace(is_admin=True, is_owner=False)),
-        send_message=AsyncMock(),
-        edit_message=AsyncMock(),
-    )
+    bot = SimpleNamespace(send_message=AsyncMock(), edit_message=AsyncMock())
     dp = FakeDispatcher()
     flow.register_chat_link_commands(dp, bot)
     event = SimpleNamespace(
         callback=SimpleNamespace(payload="cl:group:remove:-8123", user=SimpleNamespace(user_id=41)),
-        message=SimpleNamespace(body=SimpleNamespace(mid="delete-choice")),
+        message=SimpleNamespace(
+            recipient=SimpleNamespace(chat_type="chat", chat_id=-8123),
+            body=SimpleNamespace(mid="old-button"),
+        ),
         ack=AsyncMock(),
         edit=AsyncMock(),
     )
     asyncio.run(dp.handlers["message_callback"](event, FakeContext()))
+    assert [address.id for address in list_chat_addresses(db_session, -8123)] == [
+        first.id,
+        second.id,
+    ]
+    event.ack.assert_awaited_once()
     bot.send_message.assert_not_awaited()
-    buttons = bot.edit_message.await_args.kwargs["attachments"][0].payload.buttons
-    assert "Какой адрес убрать" in bot.edit_message.await_args.kwargs["text"]
-    assert len(buttons) == 2
-    assert buttons[1][0].payload == f"cl:group:pick:-8123:{second.id}"
-    event.callback.payload = buttons[1][0].payload
-    bot.edit_message.reset_mock()
-    asyncio.run(dp.handlers["message_callback"](event, FakeContext()))
-    assert [address.id for address in list_chat_addresses(db_session, -8123)] == [first.id]
-    announce.assert_awaited_once_with(bot, -8123)
-    bot.edit_message.assert_awaited_once()
-    assert bot.edit_message.await_args.args == ("delete-choice",)
-    assert "больше не привязан" in bot.edit_message.await_args.kwargs["text"]
+    bot.edit_message.assert_not_awaited()
 
 
-def test_non_admin_cannot_remove_group_address(monkeypatch) -> None:
+def test_group_admin_button_is_private_only() -> None:
     bot = SimpleNamespace(
         get_chat_member=AsyncMock(return_value=SimpleNamespace(is_admin=False, is_owner=False)),
         send_message=AsyncMock(),
@@ -622,9 +604,53 @@ def test_non_admin_cannot_remove_group_address(monkeypatch) -> None:
     flow.register_chat_link_commands(dp, bot)
     event = SimpleNamespace(
         callback=SimpleNamespace(payload="cl:group:remove:-8123", user=SimpleNamespace(user_id=42)),
+        message=SimpleNamespace(recipient=SimpleNamespace(chat_type="chat", chat_id=-8123)),
         ack=AsyncMock(),
         edit=AsyncMock(),
     )
     asyncio.run(dp.handlers["message_callback"](event, FakeContext()))
-    assert "администратору" in event.ack.await_args.kwargs["notification"]
+    assert "личном чате" in event.ack.await_args.kwargs["notification"]
     bot.send_message.assert_not_awaited()
+
+
+def test_add_address_from_chat_menu_preserves_target_and_back(monkeypatch) -> None:
+    from chat_link.handlers.registry import AdminGroup
+
+    @contextmanager
+    def fake_session_scope():
+        yield object()
+
+    monkeypatch.setattr(flow, "session_scope", fake_session_scope)
+    monkeypatch.setattr(
+        flow,
+        "eligible_admin_group",
+        AsyncMock(return_value=AdminGroup(chat_id=-8123, title="Наш двор")),
+    )
+    monkeypatch.setattr(
+        flow, "get_chat", lambda _session, _chat_id: SimpleNamespace(chat_type="chat")
+    )
+    monkeypatch.setattr(flow, "connected_admin_groups", AsyncMock(return_value=[]))
+    bot = SimpleNamespace(
+        me=SimpleNamespace(username="test_bot", user_id=999), edit_message=AsyncMock()
+    )
+    event = SimpleNamespace(
+        callback=SimpleNamespace(
+            payload="chat_link:start:chat:-8123", user=SimpleNamespace(user_id=42)
+        ),
+        message=SimpleNamespace(body=SimpleNamespace(mid="chat-selection")),
+        ack=AsyncMock(),
+        edit=AsyncMock(),
+    )
+    context = FakeContext()
+    dp = FakeDispatcher()
+    flow.register_chat_link_commands(dp, bot)
+
+    asyncio.run(dp.handlers["message_callback"](event, context))
+    assert context.data["target_chat_id"] == -8123
+    assert context.data["from_chats"] is True
+    buttons = bot.edit_message.await_args.kwargs["attachments"][0].payload.buttons
+    assert buttons[-1][0].payload == "cl:back:chats"
+
+    event.callback.payload = "cl:back:chats"
+    asyncio.run(dp.handlers["message_callback"](event, context))
+    assert "Управление чатами" in bot.edit_message.await_args.kwargs["text"]

@@ -2,6 +2,7 @@ from chat_link.handlers.cache import get_address_catalog
 from chat_link.handlers.group import (
     announce_connected_group,
     announce_group_address_setup,
+    announce_unlinked_group,
     bind_existing_chat_member,
     bind_referral_member,
     bot_can_read_group,
@@ -36,6 +37,7 @@ __all__ = [
     "AdminGroup",
     "announce_connected_group",
     "announce_group_address_setup",
+    "announce_unlinked_group",
     "bind_referral_member",
     "bot_can_read_group",
     "claim_admin_request",

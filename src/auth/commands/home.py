@@ -13,12 +13,15 @@ from sqlalchemy.orm import Session
 
 from auth.db.user import UserRow
 from auth.handlers.managed_addresses import list_managed_addresses
+from chat_link.handlers.registry import connected_admin_groups
 from project.bot_media import HOME_IMAGE_PATH, home_image
 from project.docs_links import docs_html
 from project.logging_setup import get_logger
 
 logger = get_logger(__name__)
 MANAGE_ADDRESSES_PAYLOAD = "home:manage"
+MANAGE_CHATS_PAYLOAD = "home:chats"
+HELP_PAYLOAD = "home:help"
 CHAT_LINK_START_PAYLOAD = "chat_link:start"
 
 
@@ -38,13 +41,13 @@ def build_home_text(addresses: list[str], *, notice: str | None = None) -> str:
             "Здесь собрано то, что касается вашего дома и города: "
             "отключения воды, ремонт, перекрытия и другие события.\n\n"
             "Нажмите «Посмотреть новости рядом», чтобы открыть ленту. "
-            "Если нужно добавить или убрать дом — «Управлять адресами»."
+            "Личные адреса можно изменить в разделе «Мои адреса»."
         )
     else:
         address_block = "—"
         body = (
             "Пока нет сохранённого адреса — лента новостей рядом будет пустой.\n\n"
-            "Нажмите «Добавить адрес», чтобы указать дом."
+            "Нажмите «Мои адреса», чтобы добавить свой дом."
         )
     help_link = docs_html("О сервисе", page="overview")
     text = (
@@ -59,7 +62,9 @@ def build_home_text(addresses: list[str], *, notice: str | None = None) -> str:
     return text
 
 
-def build_home_keyboard(bot: Any, *, has_addresses: bool | None = None) -> Any:
+def build_home_keyboard(
+    bot: Any, *, has_addresses: bool | None = None, has_admin_chats: bool = False
+) -> Any:
     me = getattr(bot, "me", None)
     builder = InlineKeyboardBuilder()
     if has_addresses:
@@ -70,11 +75,24 @@ def build_home_keyboard(bot: Any, *, has_addresses: bool | None = None) -> Any:
                 contact_id=getattr(me, "user_id", None),
             )
         )
-        builder.row(CallbackButton(text="Управлять адресами", payload=MANAGE_ADDRESSES_PAYLOAD))
-    else:
-        builder.row(CallbackButton(text="Добавить адрес", payload=CHAT_LINK_START_PAYLOAD))
-        builder.row(CallbackButton(text="Управлять адресами", payload=MANAGE_ADDRESSES_PAYLOAD))
+    builder.row(CallbackButton(text="Мои адреса", payload=MANAGE_ADDRESSES_PAYLOAD))
+    if has_admin_chats:
+        builder.row(CallbackButton(text="Управлять чатами", payload=MANAGE_CHATS_PAYLOAD))
+    builder.row(CallbackButton(text="Помощь и обратная связь", payload=HELP_PAYLOAD))
     return builder.as_markup()
+
+
+async def has_connected_admin_chats(bot: Any, session: Session, max_user_id: int) -> bool:
+    """Кнопку видят только администраторы реально подключённых групп.
+
+    При сбое MAX не делаем вывод, что права действуют: экран не должен давать
+    обходить повторную проверку при действиях над чатом.
+    """
+    try:
+        return bool(await connected_admin_groups(bot, session, max_user_id=max_user_id))
+    except Exception:
+        logger.exception("Не удалось проверить права для меню управления чатами")
+        return False
 
 
 async def send_home(
@@ -95,7 +113,10 @@ async def send_home(
     )
     addresses = linked_addresses(session, max_user_id)
     text = build_home_text(addresses, notice=notice)
-    keyboard = build_home_keyboard(bot, has_addresses=bool(addresses))
+    has_admin_chats = await has_connected_admin_chats(bot, session, max_user_id)
+    keyboard = build_home_keyboard(
+        bot, has_addresses=bool(addresses), has_admin_chats=has_admin_chats
+    )
     try:
         return await bot.send_message(
             **recipient,
@@ -124,7 +145,11 @@ async def edit_to_home(
     """Заменить текущий bot-screen на главную (без второго сообщения)."""
     addresses = linked_addresses(session, max_user_id)
     text = build_home_text(addresses, notice=notice)
-    attachments = [home_image(bot), build_home_keyboard(bot, has_addresses=bool(addresses))]
+    has_admin_chats = await has_connected_admin_chats(bot, session, max_user_id)
+    attachments = [
+        home_image(bot),
+        build_home_keyboard(bot, has_addresses=bool(addresses), has_admin_chats=has_admin_chats),
+    ]
     edit = getattr(event, "edit", None)
     if callable(edit):
         try:
@@ -158,6 +183,9 @@ __all__ = [
     "CHAT_LINK_START_PAYLOAD",
     "HOME_IMAGE_PATH",
     "MANAGE_ADDRESSES_PAYLOAD",
+    "MANAGE_CHATS_PAYLOAD",
+    "HELP_PAYLOAD",
+    "has_connected_admin_chats",
     "build_home_keyboard",
     "build_home_text",
     "edit_to_home",

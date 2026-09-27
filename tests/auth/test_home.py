@@ -57,14 +57,15 @@ def test_home_keyboard_matches_mockup() -> None:
     buttons = keyboard.payload.buttons
     assert [row[0].text for row in buttons] == [
         "Посмотреть новости рядом",
-        "Управлять адресами",
+        "Мои адреса",
+        "Помощь и обратная связь",
     ]
     assert buttons[1][0].payload == "home:manage"
     assert buttons[0][0].web_app == "bot"
     empty = build_home_keyboard(bot, has_addresses=False)
     assert [row[0].text for row in empty.payload.buttons] == [
-        "Добавить адрес",
-        "Управлять адресами",
+        "Мои адреса",
+        "Помощь и обратная связь",
     ]
     assert "О сервисе" in build_home_text([])
     assert "<a href=" in build_home_text([])
@@ -88,9 +89,9 @@ def test_home_sends_image_and_keyboard_together(db_session) -> None:
     assert "—" in sent["text"]
     assert len(sent["attachments"]) == 2
     assert sent["attachments"][0].type == "image"
-    # Пустой список адресов → «Добавить адрес», не лента.
-    assert sent["attachments"][1].payload.buttons[0][0].payload == "chat_link:start"
-    assert sent["attachments"][1].payload.buttons[1][0].payload == "home:manage"
+    # Пустой список → доступ к личным адресам без принудительного запуска ленты.
+    assert sent["attachments"][1].payload.buttons[0][0].payload == "home:manage"
+    assert sent["attachments"][1].payload.buttons[1][0].payload == "home:help"
 
 
 def test_home_falls_back_to_text_when_upload_fails(db_session) -> None:
@@ -119,3 +120,20 @@ def test_home_does_not_show_old_personal_address_without_chat(db_session) -> Non
     set_personal_address(db_session, max_user_id=1001, address_id=home.id)
     assert linked_addresses(db_session, 1001) == []
     assert home.address_text not in build_home_text(linked_addresses(db_session, 1001))
+
+
+def test_manage_chats_button_is_visible_only_for_admin() -> None:
+    bot = SimpleNamespace(me=SimpleNamespace(username="bot", user_id=7))
+    regular = build_home_keyboard(bot, has_addresses=True, has_admin_chats=False)
+    admin = build_home_keyboard(bot, has_addresses=True, has_admin_chats=True)
+    assert not any(
+        row[0].payload == "home:chats"
+        for row in regular.payload.buttons
+        if hasattr(row[0], "payload")
+    )
+    assert [row[0].text for row in admin.payload.buttons] == [
+        "Посмотреть новости рядом",
+        "Мои адреса",
+        "Управлять чатами",
+        "Помощь и обратная связь",
+    ]

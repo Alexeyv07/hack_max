@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from chat_link.db import BotGroupRow
 from chat_link.handlers.group import bot_can_read_group
+from user_chat.db import ChatRow
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,4 +102,26 @@ async def eligible_admin_groups(
         )
         if candidate is not None:
             groups.append(candidate)
+    return sorted(groups, key=lambda group: (group.title.casefold(), group.chat_id))
+
+
+async def connected_admin_groups(
+    bot: Any, session: Session, *, max_user_id: int
+) -> list[AdminGroup]:
+    """Подключённые группы, где пользователь — админ, а бот может читать сообщения.
+
+    Непривязанные группы показываются только в сценарии подключения адреса,
+    но не в меню управления уже подключёнными чатами.
+    """
+    ids = session.scalars(
+        select(ChatRow.chat_id)
+        .join(BotGroupRow, BotGroupRow.chat_id == ChatRow.chat_id)
+        .where(ChatRow.chat_type == "chat", BotGroupRow.is_active.is_(True))
+        .order_by(ChatRow.chat_id)
+    ).all()
+    groups = []
+    for chat_id in ids:
+        group = await eligible_admin_group(bot, session, chat_id=chat_id, max_user_id=max_user_id)
+        if group is not None:
+            groups.append(group)
     return sorted(groups, key=lambda group: (group.title.casefold(), group.chat_id))

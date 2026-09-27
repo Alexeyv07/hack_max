@@ -221,6 +221,8 @@ def test_bot_added_reminds_when_not_admin(monkeypatch) -> None:
     text = bot.send_message.await_args.kwargs["text"]
     assert "пока не имеет необходимых прав" in text
     assert "Читать все сообщения" in text
+    assert "attachments" not in bot.send_message.await_args.kwargs
+    assert "Не удалось создать кнопку" not in text
 
 
 def test_postal_input_ignores_group_message() -> None:

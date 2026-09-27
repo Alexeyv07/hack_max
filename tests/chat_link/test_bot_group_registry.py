@@ -210,3 +210,17 @@ def test_private_callback_after_webapp_works_without_fsm(monkeypatch):
         event.edit.await_args.kwargs["attachments"][0].payload.buttons[0][0].payload
         == "cl:admin:confirm:22:-321"
     )
+
+
+def test_swagger_accepts_negative_max_chat_id_for_unlink():
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    app.include_router(routes.router)
+    endpoint = app.openapi()["paths"]["/chat-link/groups/{chat_id}/addresses/{address_id}"][
+        "delete"
+    ]
+    chat_id = next(item for item in endpoint["parameters"] if item["name"] == "chat_id")
+    schema = chat_id["schema"]
+    assert schema.get("minimum") is None
+    assert -79201841556904 in schema["examples"]

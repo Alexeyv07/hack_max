@@ -48,6 +48,7 @@ from chat_link.commands.residence_screens import (
 )
 from chat_link.handlers import (
     announce_connected_group,
+    announce_unlinked_group,
     bind_existing_chat_member,
     bot_can_read_group,
     connect_added_group_to_address,
@@ -798,7 +799,12 @@ async def navigate_chat_link(
     },
 )
 async def delete_group_address(
-    chat_id: Annotated[int, Path(description="ID MAX group chat.", examples=[123456789], ge=1)],
+    chat_id: Annotated[
+        int,
+        Path(
+            description="ID MAX group chat (может быть отрицательным).", examples=[-79201841556904]
+        ),
+    ],
     address_id: Annotated[int, Path(description="ID адреса для отвязки.", examples=[881], ge=1)],
     session: DbSession,
     max_user_id: MaxUserId,
@@ -808,6 +814,8 @@ async def delete_group_address(
 
     Разрешено **только** администратору / владельцу MAX-чата.
     Бот должен иметь право читать все сообщения группы.
+    Если удалён последний адрес, бот остаётся в MAX-группе; новая привязка
+    выполняется через сценарий администратора.
     """
     chat = get_chat(session, chat_id)
     if chat is None or chat.chat_type != "chat":
@@ -833,13 +841,17 @@ async def delete_group_address(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Не удалось проверить права через MAX"
         ) from exc
     try:
+        last_address = len(list_chat_addresses(session, chat_id)) == 1
         removed = remove_chat_address(session, chat_id, address_id)
     except ValueError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     if removed:
         session.commit()
         try:
-            await announce_connected_group(bot, chat_id)
+            if last_address:
+                await announce_unlinked_group(bot, chat_id)
+            else:
+                await announce_connected_group(bot, chat_id)
         except Exception:
             logger.exception("Не удалось обновить сообщение после удаления адреса чата")
     return GroupAddressRemovedResponse(removed=removed)

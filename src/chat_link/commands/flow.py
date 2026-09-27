@@ -5,13 +5,12 @@ from typing import Any
 
 from maxapi import F
 from maxapi.enums.format import Format
-from maxapi.types import CallbackButton
 from maxapi.utils.deep_linking import create_start_link
-from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
 from address.street_catalog import normalize_ui_text
 from auth.commands.home import edit_to_home, send_home
 from auth.commands.manage_addresses import build_manage_list_view
+from auth.commands.manage_chats import chat_list_view
 from auth.commands.start import ADDRESS_PICKER_TEXT, build_welcome_keyboard, user_can_see_events
 from auth.handlers import get_user_by_max_id
 from auth.handlers.residence import set_personal_address
@@ -56,6 +55,7 @@ from chat_link.handlers import (
     register_bot_group,
 )
 from chat_link.handlers.links import get_request_by_token
+from chat_link.handlers.registry import connected_admin_groups
 from chat_link.handlers.residence_selection import resolve_residence
 from chat_link.models import ChatLinkStatus
 from project.bot_media import other_messages_image
@@ -68,7 +68,6 @@ from user_chat.handlers import (
     detach_chat,
     get_chat,
     list_chat_addresses,
-    remove_chat_address,
     remove_user_from_chat,
     set_member_address,
 )
@@ -187,7 +186,7 @@ async def _show_welcome(event: Any, context: Any, bot: Any) -> None:
 
 
 async def _show_manage_list(event: Any, context: Any, bot: Any) -> None:
-    """Вернуться в «Управлять адресами» после chat_link:start:manage."""
+    """Вернуться в «Мои адреса» после chat_link:start:manage."""
     max_user_id = _callback_user_id(event)
     await context.set_state(None)
     data = await context.get_data()
@@ -210,6 +209,34 @@ async def _show_manage_list(event: Any, context: Any, bot: Any) -> None:
         await event.edit(**kwargs)
 
 
+async def _show_chat_list(event: Any, context: Any, bot: Any) -> None:
+    """Назад из выбора адреса для определённой группы."""
+    max_user_id = _callback_user_id(event)
+    await context.set_state(None)
+    data = await context.get_data()
+    mid = _screen_mid(event) or data.get("flow_mid")
+    await context.set_data({"flow_mid": mid} if mid else {})
+    try:
+        with session_scope() as session:
+            groups = await connected_admin_groups(bot, session, max_user_id=max_user_id)
+        text, keyboard = chat_list_view(groups)
+    except Exception:
+        logger.exception("Не удалось открыть список управляемых чатов")
+        text, keyboard = chat_list_view([])
+        text = "Не удалось проверить чаты через MAX. Попробуйте ещё раз позже."
+    kwargs = {
+        "text": text,
+        "attachments": [other_messages_image(bot), keyboard],
+        "format": Format.HTML,
+        "notify": False,
+    }
+    if mid:
+        await _ack_callback(event)
+        await bot.edit_message(mid, **kwargs)
+    else:
+        await event.edit(**kwargs)
+
+
 def _preserve_flow_flags(data: dict[str, Any]) -> dict[str, Any]:
     """Сохранить режимы bind/resident/manage при смене шага picker-а."""
     keep: dict[str, Any] = {}
@@ -218,6 +245,8 @@ def _preserve_flow_flags(data: dict[str, Any]) -> dict[str, Any]:
             keep[key] = data[key]
     if data.get("from_manage"):
         keep["from_manage"] = True
+    if data.get("from_chats"):
+        keep["from_chats"] = True
     return keep
 
 
@@ -230,6 +259,7 @@ async def _show_methods(event: Any, context: Any, bot: Any) -> None:
     target_chat_id = data.get("target_chat_id")
     resident_chat_id = data.get("resident_chat_id")
     from_manage = bool(data.get("from_manage"))
+    from_chats = bool(data.get("from_chats"))
     text = (
         "Выберите адрес, который нужно добавить к чату. Можно будет добавить и другие дома двора."
         if target_chat_id is not None
@@ -245,6 +275,7 @@ async def _show_methods(event: Any, context: Any, bot: Any) -> None:
                 target_chat_id=target_chat_id,
                 resident_chat_id=resident_chat_id,
                 from_manage=from_manage,
+                from_chats=from_chats,
             )
         ],
         "notify": False,
@@ -458,7 +489,7 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
             user_id,
             notice=(
                 f"✅ Чат привязан к адресу: {address.address_text}. "
-                "Добавить ещё дом можно в «Управлять адресами»."
+                "Добавить ещё дом можно в «Управлять чатами»."
             ),
         )
         return
@@ -605,7 +636,7 @@ async def _show_admin_setup(
         except Exception:
             logger.exception("Не удалось проверить группы пользователя в MAX")
             await event.edit(
-                text="Не удалось проверить чаты через MAX. Попробуйте ещё раз позже.",
+                text="Возникла ошибка во время проверки. Попробуйте ещё раз позже.",
                 attachments=[waiting_admin_keyboard(address_id)],
                 notify=False,
             )
@@ -809,116 +840,45 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
         payload = _callback_payload(event)
         if not payload.startswith("cl:") and not payload.startswith("chat_link:start"):
             return
-        if not is_private_chat_event(event) and not payload.startswith("cl:group:"):
+        if not is_private_chat_event(event):
             await _ack_callback(event, notification="Продолжите в личном чате с ботом")
             return
         if payload.startswith("chat_link:start"):
             from_manage = payload == "chat_link:start:manage"
+            from_chats = payload.startswith("chat_link:start:chat:")
             current = await context.get_data()
             flags = _preserve_flow_flags(current)
+            # Новый старт не наследует режим привязки от предыдущего выбора.
+            flags.pop("target_chat_id", None)
+            flags.pop("resident_chat_id", None)
+            flags.pop("from_manage", None)
+            flags.pop("from_chats", None)
             flags["from_manage"] = from_manage
+            if from_chats:
+                try:
+                    chat_id = int(payload.rsplit(":", 1)[1])
+                    with session_scope() as session:
+                        candidate = await eligible_admin_group(
+                            bot,
+                            session,
+                            chat_id=chat_id,
+                            max_user_id=_callback_user_id(event),
+                        )
+                        active = get_chat(session, chat_id)
+                    if candidate is None or active is None or active.chat_type != "chat":
+                        await _ack_callback(event, notification="Чат больше недоступен")
+                        return
+                except Exception:
+                    logger.exception("Не удалось проверить чат перед добавлением адреса")
+                    await _ack_callback(event, notification="Не удалось проверить чат")
+                    return
+                flags["target_chat_id"] = chat_id
+                flags["from_chats"] = True
             mid = _screen_mid(event)
             if mid:
                 flags["flow_mid"] = mid
             await context.set_data(flags)
             await _show_methods(event, context, bot)
-            return
-        # Действия администратора в группе не редактируют главное сообщение
-        # до фактического изменения списка адресов.
-        if payload.startswith("cl:group:"):
-            parts = payload.split(":")
-            if len(parts) not in {4, 5} or parts[:2] != ["cl", "group"]:
-                await event.ack(notification="Некорректная команда")
-                return
-            try:
-                chat_id = int(parts[3])
-                address_id = int(parts[4]) if len(parts) == 5 else None
-            except ValueError:
-                await event.ack(notification="Некорректная команда")
-                return
-            if parts[2] not in {"remove", "pick"} or (parts[2] == "pick") != (
-                address_id is not None
-            ):
-                await event.ack(notification="Некорректная команда")
-                return
-            try:
-                member = await bot.get_chat_member(chat_id, _callback_user_id(event))
-                if member is None or not (
-                    getattr(member, "is_admin", False) or getattr(member, "is_owner", False)
-                ):
-                    await event.ack(notification="Действие доступно только администратору чата")
-                    return
-                if not await bot_can_read_group(bot, chat_id):
-                    await event.ack(notification="Дайте боту право «Читать все сообщения»")
-                    return
-                if parts[2] == "remove":
-                    with session_scope() as session:
-                        addresses = list_chat_addresses(session, chat_id)
-                    if len(addresses) <= 1:
-                        await event.ack(
-                            notification=(
-                                "Это единственный адрес. Чтобы убрать его, удалите бота из чата."
-                            )
-                        )
-                        return
-                    keyboard = InlineKeyboardBuilder()
-                    for address in addresses:
-                        keyboard.row(
-                            CallbackButton(
-                                text=address.address_text[:120],
-                                payload=f"cl:group:pick:{chat_id}:{address.id}",
-                            )
-                        )
-                    pick_text = "Какой адрес убрать из этого чата? Нажмите на нужный."
-                    mid = _screen_mid(event)
-                    await _ack_callback(event)
-                    if mid:
-                        try:
-                            await bot.edit_message(
-                                mid,
-                                text=pick_text,
-                                attachments=[keyboard.as_markup()],
-                                notify=False,
-                            )
-                            return
-                        except Exception:
-                            logger.debug(
-                                "Не удалось edit список адресов на удаление", exc_info=True
-                            )
-                    await bot.send_message(
-                        chat_id=chat_id,
-                        text=pick_text,
-                        attachments=[keyboard.as_markup()],
-                    )
-                    return
-                with session_scope() as session:
-                    removed = remove_chat_address(session, chat_id, address_id)
-                if not removed:
-                    await event.ack(notification="Этот адрес уже убран")
-                    return
-                await _ack_callback(event)
-                await announce_connected_group(bot, chat_id)
-                mid = _screen_mid(event)
-                if mid:
-                    await bot.edit_message(
-                        mid,
-                        text=(
-                            "Готово: этот адрес больше не привязан к чату. "
-                            "Список адресов выше обновлён."
-                        ),
-                        attachments=[],
-                        notify=False,
-                    )
-                else:
-                    await bot.send_message(
-                        chat_id=chat_id,
-                        text="Готово: адрес убран из чата.",
-                    )
-            except ValueError as exc:
-                await event.ack(notification=str(exc))
-            except Exception:
-                logger.exception("Не удалось изменить адреса группового чата")
-                await event.ack(notification="Не удалось изменить адреса, попробуйте позже")
             return
         if payload.startswith("cl:invite:"):
             parts = payload.split(":")
@@ -1054,6 +1014,8 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                 await _show_welcome(event, context, bot)
             elif target == "manage":
                 await _show_manage_list(event, context, bot)
+            elif target == "chats":
+                await _show_chat_list(event, context, bot)
             elif target == "root":
                 await _show_methods(event, context, bot)
             elif target == "city":

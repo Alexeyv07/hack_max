@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 from auth.db import UserRow
 from chat_link.db import ChatLinkRow
 from chat_link.models import ChatLink, ChatLinkStatus
+from user_chat.db import ChatRow
 from user_chat.handlers import (
+    add_chat_address,
     add_user_to_chat,
     create_chat,
     get_chat,
@@ -192,15 +194,19 @@ def finalize_group(
                 invite_link=invite_link,
             ),
         )
-    elif existing.address_id != row.address_id:
-        raise ValueError("Этот MAX-чат уже привязан к другому адресу")
     elif existing.chat_type != "chat":
+        # Бот мог остаться в группе после удаления последней адресной связи.
+        # Возобновляем группу с новым домом, не возвращая старую связь.
+        session.get(ChatRow, chat_id).address_id = row.address_id
         promote_chat_to_group(
             session,
             chat_id,
             title=title or existing.title,
             invite_link=invite_link,
         )
+        add_chat_address(session, chat_id, row.address_id)
+    elif existing.address_id != row.address_id:
+        raise ValueError("Этот MAX-чат уже привязан к другому адресу")
 
     admin = session.scalar(select(UserRow).where(UserRow.max_user_id == admin_max_user_id))
     requester = session.get(UserRow, row.requester_user_id)

@@ -246,34 +246,26 @@ async def connect_added_group_to_address(
         )
 
     existing_chat = get_chat(session, chat_id)
-    if existing_chat is not None:
-        if existing_chat.chat_type == "chat":
-            occupied = [
-                chat
-                for chat in list_chats_by_address(session, address_id)
-                if chat.chat_id != chat_id
-            ]
-            if occupied:
-                return ConnectOutcome(
-                    False,
-                    chat_id,
-                    False,
-                    "Для этого адреса уже подключён другой домовой чат. Выберите другой адрес.",
-                )
-            added = add_chat_address(session, chat_id, address_id)
-            return ConnectOutcome(
-                True,
-                chat_id,
-                True,
-                "Адрес добавлен к чату." if added else "Этот адрес уже добавлен к чату.",
-            )
-        if existing_chat.address_id != address_id:
+    if existing_chat is not None and existing_chat.chat_type == "chat":
+        occupied = [
+            chat for chat in list_chats_by_address(session, address_id) if chat.chat_id != chat_id
+        ]
+        if occupied:
             return ConnectOutcome(
                 False,
                 chat_id,
                 False,
-                "Этот MAX-чат уже был связан с другим адресом и не может быть перепривязан автоматически.",
+                "Для этого адреса уже подключён другой домовой чат. Выберите другой адрес.",
             )
+        added = add_chat_address(session, chat_id, address_id)
+        return ConnectOutcome(
+            True,
+            chat_id,
+            True,
+            "Адрес добавлен к чату." if added else "Этот адрес уже добавлен к чату.",
+        )
+        # Отключённая привязка не мешает заново выбрать другой дом.
+        # Наличие самого бота проверено выше; реестр не очищаем.
 
     occupied = [
         chat for chat in list_chats_by_address(session, address_id) if chat.chat_id != chat_id
@@ -323,8 +315,6 @@ def _group_link_keyboard(url: str | None, *, text: str) -> Any | None:
 
 async def announce_group_address_setup(bot: Any, chat_id: int) -> None:
     """Подсказать в новой группе, как выбрать адрес уже после добавления бота."""
-    username = getattr(getattr(bot, "me", None), "username", None)
-    bind_link = create_start_link(username, f"chat_bind_{chat_id}") if username else None
     try:
         ready = await bot_can_read_group(bot, chat_id)
     except Exception:
@@ -343,11 +333,6 @@ async def announce_group_address_setup(bot: Any, chat_id: int) -> None:
         "Каждый адрес должен быть свободен от привязки к другому чату.\n\n"
         f"{docs_html('Как подключить домовой чат', page='chat-link')}."
     )
-    if not bind_link:
-        text += (
-            "\n\nНе удалось создать кнопку выбора адреса. "
-            "Откройте бота в личном чате и попробуйте ещё раз."
-        )
     await bot.send_message(
         chat_id=chat_id,
         text=text,
@@ -415,3 +400,26 @@ def connected_group_keyboard(bot: Any, chat_id: int) -> Any | None:
         return None
     referral = create_start_link(username, f"chat_{chat_id}")
     return _connected_group_keyboard(referral)
+
+
+async def announce_unlinked_group(bot: Any, chat_id: int) -> None:
+    """После снятия последнего адреса убираем устаревшее приветствие группы."""
+    text = (
+        "Этот чат пока не привязан ни к одному адресу. "
+        "Администратор может снова выбрать адрес в личном чате с ботом."
+    )
+    with session_scope() as session:
+        row = session.get(ChatRow, chat_id)
+        if row is None:
+            return
+        if row.welcome_mid:
+            try:
+                await bot.edit_message(row.welcome_mid, text=text, attachments=[], notify=False)
+                return
+            except MaxApiError as exc:
+                if exc.code not in {400, 404}:
+                    raise
+        result = await bot.send_message(chat_id=chat_id, text=text)
+        mid = getattr(getattr(getattr(result, "message", None), "body", None), "mid", None)
+        if mid:
+            row.welcome_mid = str(mid)
