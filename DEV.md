@@ -42,7 +42,8 @@ tests/ scripts/
 |---------------------------|---------------------------------------------------------------------|
 | `bot_entrypoint.py`       | Docker bot: ML-check → `main` (схема/seed — в образе Postgres) |
 | `migrate.py`              | `up` / `down` / `status` / `stamp` для `db/migrations` |
-| `build_pg_seed_dumps.py`  | jsonl → `docker/postgres/seed/*.csv.gz` |
+| `build_pg_seed_dumps.py`  | jsonl → `docker/postgres/seed/{addresses,events}.csv.gz` |
+| `dump_db.py`              | dump/load runtime-таблиц (users/chats/…; без addresses/events) |
 | `classify_try.py`         | REPL importance (ONNX → rules)                                      |
 | `smoke_parser_collect.py` | live smoke news/mc collect                                          |
 
@@ -51,6 +52,11 @@ set PYTHONPATH=src
 python scripts/classify_try.py
 python scripts/smoke_parser_collect.py --parser news --outlet m24
 python -m parser_common.seed dump
+
+# демо-БД для судей: addresses/events — seed; остальное — runtime dump
+python scripts/build_pg_seed_dumps.py
+python scripts/dump_db.py dump          # → docker/postgres/seed/runtime/
+python scripts/dump_db.py load          # в уже мигрированную БД
 ```
 
 ## ML: обучение

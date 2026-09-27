@@ -35,6 +35,8 @@ AITUNNEL_API_KEY=...
 docker compose -f docker-compose.prod.yaml --env-file .env up -d
 ```
 
+> Вы можете сразу начать тестировать систему, но рекомендуется подождать еще 2-3минуты, чтобы все прогревочные процессы были завершены и не замедляли работу основных компонентов.
+
 При запуске решения будут использованы следующие зависимости:
 
 - [pyproject.toml](./pyproject.toml) — зависимости Python
@@ -161,5 +163,6 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 | 3 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/events/map?limit=50`                     | Точки карты             | `200`, `count` > 0, у точек есть `lat`/`lon`/`category` |
 | 4 | <span style="background:#28a745;color:#ffffff;font-weight:700">GET</span> `/chat-link/addresses/search?q=Варшавское` | Каталог адресов         | `200`, непустой `items` с `address_text`                |
 
-<img src="media/openapi.gif" alt="openapi demo" style="max-width:280px; border-radius:12px; display:block; margin: 0 auto;">
-
+<div align="center">
+<img src="media/openapi.gif" alt="openapi demo" style="max-width:280px; border-radius:12px; display:block;">
+</div>
