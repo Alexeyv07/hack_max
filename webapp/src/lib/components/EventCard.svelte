@@ -15,6 +15,16 @@
 	let bodyExpanded = $state(false);
 	let needsMore = $state(false);
 	let descriptionEl: HTMLParagraphElement | undefined = $state();
+	/** Битый/протухший image_url → карта вместо чёрного кадра. */
+	let imageFailed = $state(false);
+
+	const showMapPreview = $derived(!event.image_url || imageFailed);
+
+	$effect(() => {
+		void event.id;
+		void event.image_url;
+		imageFailed = false;
+	});
 
 	const importanceColor = $derived(
 		event.disaster_flag || event.importance === 1
@@ -135,7 +145,7 @@
 	<div
 		class="media"
 		class:clean-preview={HIDE_YANDEX_ATTRIBUTION}
-		class:placeholder={!event.image_url}
+		class:placeholder={showMapPreview}
 		role="button"
 		tabindex="0"
 		aria-label={`Открыть карту: ${displayTitle}`}
@@ -147,8 +157,14 @@
 			}
 		}}
 	>
-		{#if event.image_url}
-			<img src={event.image_url} alt="" loading="lazy" decoding="async" />
+		{#if event.image_url && !imageFailed}
+			<img
+				src={event.image_url}
+				alt=""
+				loading="lazy"
+				decoding="async"
+				onerror={() => (imageFailed = true)}
+			/>
 		{:else}
 			<EventMapPreview {event} />
 		{/if}
