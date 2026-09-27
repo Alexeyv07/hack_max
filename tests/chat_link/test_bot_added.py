@@ -50,6 +50,10 @@ def test_bot_added_uses_user_who_added_bot(monkeypatch) -> None:
         yield object()
 
     monkeypatch.setattr(flow, "session_scope", fake_session_scope)
+    registered = []
+    monkeypatch.setattr(
+        flow, "register_bot_group", lambda session, chat_id, **kw: registered.append((chat_id, kw))
+    )
     monkeypatch.setattr(flow, "get_chat", lambda session, chat_id: None)
     monkeypatch.setattr(flow, "pending_for_actor", lambda session, user_id: None)
     monkeypatch.setattr(flow, "announce_group_address_setup", announce)
@@ -68,7 +72,9 @@ def test_bot_added_uses_user_who_added_bot(monkeypatch) -> None:
     asyncio.run(dp.handlers["bot_added"](event))
 
     announce.assert_awaited_once_with(bot, -100500)
-    assert scheduled == [(-100500, 321)]
+    assert registered[0][0] == -100500
+    assert registered[0][1]["actor_max_user_id"] == 321
+    assert scheduled == []  # новая группа не привязывается без явного подтверждения
 
 
 def test_bot_added_ignores_channels(monkeypatch) -> None:
@@ -169,6 +175,11 @@ def test_bot_removed_detaches_chat_and_cancels_pending_connect(monkeypatch) -> N
     monkeypatch.setattr(flow, "session_scope", fake_session_scope)
     monkeypatch.setattr(
         flow,
+        "deactivate_bot_group",
+        lambda session, chat_id: detached.append(("inactive", chat_id)),
+    )
+    monkeypatch.setattr(
+        flow,
         "detach_chat",
         lambda session, chat_id: detached.append(chat_id) or True,
     )
@@ -181,45 +192,83 @@ def test_bot_removed_detaches_chat_and_cancels_pending_connect(monkeypatch) -> N
     )
     asyncio.run(dp.handlers["bot_removed"](event))
 
-    assert detached == [-100500]
+    assert detached == [("inactive", -100500), -100500]
     assert task.cancelled
     assert -100500 not in flow._GROUP_CONNECT_TASKS
 
 
-def test_address_command_reads_saved_group_address(monkeypatch) -> None:
-    from maxapi.filters.command import Command
+def test_connected_group_keyboard_has_only_personal_address_link() -> None:
+    from chat_link.handlers.group import connected_group_keyboard
 
-    class AddressDispatcher(FakeDispatcher):
-        def message_created(self, *args, **kwargs):
-            if any(
-                isinstance(filter_, Command) and "address" in filter_.commands for filter_ in args
-            ):
-                return self._decorator("address_command")
-            return self._decorator("message_created")
+    bot = SimpleNamespace(me=SimpleNamespace(username="smart_city_bot"))
+    buttons = connected_group_keyboard(bot, -100500).payload.buttons
+    assert len(buttons) == 1
+    assert len(buttons[0]) == 1
+    assert buttons[0][0].text == "Указать свой адрес"
+    assert "chat_-100500" in buttons[0][0].url
+    assert "chat_bind_" not in buttons[0][0].url
+
+
+def test_bot_added_reminds_when_not_admin(monkeypatch) -> None:
+    from chat_link.handlers.group import announce_group_address_setup
+
+    bot = SimpleNamespace(
+        me=SimpleNamespace(username="smart_city_bot"),
+        get_me_from_chat=AsyncMock(return_value=SimpleNamespace(is_admin=False, is_owner=False)),
+        send_message=AsyncMock(),
+    )
+    asyncio.run(announce_group_address_setup(bot, -100500))
+    text = bot.send_message.await_args.kwargs["text"]
+    assert "пока не имеет необходимых прав" in text
+    assert "Читать все сообщения" in text
+
+
+def test_postal_input_ignores_group_message() -> None:
+    dp = FakeDispatcher()
+    bot = SimpleNamespace(send_message=AsyncMock(), edit_message=AsyncMock())
+    flow.register_chat_link_commands(dp, bot)
+    event = SimpleNamespace(
+        chat_id=-100500,
+        message=SimpleNamespace(
+            recipient=SimpleNamespace(chat_type="chat", chat_id=-100500),
+            body=SimpleNamespace(text="123456"),
+        ),
+    )
+    asyncio.run(dp.handlers["message_created"](event, object()))
+    bot.send_message.assert_not_awaited()
+    bot.edit_message.assert_not_awaited()
+
+
+def test_group_callback_cannot_open_private_picker() -> None:
+    dp = FakeDispatcher()
+    bot = SimpleNamespace(send_message=AsyncMock(), edit_message=AsyncMock())
+    flow.register_chat_link_commands(dp, bot)
+    event = SimpleNamespace(
+        callback=SimpleNamespace(payload="chat_link:start", user=SimpleNamespace(user_id=321)),
+        message=SimpleNamespace(recipient=SimpleNamespace(chat_type="chat", chat_id=-100500)),
+        ack=AsyncMock(),
+    )
+    asyncio.run(dp.handlers["message_callback"](event, object()))
+    event.ack.assert_awaited_once()
+    bot.send_message.assert_not_awaited()
+
+
+def test_bot_added_existing_chat_reminds_if_admin_rights_missing(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = SimpleNamespace()
+    announced = AsyncMock()
 
     @contextmanager
     def fake_session_scope():
         yield object()
 
-    dp = AddressDispatcher()
-    bot = SimpleNamespace(
-        me=SimpleNamespace(username="smart_city_bot"),
-        send_message=AsyncMock(),
-    )
     monkeypatch.setattr(flow, "session_scope", fake_session_scope)
-    monkeypatch.setattr(flow, "connected_group_address", lambda session, chat_id: "Москва, д. 8")
+    monkeypatch.setattr(flow, "register_bot_group", lambda *args, **kwargs: None)
+    monkeypatch.setattr(flow, "get_chat", lambda *args: SimpleNamespace(chat_type="chat"))
+    monkeypatch.setattr(flow, "pending_for_actor", lambda *args: None)
+    monkeypatch.setattr(flow, "bot_can_read_group", AsyncMock(return_value=False))
+    monkeypatch.setattr(flow, "announce_group_address_setup", announced)
     flow.register_chat_link_commands(dp, bot)
-
-    asyncio.run(dp.handlers["address_command"](SimpleNamespace(chat_id=-100500)))
-
-    bot.send_message.assert_awaited_once()
-    assert bot.send_message.await_args.kwargs["chat_id"] == -100500
-    assert "Москва, д. 8" in bot.send_message.await_args.kwargs["text"]
-    assert "повторно добавлять не нужно" in bot.send_message.await_args.kwargs["text"]
-    buttons = bot.send_message.await_args.kwargs["attachments"][0].payload.buttons
-    assert [row[0].text for row in buttons] == [
-        "Указать свой адрес",
-        "Добавить адрес чата (админ)",
-        "Удалить адрес чата (админ)",
-    ]
-    assert "chat_bind_-100500" in buttons[1][0].url
+    event = SimpleNamespace(chat_id=-100500, user=SimpleNamespace(user_id=321), is_channel=False)
+    asyncio.run(dp.handlers["bot_added"](event))
+    announced.assert_awaited_once_with(bot, -100500)

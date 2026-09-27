@@ -21,7 +21,6 @@ def test_publish_bot_commands_patches_me_commands(monkeypatch) -> None:
                 "commands": [
                     {"name": "home", "description": "Главная: адреса и новости рядом"},
                     {"name": "get_notify", "description": "Пример уведомления о событии"},
-                    {"name": "address", "description": "Адреса этого группового чата"},
                 ]
             }
 
@@ -30,7 +29,7 @@ def test_publish_bot_commands_patches_me_commands(monkeypatch) -> None:
     bot = SimpleNamespace()
     names = asyncio.run(publish_bot_commands(bot))
 
-    assert names == ["home", "get_notify", "address"]
+    assert names == ["home", "get_notify"]
     assert captured["bot"] is bot
     published = captured["commands"]
     assert isinstance(published, list)
@@ -40,7 +39,7 @@ def test_publish_bot_commands_patches_me_commands(monkeypatch) -> None:
 
 def test_bot_menu_commands_cover_handlers() -> None:
     names = {command.name for command in BOT_MENU_COMMANDS}
-    assert names == {"home", "get_notify", "address"}
+    assert names == {"home", "get_notify"}
     assert all(1 <= len(command.name) <= 64 for command in BOT_MENU_COMMANDS)
     assert all(
         command.description and 1 <= len(command.description) <= 128

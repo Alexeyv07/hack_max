@@ -2,10 +2,16 @@
 	import { HIDE_YANDEX_ATTRIBUTION } from '$lib/mapAppearance';
 	import { onMount, tick } from 'svelte';
 	import {
+		backToNoChat,
+		checkAdminGroups,
+		confirmAdminGroup,
 		nearestAddresses,
+		navigateChatLink,
 		searchAddresses,
 		selectAddress,
+		showAdminInvitation,
 		type AddressOption,
+		type ChatOption,
 		type SelectResult
 	} from '$lib/api/chatLink';
 	import {
@@ -17,10 +23,11 @@
 	import { getMaxUserIdForStorage } from '$lib/maxUser';
 	import { loadYandexMaps, type YandexMapInstance } from '$lib/yandexMaps';
 
-	let { mode, targetChatId = null, residentChatId = null }: {
+	let { mode, targetChatId = null, residentChatId = null, onHome }: {
 		mode: 'map' | 'text';
 		targetChatId?: number | null;
 		residentChatId?: number | null;
+		onHome?: () => void;
 	} = $props();
 
 	type PickerDraft = {
@@ -45,7 +52,13 @@
 	let error = $state('');
 	let loading = $state(false);
 	let linkCopied = $state(false);
-	let showAdminHelp = $state(false);
+	let adminStage = $state<'start' | 'invite' | 'waiting' | 'list' | 'confirm' | 'failed'>('start');
+	let adminGroups = $state<ChatOption[]>([]);
+	let adminChat = $state<ChatOption | null>(null);
+	let handoffToBot = $state(false);
+	const inviteText = $derived(result?.admin_link
+		? `Здравствуйте! Предлагаю подключить домовой чат по адресу ${result.address.address_text} к боту «КасаетсяМеня». Он собирает важные новости о доме, отключениях, ремонте и изменениях сроков, формирует краткую ленту и уведомления, чтобы жителям не приходилось перечитывать весь чат. Администратору нужно добавить бота в группу и дать ему право читать все сообщения. Начать подключение: ${result.admin_link}`
+		: '');
 	let searchTimer: number | null = null;
 	let searchSeq = 0;
 
@@ -323,7 +336,8 @@
 		error = '';
 		try {
 			result = await selectAddress(selected.id, targetChatId, residentChatId);
-			showAdminHelp = false;
+			adminStage = 'start';
+			handoffToBot = false;
 			if (mode === 'map') {
 				yandexMap?.destroy();
 				yandexMap = null;
@@ -337,15 +351,139 @@
 		}
 	}
 
-	async function copyAdminLink() {
-		if (!result?.admin_link) return;
+	async function checkAgain() {
+		if (!result || result.mode !== 'not_member') return;
+		loading = true;
+		error = '';
 		try {
-			await navigator.clipboard.writeText(
-                `Здравствуйте! Помогите подключить домовой чат по адресу ${result.address.address_text} к боту «КасаетсяМеня»: ${result.admin_link}`
-            );
+			result = await selectAddress(result.address.id, targetChatId, residentChatId);
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Не удалось проверить членство';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function goHome() {
+		loading = true;
+		error = '';
+		try {
+			await navigateChatLink('home');
+			clearDraft();
+			onHome?.();
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Не удалось вернуться на главную';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function backToAddress() {
+		loading = true;
+		error = '';
+		try {
+			await navigateChatLink('choose_address');
+			handoffToBot = true;
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Не удалось вернуться к выбору адреса';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function copyAdminLink() {
+		if (!inviteText) return;
+		try {
+			await navigator.clipboard.writeText(inviteText);
 			linkCopied = true;
 		} catch {
 			error = 'Не удалось скопировать ссылку. Попробуйте открыть выбор адреса из бота ещё раз.';
+		}
+	}
+
+	async function showInvitation() {
+		if (!result?.token) return;
+		loading = true;
+		error = '';
+		try {
+			await showAdminInvitation(result.address.id, result.token);
+			adminStage = 'invite';
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Не удалось показать приглашение';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function backToNoChatScreen() {
+		if (!result) return;
+		loading = true;
+		error = '';
+		try {
+			await backToNoChat(result.address.id);
+			adminStage = 'start';
+			adminChat = null;
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Не удалось вернуться назад';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function checkAdmin() {
+		if (!result) return;
+		loading = true;
+		error = '';
+		try {
+			adminGroups = await checkAdminGroups(result.address.id);
+			adminStage = adminGroups.length ? 'list' : 'waiting';
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Не удалось проверить чаты через MAX';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function chooseAdminChat(chat: ChatOption) {
+		if (!result) return;
+		loading = true;
+		error = '';
+		try {
+			adminChat = await confirmAdminGroup(result.address.id, chat.chat_id);
+			adminStage = 'confirm';
+		} catch (cause) {
+			adminStage = 'failed';
+			error = cause instanceof Error ? cause.message : 'Не удалось проверить права на чат';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function linkAdminChat() {
+		if (!result || !adminChat) return;
+		loading = true;
+		error = '';
+		try {
+			result = await selectAddress(result.address.id, adminChat.chat_id);
+			adminStage = 'start';
+		} catch (cause) {
+			adminStage = 'failed';
+			error = cause instanceof Error ? cause.message : 'Не удалось привязать чат';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function chooseAnotherViaBot() {
+		loading = true;
+		error = '';
+		try {
+			await navigateChatLink('choose_address');
+			handoffToBot = true;
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Не удалось открыть выбор адреса в боте';
+		} finally {
+			loading = false;
 		}
 	}
 
@@ -355,7 +493,10 @@
 		options = [];
 		error = '';
 		linkCopied = false;
-		showAdminHelp = false;
+		adminStage = 'start';
+		adminGroups = [];
+		adminChat = null;
+		handoffToBot = false;
 		query = '';
 		clearDraft();
 		saveActiveChatLinkMode(activeMode);
@@ -407,7 +548,19 @@
 </script>
 
 <div class="picker">
-	<h1>{result ? 'Адрес выбран' : mode === 'map' ? 'Укажите дом на карте' : 'Введите адрес'}</h1>
+	{#if handoffToBot}
+		<h1>Продолжите в боте</h1>
+		<p>Закройте миниаппку и продолжите в личном чате с ботом. Там уже открыт нужный этап выбора адреса.</p>
+	{:else}
+	<h1>
+		{result?.mode === 'not_member'
+			? 'Подключение к чату'
+			: result
+				? 'Адрес выбран'
+				: mode === 'map'
+					? 'Укажите дом на карте'
+					: 'Введите адрес'}
+	</h1>
 
 	{#if !result}
 		{#if mode === 'map'}
@@ -499,42 +652,67 @@
 			{:else if result.mode === 'already_member'}
 				<p>Вы состоите в этом домовом чате. Чат привязан к вашему профилю.</p>
 			{:else if result.mode === 'resident_address' || result.mode === 'personal_address'}
-				<p>Ваш адрес сохранён. Новости рядом доступны.</p>
-			{:else if showAdminHelp}
+				<p>✅ Чат успешно добавлен.</p>
+			{:else if result.mode === 'not_member'}
 				<p>
-					Добавьте бота в нужный групповой чат и назначьте его администратором с правом
-					«Читать все сообщения». После этого чат подключится автоматически —
-					дополнительных команд не нужно.
+					Вы пока не состоите в домовом чате. Присоединитесь к нему через сервис
+					«Госуслуги Дом» и нажмите «Проверить еще раз».
 				</p>
-				<button class="secondary back-link" type="button" onclick={() => (showAdminHelp = false)}>
-					<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-						<path
-							fill="currentColor"
-							fill-rule="evenodd"
-							clip-rule="evenodd"
-							d="M9.53 2.47a.75.75 0 0 1 0 1.06L4.81 8.25H15a6.75 6.75 0 0 1 0 13.5h-3a.75.75 0 0 1 0-1.5h3a5.25 5.25 0 1 0 0-10.5H4.81l4.72 4.72a.75.75 0 1 1-1.06 1.06l-6-6a.75.75 0 0 1 0-1.06l6-6a.75.75 0 0 1 1.06 0Z"
-						/>
-					</svg>
-					Я не администратор
-				</button>
-			{:else}
+			{:else if result.mode === 'no_chat' && adminStage === 'invite'}
+				<p>Пригласительное сообщение с обзором функций:</p>
+				<p>{inviteText}</p>
+				<button class="primary" type="button" onclick={copyAdminLink}>{linkCopied ? 'Скопировано' : 'Скопировать'}</button>
+				<button class="secondary" type="button" disabled={loading} onclick={backToNoChatScreen}>Назад</button>
+			{:else if result.mode === 'no_chat' && (adminStage === 'waiting' || adminStage === 'failed')}
+				<p>
+					{adminStage === 'failed'
+						? 'Привязка адреса пока не завершена. Проверьте, что бот находится в чате, назначен администратором и имеет все необходимые права, включая «Читать все сообщения».'
+						: 'Добавьте бота в нужный групповой чат и назначьте администратором с правом «Читать все сообщения».'}
+				</p>
+				<p>После этого нажмите «Проверить еще раз». Выбранный адрес сохранён.</p>
+				<button class="primary" type="button" disabled={loading} onclick={checkAdmin}>Проверить еще раз</button>
+				<button class="secondary" type="button" disabled={loading} onclick={backToNoChatScreen}>Назад</button>
+			{:else if result.mode === 'no_chat' && adminStage === 'list'}
+				<p>Чаты к которым можно привязать адрес:</p>
+				{#each adminGroups as chat}
+					<button class="secondary" type="button" disabled={loading} onclick={() => chooseAdminChat(chat)}>{chat.title}</button>
+				{/each}
+				<button class="secondary" type="button" disabled={loading} onclick={backToNoChatScreen}>Назад</button>
+			{:else if result.mode === 'no_chat' && adminStage === 'confirm' && adminChat}
+				<p>Подтвердите привязку:</p>
+				<p>Адрес: {result.address.address_text}</p>
+				<p>Чат: {adminChat.title}</p>
+				<button class="primary" type="button" disabled={loading} onclick={linkAdminChat}>Подтвердить</button>
+				<button class="secondary" type="button" disabled={loading} onclick={checkAdmin}>Назад</button>
+			{:else if result.mode === 'no_chat'}
 				<p>
 					Для этого дома пока нет подключённого чата. Если вы обычный житель, отправьте
-					администратору домового чата ссылку кнопкой ниже.
+					администратору домового чата приглашение кнопкой ниже.
 				</p>
 				{#if result.admin_link}
-					<button class="primary" type="button" onclick={copyAdminLink}>
-						{linkCopied ? 'Ссылка скопирована' : 'Скопировать пригласительное сообщение'}
+					<button class="primary" type="button" disabled={loading} onclick={showInvitation}>
+						Скопировать пригласительное сообщение
 					</button>
 				{/if}
-				<button class="secondary" type="button" onclick={() => (showAdminHelp = true)}>
-					Я администратор чата
+				<button class="secondary" type="button" disabled={loading} onclick={checkAdmin}>
+					Я админ чата
 				</button>
 			{/if}
 			{#if result.mode === 'group_connected'}
-				<button class="secondary" type="button" onclick={startAnother}>Добавить ещё дом к чату</button>
+				<button class="primary" type="button" disabled={loading} onclick={goHome}>На главную</button>
 			{:else if result.mode === 'resident_address' || result.mode === 'personal_address'}
-				<button class="secondary" type="button" onclick={startAnother}>Изменить свой адрес</button>
+				<button class="primary" type="button" disabled={loading} onclick={goHome}>На главную</button>
+			{:else if result.mode === 'not_member'}
+				<button class="primary" type="button" disabled={loading} onclick={checkAgain}>
+					Проверить еще раз
+				</button>
+				<button class="secondary" type="button" disabled={loading} onclick={backToAddress}>
+					Назад
+				</button>
+			{:else if result.mode === 'no_chat'}
+				{#if adminStage === 'start'}
+					<button class="secondary" type="button" disabled={loading} onclick={chooseAnotherViaBot}>Выбрать другой адрес</button>
+				{/if}
 			{:else}
 				<button class="secondary" type="button" onclick={startAnother}>Выбрать другой адрес</button>
 			{/if}
@@ -542,6 +720,7 @@
 	{/if}
 
 	{#if error}<p class="error">{error}</p>{/if}
+	{/if}
 </div>
 
 <style>
@@ -798,12 +977,6 @@
 	}
 	.secondary:hover:not(:disabled) {
 		background: var(--bg-elevated);
-	}
-	.back-link {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		gap: 8px;
 	}
 	.done {
 		display: grid;

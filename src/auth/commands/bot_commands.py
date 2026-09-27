@@ -16,7 +16,6 @@ logger = get_logger(__name__)
 BOT_MENU_COMMANDS: tuple[BotCommand, ...] = (
     BotCommand(name="home", description="Главная: адреса и новости рядом"),
     BotCommand(name="get_notify", description="Пример уведомления о событии"),
-    BotCommand(name="address", description="Адреса этого группового чата"),
 )
 
 

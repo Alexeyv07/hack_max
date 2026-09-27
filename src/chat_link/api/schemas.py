@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -89,6 +91,7 @@ class AddressSelectRequest(BaseModel):
                 {"address_id": 881},
                 {"address_id": 881, "chat_id": 123456789},
                 {"address_id": 881, "resident_chat_id": 123456789},
+                {"address_id": 881, "resident_chat_id": 123456789, "onboarding": True},
             ]
         }
     )
@@ -116,6 +119,30 @@ class AddressSelectRequest(BaseModel):
         ),
         examples=[123456789],
     )
+    onboarding: bool = Field(
+        default=False,
+        description=(
+            "Для миниапки: при отсутствии членства в `resident_chat_id` вернуть "
+            "`mode=not_member` (200) с возможностью повторной проверки. "
+            "Без этого флага сохраняется прежний ответ 403."
+        ),
+    )
+
+
+class ChatLinkNavigationRequest(BaseModel):
+    """Синхронизировать экран миниапки с личным чатом бота."""
+
+    model_config = ConfigDict(
+        json_schema_extra={"examples": [{"action": "home"}, {"action": "choose_address"}]}
+    )
+
+    action: Literal["home", "choose_address"] = Field(
+        description=(
+            "`home` — отправить главное меню в личку; "
+            "`choose_address` — отправить экран выбора способа ввода адреса."
+        ),
+        examples=["home", "choose_address"],
+    )
 
 
 class ChatOption(BaseModel):
@@ -127,6 +154,50 @@ class ChatOption(BaseModel):
         default=None,
         description="Invite-ссылка, если известна.",
         examples=["https://max.ru/..."],
+    )
+
+
+class AdminAddressRequest(BaseModel):
+    """Адрес выбран и сохранён на время подключения домового чата."""
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"address_id": 881}]})
+
+    address_id: int = Field(ge=1, description="ID ранее выбранного адреса.", examples=[881])
+
+
+class AdminInvitationRequest(AdminAddressRequest):
+    """Предпросмотр приглашения, полученного при выборе дома."""
+
+    model_config = ConfigDict(
+        json_schema_extra={"examples": [{"address_id": 881, "token": "abc123"}]}
+    )
+
+    token: str = Field(min_length=1, description="Токен заявки из ответа `/select`.")
+
+
+class AdminGroupRequest(AdminAddressRequest):
+    """Подтвердить показ конкретного MAX-чата перед привязкой."""
+
+    model_config = ConfigDict(
+        json_schema_extra={"examples": [{"address_id": 881, "chat_id": -123456789}]}
+    )
+
+    chat_id: int = Field(description="MAX ID выбранного группового чата.", examples=[-123456789])
+
+
+class AdminGroupsResponse(BaseModel):
+    """Группы, в которых и пользователь, и бот — администраторы с нужными правами."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"items": [{"chat_id": -123456789, "title": "Наш двор", "invite_link": None}]}
+            ]
+        }
+    )
+
+    items: list[ChatOption] = Field(
+        description="Подходящие группы; пустой список означает, что проверка MAX прошла, но таких групп нет."
     )
 
 
@@ -160,6 +231,32 @@ class AddressSelectResponse(BaseModel):
                     "mode": "no_chat",
                     "token": "abc123",
                     "admin_link": "https://max.ru/...",
+                    "chats": [],
+                },
+                {
+                    "address": {
+                        "id": 881,
+                        "address_text": "Москва, Варшавское шоссе, 28к1",
+                        "latitude": 55.65012,
+                        "longitude": 37.61890,
+                        "score": None,
+                    },
+                    "mode": "resident_address",
+                    "token": None,
+                    "admin_link": None,
+                    "chats": [],
+                },
+                {
+                    "address": {
+                        "id": 881,
+                        "address_text": "Москва, Варшавское шоссе, 28к1",
+                        "latitude": 55.65012,
+                        "longitude": 37.61890,
+                        "score": None,
+                    },
+                    "mode": "not_member",
+                    "token": None,
+                    "admin_link": None,
                     "chats": [],
                 },
             ]

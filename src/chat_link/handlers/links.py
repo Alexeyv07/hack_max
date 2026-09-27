@@ -79,6 +79,24 @@ def get_request_by_token(session: Session, token: str) -> ChatLink | None:
     return _domain(row) if row is not None else None
 
 
+def pending_for_address(session: Session, *, max_user_id: int, address_id: int) -> ChatLink | None:
+    """Восстановить приглашение после выбора дома в WebApp (FSM может быть пустым)."""
+    user = session.scalar(select(UserRow).where(UserRow.max_user_id == max_user_id))
+    if user is None:
+        return None
+    row = session.scalar(
+        select(ChatLinkRow)
+        .where(
+            ChatLinkRow.requester_user_id == user.id,
+            ChatLinkRow.address_id == address_id,
+            ChatLinkRow.status == ChatLinkStatus.WAITING_GROUP.value,
+        )
+        .order_by(ChatLinkRow.created_at.desc(), ChatLinkRow.id.desc())
+        .limit(1)
+    )
+    return _domain(row) if row is not None else None
+
+
 def mark_waiting_group(session: Session, *, token: str) -> None:
     """Перевести заявку в создание группы, если DB-чаты оказались legacy DIALOG."""
     row = _row_by_token(session, token)

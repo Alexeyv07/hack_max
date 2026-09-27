@@ -4,7 +4,7 @@ from typing import Any
 
 from maxapi.enums import ChatType
 from maxapi.exceptions.max import MaxApiError
-from maxapi.types import CallbackButton, LinkButton
+from maxapi.types import LinkButton
 from maxapi.utils.deep_linking import create_start_link
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 from sqlalchemy.orm import Session
@@ -308,7 +308,7 @@ async def connect_added_group_to_address(
 
 
 def connected_group_address(session: Session, chat_id: int) -> str | None:
-    """Все адреса подтверждённой группы для команды /address."""
+    """Все адреса подтверждённой группы (совместимость для внешних вызовов)."""
     addresses = list_chat_addresses(session, chat_id)
     return "\n".join(address.address_text for address in addresses) or None
 
@@ -325,7 +325,18 @@ async def announce_group_address_setup(bot: Any, chat_id: int) -> None:
     """Подсказать в новой группе, как выбрать адрес уже после добавления бота."""
     username = getattr(getattr(bot, "me", None), "username", None)
     bind_link = create_start_link(username, f"chat_bind_{chat_id}") if username else None
-    text = (
+    try:
+        ready = await bot_can_read_group(bot, chat_id)
+    except Exception:
+        # Сразу после bot_added MAX может ещё не выдавать сведения о правах.
+        ready = None
+    reminder = (
+        "❗ Бот пока не имеет необходимых прав. Назначьте его администратором "
+        "и включите право «Читать все сообщения».\n\n"
+        if ready is False
+        else ""
+    )
+    text = reminder + (
         "Бот добавлен в чат. Чтобы подключить этот чат к дому, администратору нужно:\n"
         "1. Назначить бота администратором с правом «Читать все сообщения».\n"
         "2. Нажать «Выбрать адрес» и указать дом. Позже можно добавить другие дома двора.\n\n"
@@ -357,7 +368,6 @@ async def announce_connected_group(
     """Одно закреплённое по смыслу сообщение: обновляем список при изменениях."""
     username = getattr(getattr(bot, "me", None), "username", None)
     referral = create_start_link(username, f"chat_{chat_id}") if username else None
-    bind_link = create_start_link(username, f"chat_bind_{chat_id}") if username else None
     with session_scope() as session:
         chat = session.get(ChatRow, chat_id)
         if chat is None or chat.chat_type != "chat":
@@ -376,7 +386,7 @@ async def announce_connected_group(
             text += "\n\nСоседи могут указать дом кнопкой ниже после вступления в чат."
         if not requester_added:
             text += "\n\nИнициатору нужно вступить в этот чат и нажать «Указать свой адрес» ниже."
-        keyboard = _connected_group_keyboard(referral, bind_link, chat_id=chat_id)
+        keyboard = _connected_group_keyboard(referral)
         attachments = [first_start_image(bot), *([keyboard] if keyboard is not None else [])]
         if chat.welcome_mid:
             try:
@@ -395,25 +405,15 @@ async def announce_connected_group(
             chat.welcome_mid = str(mid)
 
 
-def _connected_group_keyboard(
-    referral: str | None, bind_link: str | None, *, chat_id: int
-) -> Any | None:
-    builder = InlineKeyboardBuilder()
-    if referral:
-        builder.row(LinkButton(text="Указать свой адрес", url=referral))
-    if bind_link:
-        builder.row(LinkButton(text="Добавить адрес чата (админ)", url=bind_link))
-    builder.row(
-        CallbackButton(text="Удалить адрес чата (админ)", payload=f"cl:group:remove:{chat_id}")
-    )
-    return builder.as_markup()
+def _connected_group_keyboard(referral: str | None) -> Any | None:
+    """В общем чате только переход в личку для выбора адреса жителем."""
+    return _group_link_keyboard(referral, text="Указать свой адрес")
 
 
 def connected_group_keyboard(bot: Any, chat_id: int) -> Any | None:
-    """Повторно показать действия группы, даже если старое сообщение потерялось в чате."""
+    """Повторно показать ссылку выбора личного адреса в группе."""
     username = getattr(getattr(bot, "me", None), "username", None)
     if not username:
         return None
     referral = create_start_link(username, f"chat_{chat_id}")
-    bind_link = create_start_link(username, f"chat_bind_{chat_id}")
-    return _connected_group_keyboard(referral, bind_link, chat_id=chat_id)
+    return _connected_group_keyboard(referral)

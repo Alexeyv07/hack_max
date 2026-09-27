@@ -66,14 +66,66 @@ def test_admin_setup_explains_how_to_add_address_to_existing_chat(monkeypatch) -
         "get_address_catalog",
         lambda: SimpleNamespace(get=lambda address_id: SimpleNamespace(address_text="Дом 2")),
     )
-    event = SimpleNamespace(edit=AsyncMock())
+    event = SimpleNamespace(
+        edit=AsyncMock(), callback=SimpleNamespace(user=SimpleNamespace(user_id=123))
+    )
+
+    @contextmanager
+    def fake_session_scope():
+        yield object()
+
+    monkeypatch.setattr(flow, "session_scope", fake_session_scope)
+    monkeypatch.setattr(flow, "eligible_admin_groups", AsyncMock(return_value=[]))
 
     asyncio.run(flow._show_admin_setup(event, FakeContext({"address_id": 2}), bot=None))
 
     text = event.edit.await_args.kwargs["text"]
-    assert "повторно добавлять его не нужно" in text
-    assert "/address" in text
-    assert "Добавить адрес чата (админ)" in text
+    assert "Добавьте бота" in text
+    assert "Проверить еще раз" in text
+
+
+def test_native_resident_retry_shows_success_only_after_max_confirms(monkeypatch) -> None:
+    @contextmanager
+    def fake_session_scope():
+        yield object()
+
+    lookup = AsyncMock(side_effect=[None, object()])
+    resolve = AsyncMock(
+        side_effect=[
+            SimpleNamespace(mode="not_member", token=None),
+            SimpleNamespace(mode="personal_address", token=None),
+        ]
+    )
+    monkeypatch.setattr(flow, "session_scope", fake_session_scope)
+    monkeypatch.setattr(flow, "resolve_residence", resolve)
+    monkeypatch.setattr(
+        flow,
+        "get_address_catalog",
+        lambda: SimpleNamespace(get=lambda address_id: SimpleNamespace(address_text="Дом 1")),
+    )
+    bot = SimpleNamespace(get_chat_member=lookup)
+    dp = FakeDispatcher()
+    flow.register_chat_link_commands(dp, bot)
+    context = FakeContext()
+    event = SimpleNamespace(
+        callback=SimpleNamespace(payload="", user=SimpleNamespace(user_id=101)),
+        edit=AsyncMock(),
+        ack=AsyncMock(),
+        message=SimpleNamespace(body=SimpleNamespace(mid="mid")),
+    )
+
+    asyncio.run(flow._finish_residence(event, context, bot, 12))
+    buttons = event.edit.await_args.kwargs["attachments"][0].payload.buttons
+    assert [row[0].text for row in buttons] == ["Проверить еще раз", "Назад"]
+    assert buttons[0][0].payload == "cl:residence:retry:12"
+
+    event.callback.payload = buttons[0][0].payload
+    asyncio.run(dp.handlers["message_callback"](event, context))
+    buttons = event.edit.await_args.kwargs["attachments"][0].payload.buttons
+    assert "Чат успешно добавлен" in event.edit.await_args.kwargs["text"]
+    assert buttons[0][0].text == "На главную"
+    assert context.data == {}
+    assert resolve.await_count == 2
 
 
 def test_add_more_addresses_button_reuses_group_binding_flow() -> None:
@@ -255,6 +307,12 @@ def test_admin_instructions_are_shown_only_after_admin_button(monkeypatch) -> No
     monkeypatch.setattr(flow, "get_address_catalog", lambda: RoleCatalog())
     flow.register_chat_link_commands(dp, bot)
 
+    @contextmanager
+    def fake_session_scope():
+        yield object()
+
+    monkeypatch.setattr(flow, "session_scope", fake_session_scope)
+    monkeypatch.setattr(flow, "eligible_admin_groups", AsyncMock(return_value=[]))
     context = FakeContext({"address_id": 42, "link_token": "token"})
     event = _role_event("cl:admin:help")
 
@@ -263,12 +321,10 @@ def test_admin_instructions_are_shown_only_after_admin_button(monkeypatch) -> No
     event.ack.assert_not_awaited()
     event.edit.assert_awaited_once()
     kwargs = event.edit.await_args.kwargs
-    assert "Если бот уже есть в вашем чате" in kwargs["text"]
+    assert "Добавьте бота" in kwargs["text"]
     assert "Читать все сообщения" in kwargs["text"]
     buttons = kwargs["attachments"][0].payload.buttons
-    assert buttons[0][0].text == "← Я не администратор"
-    assert "Подключение чата" in kwargs["text"]
-    assert "<a href=" in kwargs["text"]
+    assert [row[0].text for row in buttons] == ["Проверить еще раз", "Назад"]
 
 
 def test_return_from_admin_help_shows_resident_text(monkeypatch) -> None:
@@ -290,11 +346,11 @@ def test_return_from_admin_help_shows_resident_text(monkeypatch) -> None:
     event.ack.assert_not_awaited()
     event.edit.assert_awaited_once()
     kwargs = event.edit.await_args.kwargs
-    assert "Скопируйте пригласительное сообщение" in kwargs["text"]
+    assert "Для этого дома пока нет подключённого чата" in kwargs["text"]
     assert "Если бот уже есть в вашем чате" not in kwargs["text"]
     buttons = kwargs["attachments"][0].payload.buttons
-    assert buttons[0][0].text == "Скопировать ссылку"
-    assert buttons[1][0].text == "Я администратор"
+    assert buttons[0][0].text == "Скопировать пригласительное сообщение"
+    assert buttons[1][0].text == "Я админ чата"
 
 
 def test_method_screen_uses_regular_message_edit(monkeypatch) -> None:

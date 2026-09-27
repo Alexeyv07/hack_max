@@ -91,10 +91,56 @@ export async function selectAddress(
 			body: JSON.stringify({
 				address_id: addressId,
 				chat_id: targetChatId,
-				resident_chat_id: residentChatId
+				resident_chat_id: residentChatId,
+				onboarding: true
 			})
 		})
 	);
+}
+
+export async function navigateChatLink(action: 'home' | 'choose_address'): Promise<void> {
+	const response = await fetch(apiUrl('/chat-link/navigation'), {
+		method: 'POST',
+		headers: await authenticatedHeaders(),
+		body: JSON.stringify({ action })
+	});
+	if (!response.ok) {
+		const data = await response.json().catch(() => ({}));
+		throw new Error(data.detail || `HTTP ${response.status}`);
+	}
+}
+
+async function adminPost<T>(path: string, body: object, noContent = false): Promise<T> {
+	const response = await fetch(apiUrl(`/chat-link/admin/${path}`), {
+		method: 'POST',
+		headers: await authenticatedHeaders(),
+		body: JSON.stringify(body)
+	});
+	if (noContent) {
+		if (!response.ok) {
+			const data = await response.json().catch(() => ({}));
+			throw new Error(data.detail || `HTTP ${response.status}`);
+		}
+		return undefined as T;
+	}
+	return json<T>(response);
+}
+
+export function showAdminInvitation(addressId: number, token: string): Promise<void> {
+	return adminPost('invitation', { address_id: addressId, token }, true);
+}
+
+export function backToNoChat(addressId: number): Promise<void> {
+	return adminPost('back', { address_id: addressId }, true);
+}
+
+export async function checkAdminGroups(addressId: number): Promise<ChatOption[]> {
+	const data = await adminPost<{ items: ChatOption[] }>('check', { address_id: addressId });
+	return data.items;
+}
+
+export function confirmAdminGroup(addressId: number, chatId: number): Promise<ChatOption> {
+	return adminPost('confirm', { address_id: addressId, chat_id: chatId });
 }
 
 /** The selected home, not the device's current geolocation. */

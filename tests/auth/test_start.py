@@ -311,3 +311,84 @@ def test_saved_address_needs_linked_chat_before_home(db_session, monkeypatch) ->
     set_member_address(db_session, chat.chat_id, max_user_id=42, address_id=home.id)
     assert start._can_choose_address(42)
     assert start._show_events(42)
+
+
+def test_group_slash_commands_do_not_authorize_or_send(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = _bot()
+    monkeypatch.setattr(
+        start,
+        "authorize_from_event",
+        lambda event: (_ for _ in ()).throw(AssertionError("Нельзя авторизовать из группы")),
+    )
+    start.register_auth_commands(dp, bot)
+    context = FakeContext()
+    group = SimpleNamespace(
+        chat_id=-100500,
+        message=SimpleNamespace(recipient=SimpleNamespace(chat_type="chat", chat_id=-100500)),
+    )
+    asyncio.run(dp.handlers["message_created"](group, context))
+    asyncio.run(dp.handlers["bot_started"](group, context))
+    bot.send_message.assert_not_awaited()
+    assert context.data == {}
+
+    # Команда /home регистрируется отдельно от /start.
+    class HomeDispatcher(FakeDispatcher):
+        def message_created(self, *args, **kwargs):
+            from maxapi.filters.command import Command
+
+            if any(isinstance(item, Command) and "home" in item.commands for item in args):
+                return self._decorator("home")
+            return self._decorator("message_created")
+
+    home = HomeDispatcher()
+    start.register_auth_commands(home, bot)
+    asyncio.run(home.handlers["home"](group))
+    bot.send_message.assert_not_awaited()
+
+
+def test_commands_still_work_in_direct_dialog(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = _bot()
+    monkeypatch.setattr(start, "authorize_from_event", lambda event: _user(is_new=True))
+    monkeypatch.setattr(start, "_show_events", lambda max_user_id: False)
+    start.register_auth_commands(dp, bot)
+    event = SimpleNamespace(
+        chat_id=123,
+        message=SimpleNamespace(recipient=SimpleNamespace(chat_type="dialog", chat_id=123)),
+    )
+    asyncio.run(dp.handlers["message_created"](event, FakeContext()))
+    bot.send_message.assert_awaited_once()
+
+
+def test_get_notify_command_ignores_group(monkeypatch) -> None:
+    import notify.commands as notify_commands
+
+    class NotifyDispatcher:
+        def __init__(self) -> None:
+            self.command_handler = None
+
+        def message_callback(self, *args, **kwargs):
+            return lambda func: func
+
+        def message_created(self, *args, **kwargs):
+            def register(func):
+                self.command_handler = func
+                return func
+
+            return register
+
+    bot = _bot()
+    dp = NotifyDispatcher()
+    monkeypatch.setattr(
+        notify_commands,
+        "authorize_from_event",
+        lambda event: (_ for _ in ()).throw(AssertionError("Группа не должна авторизоваться")),
+    )
+    notify_commands.register_notify_commands(dp, bot)
+    group_event = SimpleNamespace(
+        chat_id=-100500,
+        message=SimpleNamespace(recipient=SimpleNamespace(chat_type="chat", chat_id=-100500)),
+    )
+    asyncio.run(dp.command_handler(group_event))
+    bot.send_message.assert_not_awaited()

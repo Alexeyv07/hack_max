@@ -16,6 +16,7 @@ COPY pyproject.toml .
 COPY src ./src
 COPY conf ./conf
 COPY scripts ./scripts
+COPY assets ./assets
 
 # ML runtime artifacts (train → artifacts; без ONNX — soft fallback в коде)
 COPY ml/classify/rules.yaml ./ml/classify/rules.yaml

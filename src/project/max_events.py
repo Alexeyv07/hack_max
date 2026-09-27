@@ -41,3 +41,23 @@ def extract_sender(event: Any) -> Any | None:
     if message is None:
         return None
     return getattr(message, "sender", None)
+
+
+def is_private_chat_event(event: Any) -> bool:
+    """Не запускать команды личного бота из MAX-группы или канала.
+
+    В message_created тип находится в message.recipient.chat_type; у bot_started
+    он доступен через event.chat.type. Для старых событий без типа используем
+    chat_id: у групп MAX он отрицательный.
+    """
+    message = getattr(event, "message", None)
+    recipient = getattr(message, "recipient", None)
+    chat_type = getattr(recipient, "chat_type", None)
+    if chat_type is None:
+        chat_type = getattr(getattr(event, "chat", None), "type", None)
+    if chat_type is not None:
+        return str(getattr(chat_type, "value", chat_type)).lower() == "dialog"
+    if getattr(event, "is_channel", False):
+        return False
+    chat_id = extract_chat_id(event)
+    return chat_id is None or chat_id > 0

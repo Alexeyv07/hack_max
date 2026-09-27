@@ -22,9 +22,18 @@ from chat_link.handlers.links import (
     mark_joined,
     mark_waiting_group,
     pending_for_actor,
+    pending_for_address,
+)
+from chat_link.handlers.registry import (
+    AdminGroup,
+    deactivate_bot_group,
+    eligible_admin_group,
+    eligible_admin_groups,
+    register_bot_group,
 )
 
 __all__ = [
+    "AdminGroup",
     "announce_connected_group",
     "announce_group_address_setup",
     "bind_referral_member",
@@ -45,5 +54,10 @@ __all__ = [
     "join_existing_chat",
     "mark_joined",
     "pending_for_actor",
+    "pending_for_address",
+    "deactivate_bot_group",
+    "eligible_admin_group",
+    "eligible_admin_groups",
+    "register_bot_group",
     "select_linked_member_residence",
 ]
