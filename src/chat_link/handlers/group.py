@@ -339,7 +339,7 @@ async def announce_group_address_setup(bot: Any, chat_id: int) -> None:
     text = reminder + (
         "Бот добавлен в чат. Чтобы подключить этот чат к дому, администратору нужно:\n"
         "1. Назначить бота администратором с правом «Читать все сообщения».\n"
-        "2. Нажать «Выбрать адрес» и указать дом. Позже можно добавить другие дома двора.\n\n"
+        "2. Перейти обратно в бота и завершить указание адреса с помощью кнопки «Проверить еще раз».\n\n"
         "Каждый адрес должен быть свободен от привязки к другому чату.\n\n"
         f"{docs_html('Как подключить домовой чат', page='chat-link')}."
     )
@@ -348,11 +348,9 @@ async def announce_group_address_setup(bot: Any, chat_id: int) -> None:
             "\n\nНе удалось создать кнопку выбора адреса. "
             "Откройте бота в личном чате и попробуйте ещё раз."
         )
-    keyboard = _group_link_keyboard(bind_link, text="Выбрать адрес")
     await bot.send_message(
         chat_id=chat_id,
         text=text,
-        attachments=[keyboard] if keyboard is not None else None,
         format="html",
     )
 
