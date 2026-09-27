@@ -5,7 +5,6 @@ from typing import Any
 
 from maxapi import F
 from maxapi.enums.format import Format
-from maxapi.filters.command import Command
 from maxapi.types import CallbackButton
 from maxapi.utils.deep_linking import create_start_link
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
@@ -48,8 +47,6 @@ from chat_link.handlers import (
     bot_can_read_group,
     connect_added_group,
     connect_added_group_to_address,
-    connected_group_address,
-    connected_group_keyboard,
     deactivate_bot_group,
     eligible_admin_group,
     eligible_admin_groups,
@@ -65,6 +62,7 @@ from project.bot_media import other_messages_image
 from project.database import session_scope
 from project.docs_links import docs_html
 from project.logging_setup import get_logger
+from project.max_events import is_private_chat_event
 from user_chat.handlers import (
     bind_known_chat_member,
     detach_chat,
@@ -811,6 +809,9 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
         payload = _callback_payload(event)
         if not payload.startswith("cl:") and not payload.startswith("chat_link:start"):
             return
+        if not is_private_chat_event(event) and not payload.startswith("cl:group:"):
+            await _ack_callback(event, notification="Продолжите в личном чате с ботом")
+            return
         if payload.startswith("chat_link:start"):
             from_manage = payload == "chat_link:start:manage"
             current = await context.get_data()
@@ -1130,33 +1131,10 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
         # Ветви выше используют event.edit()/event.ack() как единственный callback-ответ.
         await _ack_callback(event)
 
-    @dp.message_created(Command("address"))
-    async def on_group_address(event: Any) -> None:
-        chat_id = getattr(event, "chat_id", None)
-        if chat_id is None:
-            recipient = getattr(getattr(event, "message", None), "recipient", None)
-            chat_id = getattr(recipient, "chat_id", None)
-        if chat_id is None:
-            return
-        with session_scope() as session:
-            address_text = connected_group_address(session, int(chat_id))
-        if address_text is None:
-            # Тот же экран, что при добавлении бота — иначе инструкция «отправьте /address» тупик.
-            await announce_group_address_setup(bot, int(chat_id))
-            return
-        keyboard = connected_group_keyboard(bot, int(chat_id))
-        await bot.send_message(
-            chat_id=int(chat_id),
-            text=(
-                f"🏠 Адреса этого чата:\n{address_text}\n\n"
-                "Чтобы подключить ещё один дом, администратор может нажать "
-                "«Добавить адрес чата (админ)». Бота повторно добавлять не нужно."
-            ),
-            attachments=[keyboard] if keyboard is not None else None,
-        )
-
     @dp.message_created(F.message.body.text, ChatLinkStates.postal)
     async def on_postal(event: Any, context: Any) -> None:
+        if not is_private_chat_event(event):
+            return
         body = getattr(event.message, "body", None)
         text = (getattr(body, "text", None) or "").strip()
         user_mid = getattr(body, "mid", None)
@@ -1246,6 +1224,14 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                     else None
                 )
             if existing is not None and existing.chat_type == "chat":
+                try:
+                    if not await bot_can_read_group(bot, chat_id):
+                        await announce_group_address_setup(bot, chat_id)
+                except Exception:
+                    logger.debug(
+                        "Не удалось проверить права бота после повторного добавления",
+                        exc_info=True,
+                    )
                 return
 
             await announce_group_address_setup(bot, chat_id)

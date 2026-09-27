@@ -33,6 +33,7 @@ from notify.priority import (
 from project.config import get_settings
 from project.database import session_scope
 from project.logging_setup import get_logger
+from project.max_events import is_private_chat_event
 
 logger = get_logger(__name__)
 
@@ -382,6 +383,8 @@ def register_notify_commands(dp: Any, bot: Any) -> None:
     @dp.message_created(Command("get_notify"))
     async def on_get_notify(event: Any) -> None:
         """Случайное (или демо) уведомление — чтобы судья увидел формат пуша."""
+        if not is_private_chat_event(event):
+            return
         user = await asyncio.to_thread(authorize_from_event, event)
         await _delete_user_command(bot, event)
         if user is None:

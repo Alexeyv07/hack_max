@@ -21,6 +21,7 @@ from project.bot_media import first_start_image
 from project.database import session_scope
 from project.docs_links import docs_html
 from project.logging_setup import get_logger
+from project.max_events import is_private_chat_event
 from user_chat.handlers import has_connected_chat, linked_group_ids
 
 logger = get_logger(__name__)
@@ -262,6 +263,8 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
     @dp.message_created(Command("home"))
     async def on_home(event: Any, context: Any = None) -> None:
         """Показать главную; сообщение с командой убрать из истории."""
+        if not is_private_chat_event(event):
+            return
         user = await asyncio.to_thread(authorize_from_event, event)
         await _delete_user_command(event)
         if user is None:
@@ -278,6 +281,8 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
 
     @dp.bot_started()
     async def on_bot_started(event: Any, context: Any) -> None:
+        if not is_private_chat_event(event):
+            return
         user = await asyncio.to_thread(authorize_from_event, event)
         if user is None:
             return
@@ -340,6 +345,8 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
 
     @dp.message_created(CommandStart())
     async def on_start(event: Any, context: Any) -> None:
+        if not is_private_chat_event(event):
+            return
         user = await asyncio.to_thread(authorize_from_event, event)
         if user is None or duplicate_start(user.max_user_id, "message_created"):
             return

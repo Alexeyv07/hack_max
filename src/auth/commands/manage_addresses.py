@@ -21,6 +21,7 @@ from project.bot_media import home_image, other_messages_image
 from project.database import session_scope
 from project.docs_links import docs_html
 from project.logging_setup import get_logger
+from project.max_events import is_private_chat_event
 
 logger = get_logger(__name__)
 PAGE_SIZE = 8
@@ -184,6 +185,9 @@ async def _show_screen(
 def register_manage_addresses(dp: Any, bot: Any) -> None:
     @dp.message_callback(F.callback.payload.startswith("home:"))
     async def on_manage_addresses_callback(event: Any) -> None:
+        if not is_private_chat_event(event):
+            await _safe_ack(event, "Продолжите в личном чате с ботом")
+            return
         payload = str(getattr(event.callback, "payload", "") or "")
         max_user_id = int(event.callback.user.user_id)
 
