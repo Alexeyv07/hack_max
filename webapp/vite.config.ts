@@ -4,6 +4,8 @@ import { defineConfig, loadEnv } from 'vite';
 export default defineConfig(({ mode }) => {
 	const env = loadEnv(mode, process.cwd(), '');
 	const apiTarget = env.API_PROXY_TARGET || 'http://127.0.0.1:8000';
+	/** Через CloudPub HMR/full-reload убивают Max WebView (белый экран, сброс экрана, 502). */
+	const disableHmr = env.DISABLE_HMR === '1' || env.DISABLE_HMR === 'true';
 
 	const proxy = {
 		'/api': {
@@ -18,7 +20,14 @@ export default defineConfig(({ mode }) => {
 		server: {
 			// CloudPub (и любой туннель) ходит с чужим Host — иначе Vite 403.
 			allowedHosts: true,
-			proxy
+			proxy,
+			...(disableHmr
+				? {
+						hmr: false,
+						// Не релоадить страницу при правках на хосте (volume mount).
+						watch: null
+					}
+				: {})
 		},
 		preview: {
 			allowedHosts: true,

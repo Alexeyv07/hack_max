@@ -131,13 +131,21 @@
 </script>
 
 <article class="card" style:--importance-color={importanceColor}>
-	<button
-		type="button"
+	<!-- div, не button: Yandex Maps canvas внутри <button> в Max WebView часто чёрный. -->
+	<div
 		class="media"
 		class:clean-preview={HIDE_YANDEX_ATTRIBUTION}
 		class:placeholder={!event.image_url}
+		role="button"
+		tabindex="0"
 		aria-label={`Открыть карту: ${displayTitle}`}
 		onclick={() => onopenmap(event)}
+		onkeydown={(e) => {
+			if (e.key === 'Enter' || e.key === ' ') {
+				e.preventDefault();
+				onopenmap(event);
+			}
+		}}
 	>
 		{#if event.image_url}
 			<img src={event.image_url} alt="" loading="lazy" decoding="async" />
@@ -145,7 +153,7 @@
 			<EventMapPreview {event} />
 		{/if}
 		<span class="map-shortcut" aria-hidden="true"><img src={mapSearchIcon} alt="" /></span>
-	</button>
+	</div>
 
 	<div class="importance-bar" aria-hidden="true"></div>
 
@@ -247,9 +255,6 @@
 		pointer-events: none;
 	}
 	.media.placeholder .map-shortcut {
-		bottom: 4.2rem;
-	}
-	.media.placeholder.clean-preview .map-shortcut {
 		bottom: 12px;
 	}
 	.map-shortcut img {

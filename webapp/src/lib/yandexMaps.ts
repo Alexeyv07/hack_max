@@ -61,6 +61,34 @@ let loading: Promise<YandexMapsApi> | null = null;
 /** Публичный ключ JS API (ограничение по HTTP Referer в кабинете Яндекса). */
 export const YANDEX_MAPS_API_KEY = '69c8bb32-bd29-45dd-b77f-2b33ca43131b';
 
+/** Превью для ленты: Static API (картинка). Нужен отдельный ключ Static Maps —
+ * JS-ключ даёт 403. Сейчас лента использует Carto-тайлы в EventMapPreview.
+ */
+export function staticMapImageUrl(opts: {
+	lat: number;
+	lon: number;
+	zoom?: number;
+	width?: number;
+	height?: number;
+	marker?: boolean;
+}): string {
+	const width = Math.min(650, Math.max(200, Math.round(opts.width ?? 650)));
+	const height = Math.min(450, Math.max(150, Math.round(opts.height ?? 360)));
+	const zoom = opts.zoom ?? 14;
+	const params = new URLSearchParams({
+		apikey: YANDEX_MAPS_API_KEY,
+		lang: 'ru_RU',
+		ll: `${opts.lon},${opts.lat}`,
+		z: String(zoom),
+		size: `${width},${height}`,
+		theme: 'dark'
+	});
+	if (opts.marker !== false) {
+		params.set('pt', `${opts.lon},${opts.lat},pm2rdm`);
+	}
+	return `https://static-maps.yandex.ru/v1?${params.toString()}`;
+}
+
 function loadErrorMessage() {
 	const host = window.location.hostname || 'домен miniapp';
 	return (
