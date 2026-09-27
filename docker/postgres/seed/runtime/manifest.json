@@ -1,0 +1,160 @@
+{
+  "format": "hack_max_runtime_seed_v1",
+  "exclude_default": [
+    "addresses",
+    "alembic_version",
+    "events",
+    "schema_migrations"
+  ],
+  "include_addresses": false,
+  "include_events": false,
+  "tables": [
+    {
+      "table": "users",
+      "file": "users.csv.gz",
+      "rows": 2,
+      "columns": [
+        "id",
+        "max_user_id",
+        "name",
+        "username",
+        "chat_id",
+        "start_payload",
+        "created_at",
+        "updated_at",
+        "last_seen_at",
+        "notify_blocked_at",
+        "notify_blocked_reason",
+        "address_id"
+      ]
+    },
+    {
+      "table": "chats",
+      "file": "chats.csv.gz",
+      "rows": 0,
+      "columns": [
+        "chat_id",
+        "title",
+        "invite_link",
+        "address_id",
+        "chat_type",
+        "welcome_mid"
+      ]
+    },
+    {
+      "table": "users_chat",
+      "file": "users_chat.csv.gz",
+      "rows": 0,
+      "columns": [
+        "user_id",
+        "chat_id",
+        "address_id"
+      ]
+    },
+    {
+      "table": "chat_addresses",
+      "file": "chat_addresses.csv.gz",
+      "rows": 0,
+      "columns": [
+        "chat_id",
+        "address_id"
+      ]
+    },
+    {
+      "table": "chat_links",
+      "file": "chat_links.csv.gz",
+      "rows": 6,
+      "columns": [
+        "id",
+        "token",
+        "requester_user_id",
+        "admin_user_id",
+        "address_id",
+        "chat_id",
+        "status",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "table": "news_parser_cursors",
+      "file": "news_parser_cursors.csv.gz",
+      "rows": 0,
+      "columns": [
+        "source_key",
+        "backfill_complete",
+        "oldest_seen_at",
+        "newest_seen_at",
+        "listing_cursor",
+        "last_run_at",
+        "last_error",
+        "updated_at"
+      ]
+    },
+    {
+      "table": "mc_parser_cursors",
+      "file": "mc_parser_cursors.csv.gz",
+      "rows": 5,
+      "columns": [
+        "source_key",
+        "backfill_complete",
+        "oldest_seen_at",
+        "newest_seen_at",
+        "listing_cursor",
+        "last_run_at",
+        "last_error",
+        "updated_at"
+      ]
+    },
+    {
+      "table": "notify_cursors",
+      "file": "notify_cursors.csv.gz",
+      "rows": 1,
+      "columns": [
+        "name",
+        "last_event_id",
+        "updated_at"
+      ]
+    },
+    {
+      "table": "notify_digests",
+      "file": "notify_digests.csv.gz",
+      "rows": 0,
+      "columns": [
+        "chat_id",
+        "last_digest_date",
+        "last_sent_at",
+        "last_message_at",
+        "last_message_id"
+      ]
+    },
+    {
+      "table": "notify_chat_messages",
+      "file": "notify_chat_messages.csv.gz",
+      "rows": 0,
+      "columns": [
+        "id",
+        "chat_id",
+        "message_id",
+        "text",
+        "created_at"
+      ]
+    },
+    {
+      "table": "notify_deliveries",
+      "file": "notify_deliveries.csv.gz",
+      "rows": 2,
+      "columns": [
+        "id",
+        "user_id",
+        "event_id",
+        "attempts",
+        "first_sent_at",
+        "last_sent_at",
+        "acked_at",
+        "created_at",
+        "last_message_mid"
+      ]
+    }
+  ]
+}
