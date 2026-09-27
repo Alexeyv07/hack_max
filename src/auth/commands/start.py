@@ -51,12 +51,13 @@ def build_welcome_text(
     text = (
         f"Здравствуйте, {safe_name}!\n\n"
         "Это сервис «КасаетсяМеня» 🕊️\n\n"
-        "Помогаем не пропустить важное о вашем доме: когда отключат воду, \
-        где идут работы и что изменилось, \
-        вам не нужно перечитывать весь чат соседей 🧑‍🔧\n\n"
-        "Также кроме новостей вашего двора и округи мы собираем для вас \
-        подборку актуальных новостей вашего города и вы можете смотреть расположение событий на карте. \
-        Не упустите то, что вас касается ❗\n\n"
+        "Помогаем не пропустить важное о вашем доме: когда отключат воду, "
+        "где идут работы и что изменилось. Вам больше не нужно перечитывать "
+        "весь чат соседей 🧑‍🔧\n\n"
+        "Кроме новостей вашего двора и округа, мы собираем для вас "
+        "подборку актуальных новостей города. Вы также можете посмотреть "
+        "расположение событий на карте.\n\n"
+        "Не упустите то, что вас касается ❗\n\n"
         f"{docs_html('О сервисе', page='overview')}\n\n"
         "Укажите свой адрес, чтобы подключить сервис к чату вашего дома:"
     )
@@ -152,6 +153,7 @@ async def _render_welcome(
     resident_chat_id: int | None = None,
     recipient_chat_id: int | None = None,
     referral_complete: bool = False,
+    show_intro_on_reentry: bool = False,
 ) -> None:
     can_choose_address = await asyncio.to_thread(_can_choose_address, user.max_user_id)
     can_choose_address = (
@@ -189,6 +191,13 @@ async def _render_welcome(
         recipient = getattr(message, "recipient", None)
         chat_id = getattr(recipient, "chat_id", None)
     is_new = getattr(user, "is_new", False)
+    # Удаление диалога в MAX не удаляет пользователя из БД. При явном /start
+    # без подключённого чата повторно показываем приветствие и его обложку.
+    show_intro = is_new or (
+        show_intro_on_reentry
+        and not show_events
+        and not any((admin_token, notice, target_chat_id, resident_chat_id))
+    )
     render_home = referral_complete or (
         show_events
         and not is_new
@@ -201,14 +210,16 @@ async def _render_welcome(
                 bot, session, user.max_user_id, recipient_chat_id=chat_id, **home_kwargs
             )
     else:
-        # Полная презентация сервиса и её обложка — только при первом входе.
-        # При повторном /start без адреса сразу предлагаем выбор дома.
+        # После повторного явного /start без подключённого дома приветствие
+        # должно быть таким же, как при первом входе.
         screen_text = (
             text
-            if is_new or any((admin_token, notice, target_chat_id, resident_chat_id))
+            if show_intro or any((admin_token, notice, target_chat_id, resident_chat_id))
             else ADDRESS_PICKER_TEXT
         )
-        screen_attachments = [first_start_image(bot), *attachments] if is_new else attachments
+        screen_attachments = [first_start_image(bot), *attachments] if show_intro else attachments
+        if screen_text == ADDRESS_PICKER_TEXT:
+            screen_attachments = [first_start_image(bot), *screen_attachments]
         if chat_id is not None:
             result = await send_screen(
                 bot,
@@ -233,7 +244,7 @@ async def _render_welcome(
     if mid:
         await remember_screen(bot, user.max_user_id, mid, previous_mid=previous_mid)
         await context.update_data(flow_mid=mid)
-        if is_new and not render_home:
+        if show_intro and not render_home:
             await context.update_data(first_welcome_mid=mid)
 
 
@@ -344,6 +355,7 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             target_chat_id=target_chat_id,
             resident_chat_id=resident_chat_id,
             referral_complete=referral_complete,
+            show_intro_on_reentry=True,
         )
 
     @dp.message_created(CommandStart())
@@ -353,4 +365,4 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
         user = await asyncio.to_thread(authorize_from_event, event)
         if user is None or duplicate_start(user.max_user_id, "message_created"):
             return
-        await _render_welcome(bot, event, context, user)
+        await _render_welcome(bot, event, context, user, show_intro_on_reentry=True)
