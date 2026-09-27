@@ -15,6 +15,7 @@ from auth.db.user import UserRow
 from auth.handlers.managed_addresses import list_managed_addresses
 from chat_link.handlers.registry import connected_admin_groups
 from project.bot_media import HOME_IMAGE_PATH, home_image
+from project.bot_screens import remember_screen, send_screen
 from project.docs_links import docs_html
 from project.logging_setup import get_logger
 
@@ -118,7 +119,9 @@ async def send_home(
         bot, has_addresses=bool(addresses), has_admin_chats=has_admin_chats
     )
     try:
-        return await bot.send_message(
+        return await send_screen(
+            bot,
+            max_user_id,
             **recipient,
             text=text,
             attachments=[home_image(bot), keyboard],
@@ -126,7 +129,9 @@ async def send_home(
         )
     except Exception:
         logger.exception("Не удалось отправить главную с изображением; отправляем текстовую версию")
-        return await bot.send_message(
+        return await send_screen(
+            bot,
+            max_user_id,
             **recipient,
             text=text,
             attachments=[keyboard],
@@ -160,6 +165,8 @@ async def edit_to_home(
                 notify=False,
                 notification="Главная",
             )
+            mid = getattr(getattr(getattr(event, "message", None), "body", None), "mid", None)
+            await remember_screen(bot, max_user_id, str(mid) if mid else None)
             return True
         except Exception:
             logger.debug("event.edit → home не удался", exc_info=True)
@@ -173,6 +180,7 @@ async def edit_to_home(
                 format=Format.HTML,
                 notify=False,
             )
+            await remember_screen(bot, max_user_id, str(mid))
             return True
         except Exception:
             logger.debug("edit_message → home не удался", exc_info=True)

@@ -25,6 +25,7 @@ from auth.handlers.managed_addresses import (
     remove_managed_address,
 )
 from project.bot_media import home_image, other_messages_image
+from project.bot_screens import remember_screen, send_screen
 from project.database import session_scope
 from project.docs_links import docs_html
 from project.logging_setup import get_logger
@@ -160,6 +161,8 @@ async def _show_screen(
                 notify=False,
                 notification=notification,
             )
+            mid = getattr(getattr(getattr(event, "message", None), "body", None), "mid", None)
+            await remember_screen(bot, max_user_id, str(mid) if mid else None)
             return
         except Exception:
             logger.debug("event.edit не удался, пробуем edit_message", exc_info=True)
@@ -175,12 +178,15 @@ async def _show_screen(
                 notify=False,
             )
             await _safe_ack(event, notification)
+            await remember_screen(bot, max_user_id, str(mid))
             return
         except Exception:
             logger.exception("Не удалось обновить экран управления адресами")
 
     await _safe_ack(event, notification)
-    await bot.send_message(
+    await send_screen(
+        bot,
+        max_user_id,
         user_id=max_user_id,
         text=text,
         attachments=attachments,

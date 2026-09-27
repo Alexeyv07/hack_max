@@ -60,6 +60,7 @@ from chat_link.handlers.links import get_request_by_token, pending_for_address
 from chat_link.handlers.residence_selection import resolve_residence
 from chat_link.models import ChatLinkStatus
 from project.api_deps import DbSession, get_max_user_id
+from project.bot_screens import send_screen
 from project.logging_setup import get_logger
 from project.max_runtime import get_max_bot
 from user_chat.handlers import (
@@ -100,7 +101,9 @@ async def _send_residence_screen(
     """Дать возможность продолжить WebApp-сценарий в личке, даже если WebView закрыт."""
     session.commit()
     try:
-        await bot.send_message(
+        await send_screen(
+            bot,
+            max_user_id,
             user_id=max_user_id,
             text=(
                 residence_success_text(address.address_text)
@@ -144,8 +147,13 @@ def _admin_bot():
 
 async def _send_admin_screen(bot, max_user_id: int, text: str, keyboard) -> None:
     try:
-        await bot.send_message(
-            user_id=max_user_id, text=text, attachments=[keyboard], format=Format.HTML
+        await send_screen(
+            bot,
+            max_user_id,
+            user_id=max_user_id,
+            text=text,
+            attachments=[keyboard],
+            format=Format.HTML,
         )
     except Exception as exc:
         logger.exception("Не удалось синхронизировать админский экран с личкой MAX")
@@ -517,7 +525,9 @@ async def select_address(
             )
         ]
     try:
-        await bot.send_message(
+        await send_screen(
+            bot,
+            max_user_id,
             user_id=max_user_id,
             text=notice,
             attachments=attachments,
@@ -758,7 +768,9 @@ async def navigate_chat_link(
         if payload.action == "home":
             await send_home(bot, session, max_user_id)
         else:
-            await bot.send_message(
+            await send_screen(
+                bot,
+                max_user_id,
                 user_id=max_user_id,
                 text=ADDRESS_PICKER_TEXT,
                 attachments=[method_keyboard(bot)],

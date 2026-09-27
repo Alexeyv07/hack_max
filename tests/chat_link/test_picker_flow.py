@@ -186,25 +186,47 @@ class PostalCatalog:
         return [SimpleNamespace(id=11, house="15 к1", district="Ростокино", city="Москва")]
 
 
-def test_postal_goes_straight_to_streets_without_city_or_district(monkeypatch) -> None:
-    dp = FakeDispatcher()
-    bot = SimpleNamespace(edit_message=AsyncMock())
-    monkeypatch.setattr(flow, "get_address_catalog", lambda: PostalCatalog())
-    flow.register_chat_link_commands(dp, bot)
-
-    context = FakeContext({"flow_mid": "onboarding-mid"})
-    event = SimpleNamespace(
-        message=SimpleNamespace(body=SimpleNamespace(text="129226")),
+def _postal_event(text: str):
+    # MAX сообщает и чат, и автора личного сообщения.
+    return SimpleNamespace(
+        chat_id=123,
+        message=SimpleNamespace(
+            sender=SimpleNamespace(user_id=42),
+            body=SimpleNamespace(mid="user-input", text=text),
+        ),
     )
 
-    asyncio.run(dp.handlers["message_created"](event, context))
 
-    bot.edit_message.assert_awaited_once()
-    kwargs = bot.edit_message.await_args.kwargs
-    assert "Индекс 129226 → выберите улицу" in kwargs["text"]
-    assert "город" not in kwargs["text"].casefold()
-    assert "район" not in kwargs["text"].casefold()
-    assert context.data == {"flow_mid": "onboarding-mid", "postal_code": "129226"}
+def _postal_bot():
+    return SimpleNamespace(
+        send_message=AsyncMock(
+            return_value=SimpleNamespace(
+                message=SimpleNamespace(body=SimpleNamespace(mid="new-mid"))
+            )
+        ),
+        edit_message=AsyncMock(),
+        delete_message=AsyncMock(),
+    )
+
+
+def test_postal_goes_straight_to_streets_without_city_or_district(monkeypatch) -> None:
+    dp = FakeDispatcher()
+    bot = _postal_bot()
+    monkeypatch.setattr(flow, "get_address_catalog", lambda: PostalCatalog())
+    flow.register_chat_link_commands(dp, bot)
+    context = FakeContext({"flow_mid": "onboarding-mid"})
+
+    asyncio.run(dp.handlers["message_created"](_postal_event("129226"), context))
+
+    bot.edit_message.assert_not_awaited()
+    sent = bot.send_message.await_args.kwargs
+    assert sent["chat_id"] == 123
+    assert "Индекс 129226 → выберите улицу" in sent["text"]
+    assert "город" not in sent["text"].casefold()
+    assert "район" not in sent["text"].casefold()
+    assert context.data == {"flow_mid": "new-mid", "postal_code": "129226"}
+    bot.delete_message.assert_awaited_once_with("onboarding-mid")
+    assert bot.delete_message.await_args.args != ("user-input",)
 
 
 class MissingPostalCatalog:
@@ -214,47 +236,72 @@ class MissingPostalCatalog:
 
 def test_invalid_postal_format_shows_error_and_keeps_back_button(monkeypatch) -> None:
     dp = FakeDispatcher()
-    bot = SimpleNamespace(edit_message=AsyncMock())
+    bot = _postal_bot()
     flow.register_chat_link_commands(dp, bot)
-
     context = FakeContext({"flow_mid": "onboarding-mid"})
-    event = SimpleNamespace(
-        message=SimpleNamespace(body=SimpleNamespace(text="12922")),
-    )
 
-    asyncio.run(dp.handlers["message_created"](event, context))
+    asyncio.run(dp.handlers["message_created"](_postal_event("12922"), context))
 
-    bot.edit_message.assert_awaited_once()
-    kwargs = bot.edit_message.await_args.kwargs
-    assert kwargs["text"].startswith("❗ Ошибка ❗")
-    assert "ровно из 6 цифр" in kwargs["text"]
-    buttons = kwargs["attachments"][0].payload.buttons
+    bot.edit_message.assert_not_awaited()
+    sent = bot.send_message.await_args.kwargs
+    assert sent["text"].startswith("❗ Ошибка ❗")
+    assert "ровно из 6 цифр" in sent["text"]
+    buttons = sent["attachments"][0].payload.buttons
     assert buttons[0][0].text == "← Назад"
     assert buttons[0][0].payload == "cl:back:root"
-    assert "Как выбрать адрес" in kwargs["text"]
+    assert "Как выбрать адрес" in sent["text"]
+    assert context.data["flow_mid"] == "new-mid"
+    bot.delete_message.assert_awaited_once_with("onboarding-mid")
 
 
 def test_unknown_postal_keeps_back_button(monkeypatch) -> None:
     dp = FakeDispatcher()
-    bot = SimpleNamespace(edit_message=AsyncMock())
+    bot = _postal_bot()
     monkeypatch.setattr(flow, "get_address_catalog", lambda: MissingPostalCatalog())
     flow.register_chat_link_commands(dp, bot)
-
     context = FakeContext({"flow_mid": "onboarding-mid"})
-    event = SimpleNamespace(
-        message=SimpleNamespace(body=SimpleNamespace(text="000000")),
-    )
 
-    asyncio.run(dp.handlers["message_created"](event, context))
+    asyncio.run(dp.handlers["message_created"](_postal_event("000000"), context))
 
-    bot.edit_message.assert_awaited_once()
-    kwargs = bot.edit_message.await_args.kwargs
-    assert kwargs["text"].startswith("❗ Ошибка ❗")
-    assert "Такого индекса нет" in kwargs["text"]
-    buttons = kwargs["attachments"][0].payload.buttons
+    bot.edit_message.assert_not_awaited()
+    sent = bot.send_message.await_args.kwargs
+    assert sent["text"].startswith("❗ Ошибка ❗")
+    assert "Такого индекса нет" in sent["text"]
+    buttons = sent["attachments"][0].payload.buttons
     assert buttons[0][0].text == "← Назад"
     assert buttons[0][0].payload == "cl:back:root"
-    assert "Как выбрать адрес" in kwargs["text"]
+    assert "Как выбрать адрес" in sent["text"]
+    bot.delete_message.assert_awaited_once_with("onboarding-mid")
+
+
+def test_second_invalid_postal_replaces_previous_error_not_user_message() -> None:
+    dp = FakeDispatcher()
+    bot = SimpleNamespace(
+        send_message=AsyncMock(
+            side_effect=[
+                SimpleNamespace(message=SimpleNamespace(body=SimpleNamespace(mid="first-error"))),
+                SimpleNamespace(message=SimpleNamespace(body=SimpleNamespace(mid="second-error"))),
+            ]
+        ),
+        edit_message=AsyncMock(),
+        delete_message=AsyncMock(),
+    )
+    flow.register_chat_link_commands(dp, bot)
+    context = FakeContext({"flow_mid": "original-screen"})
+    handler = dp.handlers["message_created"]
+
+    async def scenario():
+        await handler(_postal_event("12"), context)
+        await handler(_postal_event("123"), context)
+
+    asyncio.run(scenario())
+    assert bot.send_message.await_count == 2
+    assert [call.args[0] for call in bot.delete_message.await_args_list] == [
+        "original-screen",
+        "first-error",
+    ]
+    assert context.data["flow_mid"] == "second-error"
+    bot.edit_message.assert_not_awaited()
 
 
 def test_postal_street_callback_goes_to_houses(monkeypatch) -> None:

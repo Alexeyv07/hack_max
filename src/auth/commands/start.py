@@ -18,6 +18,7 @@ from auth.handlers.authorize import authorize_from_event
 from auth.handlers.residence import get_personal_address
 from chat_link.handlers import bind_referral_member, claim_admin_request
 from project.bot_media import first_start_image
+from project.bot_screens import remember_screen, send_screen
 from project.database import session_scope
 from project.docs_links import docs_html
 from project.logging_setup import get_logger
@@ -174,12 +175,13 @@ async def _render_welcome(
         can_choose_address=can_choose_address,
     )
     attachments = [keyboard] if keyboard is not None else []
+    previous_mid = (await context.get_data()).get("flow_mid")
     await context.clear()
     if target_chat_id is not None:
         await context.update_data(target_chat_id=target_chat_id)
     if resident_chat_id is not None:
         await context.update_data(resident_chat_id=resident_chat_id)
-    # Каждый /start создаёт новый экран в конце переписки; прежние не редактируем.
+    # /start создаёт новый экран внизу; старый навигационный экран убираем после отправки.
     chat_id = (
         recipient_chat_id if recipient_chat_id is not None else getattr(event, "chat_id", None)
     )
@@ -206,20 +208,28 @@ async def _render_welcome(
         )
         screen_attachments = [first_start_image(bot), *attachments] if is_new else attachments
         if chat_id is not None:
-            result = await bot.send_message(
+            result = await send_screen(
+                bot,
+                user.max_user_id,
+                previous_mid=previous_mid,
                 chat_id=chat_id,
                 text=screen_text,
                 attachments=screen_attachments,
                 format=Format.HTML,
             )
         else:
-            result = await event.message.answer(
+            result = await send_screen(
+                bot,
+                user.max_user_id,
+                previous_mid=previous_mid,
+                user_id=user.max_user_id,
                 text=screen_text,
                 attachments=screen_attachments,
                 format=Format.HTML,
             )
     mid = _sent_mid(result)
     if mid:
+        await remember_screen(bot, user.max_user_id, mid, previous_mid=previous_mid)
         await context.update_data(flow_mid=mid)
         if is_new and not render_home:
             await context.update_data(first_welcome_mid=mid)
@@ -244,29 +254,12 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
         recent_starts[user_id] = (source, now)
         return False
 
-    async def _delete_user_command(event: Any) -> None:
-        mid = getattr(getattr(getattr(event, "message", None), "body", None), "mid", None)
-        if not mid:
-            return
-        try:
-            await bot.delete_message(str(mid))
-        except Exception as exc:
-            # В личке MAX часто запрещает боту удалять сообщения пользователя (403).
-            code = getattr(exc, "code", None)
-            raw = getattr(exc, "raw", None) or {}
-            denied = code == 403 or (isinstance(raw, dict) and raw.get("code") == "access.denied")
-            if denied:
-                logger.debug("Нет права удалить команду пользователя mid=%s", mid)
-            else:
-                logger.debug("Не удалось удалить команду пользователя mid=%s", mid, exc_info=True)
-
     @dp.message_created(Command("home"))
     async def on_home(event: Any, context: Any = None) -> None:
-        """Показать главную; сообщение с командой убрать из истории."""
+        """Показать главную новым экраном после команды пользователя."""
         if not is_private_chat_event(event):
             return
         user = await asyncio.to_thread(authorize_from_event, event)
-        await _delete_user_command(event)
         if user is None:
             return
         chat_id = getattr(event, "chat_id", None)
@@ -275,7 +268,13 @@ def register_auth_commands(dp: Any, bot: Any) -> None:
             chat_id = getattr(recipient, "chat_id", None)
         try:
             with session_scope() as session:
-                await send_home(bot, session, user.max_user_id, recipient_chat_id=chat_id)
+                result = await send_home(bot, session, user.max_user_id, recipient_chat_id=chat_id)
+            previous_mid = (await context.get_data()).get("flow_mid") if context else None
+            mid = _sent_mid(result)
+            await remember_screen(bot, user.max_user_id, mid, previous_mid=previous_mid)
+            if context is not None and mid:
+                await context.clear()
+                await context.update_data(flow_mid=mid)
         except Exception:
             logger.exception("Не удалось отправить /home")
 

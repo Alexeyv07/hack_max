@@ -59,10 +59,11 @@ from chat_link.handlers.registry import connected_admin_groups
 from chat_link.handlers.residence_selection import resolve_residence
 from chat_link.models import ChatLinkStatus
 from project.bot_media import other_messages_image
+from project.bot_screens import send_screen, sent_mid
 from project.database import session_scope
 from project.docs_links import docs_html
 from project.logging_setup import get_logger
-from project.max_events import is_private_chat_event
+from project.max_events import extract_chat_id, extract_sender, is_private_chat_event
 from user_chat.handlers import (
     bind_known_chat_member,
     detach_chat,
@@ -1093,75 +1094,86 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
         # Ветви выше используют event.edit()/event.ack() как единственный callback-ответ.
         await _ack_callback(event)
 
+    async def _reply_to_postal_input(
+        event: Any, context: Any, data: dict[str, Any], *, text: str, attachments: list[Any]
+    ) -> str | None:
+        """Текст пользователя всегда получает ответ НИЖЕ него, а не edit сверху."""
+        sender = extract_sender(event)
+        chat_id = extract_chat_id(event)
+        user_id = getattr(sender, "user_id", None) or chat_id
+        if user_id is None:
+            logger.warning("Нет получателя у сообщения с индексом")
+            return None
+        recipient = {"chat_id": chat_id} if chat_id is not None else {"user_id": user_id}
+        result = await send_screen(
+            bot,
+            int(user_id),
+            previous_mid=data.get("flow_mid"),
+            **recipient,
+            text=text,
+            attachments=attachments,
+            format=Format.HTML,
+        )
+        mid = sent_mid(result)
+        if mid:
+            await context.update_data(flow_mid=mid)
+        return mid
+
     @dp.message_created(F.message.body.text, ChatLinkStates.postal)
     async def on_postal(event: Any, context: Any) -> None:
         if not is_private_chat_event(event):
             return
         body = getattr(event.message, "body", None)
         text = (getattr(body, "text", None) or "").strip()
-        user_mid = getattr(body, "mid", None)
         data = await context.get_data()
         from_manage = bool(data.get("from_manage"))
         if not (len(text) == 6 and text.isdigit()):
-            mid = data.get("flow_mid")
-            if mid:
-                await bot.edit_message(
-                    mid,
-                    text=(
-                        "❗ Ошибка ❗\n\nИндекс должен состоять ровно из 6 цифр. "
-                        "Введите индекс ещё раз.\n\n"
-                        f"{docs_html('Как выбрать адрес', page='chat-link')}."
-                    ),
-                    attachments=[postal_input_keyboard(from_manage=from_manage)],
-                    format=Format.HTML,
-                )
+            await _reply_to_postal_input(
+                event,
+                context,
+                data,
+                text=(
+                    "❗ Ошибка ❗\n\nИндекс должен состоять ровно из 6 цифр. "
+                    "Введите индекс ещё раз.\n\n"
+                    f"{docs_html('Как выбрать адрес', page='chat-link')}."
+                ),
+                attachments=[postal_input_keyboard(from_manage=from_manage)],
+            )
             return
 
-        index = get_address_catalog()
-        streets = index.postal_streets(text)
-        mid = data.get("flow_mid")
+        streets = get_address_catalog().postal_streets(text)
         if not streets:
-            if mid:
-                await bot.edit_message(
-                    mid,
-                    text=(
-                        "❗ Ошибка ❗\n\nТакого индекса нет в справочнике. "
-                        "Введите другой шестизначный индекс.\n\n"
-                        f"{docs_html('Как выбрать адрес', page='chat-link')}."
-                    ),
-                    attachments=[postal_input_keyboard(from_manage=from_manage)],
-                    format=Format.HTML,
-                )
-            return
-
-        if user_mid:
-            try:
-                await bot.delete_message(str(user_mid))
-            except Exception:
-                logger.debug("Не удалось удалить сообщение с индексом", exc_info=True)
-
-        await context.set_state(ChatLinkStates.choosing)
-        next_data = {
-            "flow_mid": mid,
-            "postal_code": text,
-            **_preserve_flow_flags(data),
-        }
-        await context.set_data(next_data)
-        if not mid:
+            await _reply_to_postal_input(
+                event,
+                context,
+                data,
+                text=(
+                    "❗ Ошибка ❗\n\nТакого индекса нет в справочнике. "
+                    "Введите другой шестизначный индекс.\n\n"
+                    f"{docs_html('Как выбрать адрес', page='chat-link')}."
+                ),
+                attachments=[postal_input_keyboard(from_manage=from_manage)],
+            )
             return
 
         back = "manage" if from_manage else "root"
-        markup, page, pages = list_keyboard(
-            streets,
-            kind="postal_street",
-            page=0,
-            back=back,
-        )
-        await bot.edit_message(
-            mid,
+        markup, page, pages = list_keyboard(streets, kind="postal_street", page=0, back=back)
+        mid = await _reply_to_postal_input(
+            event,
+            context,
+            data,
             text=_page_text(f"Индекс {text} → выберите улицу", page, pages),
             attachments=[markup],
-            notify=False,
+        )
+        if not mid:
+            return
+        await context.set_state(ChatLinkStates.choosing)
+        await context.set_data(
+            {
+                "flow_mid": mid,
+                "postal_code": text,
+                **_preserve_flow_flags(data),
+            }
         )
 
     @dp.bot_added()
