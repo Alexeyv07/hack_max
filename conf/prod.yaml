@@ -59,7 +59,7 @@ notify:
   digest_hour: 20
   digest_jitter_minutes: 60
   # Суммаризировать только если накопилось строго больше этого числа новых сообщений.
-  digest_min_new_messages: 30
+  digest_min_new_messages: 7
   retry_interval_seconds: 3600
   summarizer_model: deepseek-v4-flash-0731
   summarizer_timeout_seconds: 12
@@ -69,8 +69,8 @@ runtime:
   enable_bot: true
   enable_api: true
   enable_news_parser: false
-  enable_mc_parser: true
-  enable_chat_parser: false
+  enable_mc_parser: false
+  enable_chat_parser: true
 
 chat_parser:
   enabled: true
