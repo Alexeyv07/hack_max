@@ -154,7 +154,7 @@
     {
       "table": "notify_chat_messages",
       "file": "notify_chat_messages.csv.gz",
-      "rows": 9,
+      "rows": 0,
       "columns": [
         "id",
         "chat_id",
@@ -166,7 +166,7 @@
     {
       "table": "notify_deliveries",
       "file": "notify_deliveries.csv.gz",
-      "rows": 0,
+      "rows": 1,
       "columns": [
         "id",
         "user_id",
