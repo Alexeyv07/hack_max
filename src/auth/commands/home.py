@@ -55,7 +55,7 @@ def build_home_text(addresses: list[str], *, notice: str | None = None) -> str:
         "<b>Главная</b>\n\n"
         f"<b>Ваши адреса 🏠</b>\n{address_block}\n\n"
         f"{body}\n\n"
-        "Команды:\n /home — эта страница\n/get_notify — пример уведомления\n\n"
+        "Команды:\n/home — эта страница\n/get_notify — пример уведомления\n\n"
         f"{help_link}"
     )
     if notice:
