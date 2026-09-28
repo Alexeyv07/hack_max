@@ -75,7 +75,7 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 <table>
 <tr>
 <td width="30%" valign="top" align="center">
-  <img src="media/qr-link-chat.png" alt="QR-код чата MAX" height="260">
+  <img src="media/address_flow.gif" alt="QR-код чата MAX" height="260">
 </td>
 <td width="70%" valign="top">
 
@@ -99,7 +99,7 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 <table>
 <tr>
 <td width="30%" valign="top" align="center">
-  <img src="media/qr-link-chat.png" alt="QR-код чата MAX" height="260">
+  <img src="media/custom_chat_flow.gif" alt="QR-код чата MAX" height="260">
 </td>
 <td width="70%" valign="top">
 
@@ -123,7 +123,7 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 <table>
 <tr>
 <td width="30%" valign="top" align="center">
-  <img src="media/qr-link-chat.png" alt="QR-код чата MAX" height="260">
+  <img src="media/news_flow.gif" alt="QR-код чата MAX" height="260">
 </td>
 <td width="70%" valign="top">
 
@@ -146,7 +146,7 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 <table>
 <tr>
 <td width="30%" valign="top" align="center">
-  <img src="media/qr-link-chat.png" alt="QR-код чата MAX" height="260">
+  <img src="media/notiffy_flow.gif" alt="QR-код чата MAX" height="260">
 </td>
 <td width="70%" valign="top">
 
