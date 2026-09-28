@@ -206,7 +206,7 @@ def test_connected_group_keyboard_has_only_personal_address_link() -> None:
     buttons = connected_group_keyboard(bot, -100500).payload.buttons
     assert len(buttons) == 1
     assert len(buttons[0]) == 1
-    assert buttons[0][0].text == "Указать свой адрес"
+    assert buttons[0][0].text == "Присоединиться"
     assert "chat_-100500" in buttons[0][0].url
     assert "chat_bind_" not in buttons[0][0].url
 
