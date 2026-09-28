@@ -61,8 +61,8 @@ let loading: Promise<YandexMapsApi> | null = null;
 /** Публичный ключ JS API (ограничение по HTTP Referer в кабинете Яндекса). */
 export const YANDEX_MAPS_API_KEY = '69c8bb32-bd29-45dd-b77f-2b33ca43131b';
 
-/** Превью для ленты: Static API (картинка). Нужен отдельный ключ Static Maps —
- * JS-ключ даёт 403. Сейчас лента использует Carto-тайлы в EventMapPreview.
+/** Static Maps URL (1.x). В ленте не используем: в Max WebView часто падает.
+ * Превью карточек — тайлы в `EventMapPreview`; интерактив — JS API.
  */
 export function staticMapImageUrl(opts: {
 	lat: number;
@@ -72,21 +72,20 @@ export function staticMapImageUrl(opts: {
 	height?: number;
 	marker?: boolean;
 }): string {
-	const width = Math.min(650, Math.max(200, Math.round(opts.width ?? 650)));
-	const height = Math.min(450, Math.max(150, Math.round(opts.height ?? 360)));
+	const width = Math.min(650, Math.max(50, Math.round(opts.width ?? 650)));
+	const height = Math.min(450, Math.max(50, Math.round(opts.height ?? 360)));
 	const zoom = opts.zoom ?? 14;
 	const params = new URLSearchParams({
-		apikey: YANDEX_MAPS_API_KEY,
-		lang: 'ru_RU',
 		ll: `${opts.lon},${opts.lat}`,
-		z: String(zoom),
 		size: `${width},${height}`,
-		theme: 'dark'
+		z: String(zoom),
+		l: 'map',
+		lang: 'ru_RU'
 	});
 	if (opts.marker !== false) {
 		params.set('pt', `${opts.lon},${opts.lat},pm2rdm`);
 	}
-	return `https://static-maps.yandex.ru/v1?${params.toString()}`;
+	return `https://static-maps.yandex.ru/1.x/?${params.toString()}`;
 }
 
 function loadErrorMessage() {
