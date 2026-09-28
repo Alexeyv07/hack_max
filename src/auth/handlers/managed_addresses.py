@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from address.db.address import AddressRow
@@ -68,6 +68,48 @@ def list_managed_addresses(session: Session, max_user_id: int) -> list[ManagedAd
         ManagedAddress(id_, text, tuple(sorted(chats_by_address.get(id_, ()))))
         for id_, text in sorted(addresses.items(), key=lambda x: (x[1], x[0]))
     ]
+
+
+def list_managed_address_rows(session: Session, max_user_id: int) -> list[AddressRow]:
+    """Все адреса из «Мои адреса» в порядке их первого сохранения.
+
+    Для старых строк до 0027 порядок добавления восстановить нельзя, поэтому
+    они идут после адресов с известным временем в стабильном порядке списка.
+    """
+    managed = list_managed_addresses(session, max_user_id)
+    if not managed:
+        return []
+    user = session.scalar(select(UserRow).where(UserRow.max_user_id == max_user_id))
+    if user is None:
+        return []
+
+    ids = [item.id for item in managed]
+    fallback_position = {address_id: index for index, address_id in enumerate(ids)}
+    first_added = dict(
+        session.execute(
+            select(
+                user_chat_addresses.c.address_id,
+                func.min(user_chat_addresses.c.added_at),
+            )
+            .where(
+                user_chat_addresses.c.user_id == user.id,
+                user_chat_addresses.c.address_id.in_(ids),
+            )
+            .group_by(user_chat_addresses.c.address_id)
+        ).all()
+    )
+
+    def sort_key(address_id: int):
+        added_at = first_added.get(address_id)
+        if added_at is not None:
+            return (0, added_at, address_id)
+        return (1, fallback_position[address_id], address_id)
+
+    rows = {
+        row.id: row
+        for row in session.scalars(select(AddressRow).where(AddressRow.id.in_(ids))).all()
+    }
+    return [rows[address_id] for address_id in sorted(ids, key=sort_key) if address_id in rows]
 
 
 def remove_managed_address(session: Session, *, max_user_id: int, address_id: int) -> bool:

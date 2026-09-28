@@ -71,13 +71,20 @@ class PostalAddressSearchResponse(AddressSearchResponse):
 
 
 class PersonalResidenceResponse(BaseModel):
-    """Текущий личный адрес пользователя (если выбран и чат привязан)."""
+    """Текущий личный адрес и все сохранённые дома пользователя."""
 
     address: AddressOption | None = Field(
         default=None,
         description=(
-            "Выбранный дом. `null` — адрес не выбран, либо по адресу ещё нет "
+            "Выбранный дом для nearby. `null` — адрес не выбран, либо по адресу ещё нет "
             "linked group для этого пользователя."
+        ),
+    )
+    addresses: list[AddressOption] = Field(
+        default_factory=list,
+        description=(
+            "Все текущие адреса из «Мои адреса» в порядке первого сохранения. "
+            "Первый адрес используется кнопкой «К дому» на карте."
         ),
     )
 

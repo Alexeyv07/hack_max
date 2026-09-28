@@ -143,13 +143,16 @@ export function confirmAdminGroup(addressId: number, chatId: number): Promise<Ch
 	return adminPost('confirm', { address_id: addressId, chat_id: chatId });
 }
 
-/** The selected home, not the device's current geolocation. */
-export async function fetchResidence(
-	signal?: AbortSignal
-): Promise<AddressOption | null> {
+export type ResidenceResponse = {
+	address: AddressOption | null;
+	addresses: AddressOption[];
+};
+
+/** Selected nearby home plus every current address from «Мои адреса». */
+export async function fetchResidence(signal?: AbortSignal): Promise<ResidenceResponse> {
 	const response = await fetch(apiUrl('/chat-link/residence'), {
 		headers: await authenticatedHeaders(),
 		signal
 	});
-	return (await json<{ address: AddressOption | null }>(response)).address;
+	return json<ResidenceResponse>(response);
 }

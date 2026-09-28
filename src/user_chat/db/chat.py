@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Column, ForeignKey, ForeignKeyConstraint, Integer, String, Table
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    String,
+    Table,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from project.database import Base
@@ -52,6 +63,13 @@ user_chat_addresses = Table(
     Column("user_id", Integer, primary_key=True),
     Column("chat_id", BigInteger, primary_key=True),
     Column("address_id", Integer, primary_key=True),
+    Column(
+        "added_at",
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+    ),
     ForeignKeyConstraint(
         ["user_id", "chat_id"],
         ["users_chat.user_id", "users_chat.chat_id"],

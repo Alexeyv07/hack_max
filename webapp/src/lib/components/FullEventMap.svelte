@@ -22,8 +22,9 @@
 	let selected = $state<MapEvent>(untrack(() => event));
 	let viewingHome = $state(false);
 	let detailsCollapsed = $state(false);
+	let homes = $state<AddressOption[]>([]);
 	let home = $state<AddressOption | null>(null);
-	let homeStatus = $state('Загрузка дома…');
+	let homeStatus = $state('Загрузка домов…');
 	let eventsStatus = $state('Загрузка событий…');
 	let loaded = $state(false);
 	let error = $state('');
@@ -142,19 +143,28 @@
 				});
 				void homeRequest.then(({ value, failed }) => {
 					if (disposed || !map || !api) return;
-					home = value;
-					if (home && Number.isFinite(home.latitude) && Number.isFinite(home.longitude)) {
+					const candidates = value?.addresses?.length
+						? value.addresses
+						: value?.address
+							? [value.address]
+							: [];
+					homes = candidates.filter(
+						(item) => Number.isFinite(item.latitude) && Number.isFinite(item.longitude)
+					);
+					home = homes[0] ?? null;
+					for (const item of homes) {
 						map.addChild(
 							new api.YMapMarker(
-								{ coordinates: [home.longitude, home.latitude] },
-								makeHomeMarker(home.address_text)
+								{ coordinates: [item.longitude, item.latitude] },
+								makeHomeMarker(item.address_text)
 							)
 						);
-						homeStatus = '';
-					} else {
-						home = null;
-						homeStatus = failed ? 'Дом не загрузился' : 'Дом не выбран';
 					}
+					homeStatus = homes.length
+						? ''
+						: failed
+							? 'Дома не загрузились'
+							: 'Дома не выбраны';
 				});
 			} catch (cause) {
 				if (!disposed) {
