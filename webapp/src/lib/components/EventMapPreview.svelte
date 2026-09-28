@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { eventPoint, MOSCOW_CENTER } from '$lib/eventMap';
+	import { eventMapZoom, eventPoint, MOSCOW_CENTER } from '$lib/eventMap';
 	import type { FeedItem } from '$lib/types/event';
 
 	/** Превью карты в ленте без Yandex JS (чёрный canvas в Max) и без Static API
-	 * (наш ключ — только JS, Static даёт 403). Тайлы Carto + пин. */
+	 * (JS-ключ → 403, 1.x в Max WebView часто onerror). Carto basemaps теперь
+	 * отдают водяной знак «API KEY REQUIRED». Тайлы Esri Street — без ключа. */
 	let { event }: { event: FeedItem; active?: boolean } = $props();
 
 	const TILE = 256;
-	const ZOOM = 14;
 	/** Сколько тайлов по стороне (нечётное — центр ровно на точке). */
 	const GRID = 3;
 
@@ -15,13 +15,15 @@
 	const center = $derived(
 		point ? { lat: point.lat, lon: point.lon } : { lat: MOSCOW_CENTER[1], lon: MOSCOW_CENTER[0] }
 	);
+	const zoom = $derived(point ? eventMapZoom(event) : event.geo_by === 'city' ? 9 : 10);
+	const tiles = $derived(buildTileGrid(center.lat, center.lon, zoom, GRID));
+	const showPin = $derived(Boolean(point) && event.geo_by !== 'city');
 
-	const tiles = $derived(buildTileGrid(center.lat, center.lon, ZOOM, GRID));
 	const note = $derived.by(() => {
 		if (event.geo_by === 'street' && point) return 'Только улица · область условная';
 		if (event.geo_by === 'city') return 'Известен только город';
 		if (!point) return 'Место события не определено';
-		return event.location?.trim() || null;
+		return null;
 	});
 
 	function lon2tile(lon: number, z: number): number {
@@ -45,10 +47,10 @@
 			for (let col = 0; col < n; col += 1) {
 				const tx = ((cx - half + col) % max + max) % max;
 				const ty = Math.min(max - 1, Math.max(0, cy - half + row));
-				const mirror = ['a', 'b', 'c', 'd'][(tx + ty) % 4];
 				items.push({
 					key: `${z}/${tx}/${ty}`,
-					src: `https://${mirror}.basemaps.cartocdn.com/dark_all/${z}/${tx}/${ty}.png`,
+					// Same-origin proxy → Esri World Street Map (без ключа; Carto даёт API KEY REQUIRED).
+					src: `/map-tiles/esri/${z}/${ty}/${tx}`,
 					col,
 					row
 				});
@@ -79,21 +81,33 @@
 				alt=""
 				width={TILE}
 				height={TILE}
-				loading="lazy"
+				loading="eager"
 				decoding="async"
+				draggable="false"
 				style:grid-column={tile.col + 1}
 				style:grid-row={tile.row + 1}
 			/>
 		{/each}
 	</div>
-	<div class="pin" class:muted={!point || event.geo_by === 'city'}>
-		<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
-			<path
-				fill="currentColor"
-				d="M12 2.25c-3.728 0-6.75 2.94-6.75 6.563 0 4.687 5.25 11.062 6.262 12.23a.64.64 0 0 0 .976 0C13.5 19.875 18.75 13.5 18.75 8.813 18.75 5.19 15.728 2.25 12 2.25Zm0 9a2.437 2.437 0 1 1 0-4.875A2.437 2.437 0 0 1 12 11.25Z"
-			/>
-		</svg>
-	</div>
+	{#if showPin}
+		<div class="pin">
+			<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
+				<path
+					fill="currentColor"
+					d="M12 2.25c-3.728 0-6.75 2.94-6.75 6.563 0 4.687 5.25 11.062 6.262 12.23a.64.64 0 0 0 .976 0C13.5 19.875 18.75 13.5 18.75 8.813 18.75 5.19 15.728 2.25 12 2.25Zm0 9a2.437 2.437 0 1 1 0-4.875A2.437 2.437 0 0 1 12 11.25Z"
+				/>
+			</svg>
+		</div>
+	{:else}
+		<div class="pin muted">
+			<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
+				<path
+					fill="currentColor"
+					d="M12 2.25c-3.728 0-6.75 2.94-6.75 6.563 0 4.687 5.25 11.062 6.262 12.23a.64.64 0 0 0 .976 0C13.5 19.875 18.75 13.5 18.75 8.813 18.75 5.19 15.728 2.25 12 2.25Zm0 9a2.437 2.437 0 1 1 0-4.875A2.437 2.437 0 0 1 12 11.25Z"
+				/>
+			</svg>
+		</div>
+	{/if}
 	{#if note}
 		<div class="note">{note}</div>
 	{/if}
@@ -105,7 +119,7 @@
 		width: 100%;
 		height: 100%;
 		overflow: hidden;
-		background: #1b2832;
+		background: #cfd8e3;
 	}
 
 	.tiles {
@@ -133,12 +147,12 @@
 		top: 50%;
 		z-index: 2;
 		transform: translate(-50%, -100%);
-		color: #ef5350;
-		filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
+		color: #e53935;
+		filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
 	}
 
 	.pin.muted {
-		color: #90a4ae;
+		color: #607d8b;
 	}
 
 	.note {

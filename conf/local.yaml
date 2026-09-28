@@ -60,10 +60,10 @@ notify:
   enabled: true
   poll_interval_seconds: 30
   timezone: Europe/Moscow
-  digest_hour: 20
-  digest_jitter_minutes: 60
+  digest_hour: 10
+  digest_jitter_minutes: 2
   # Суммаризировать только если накопилось строго больше этого числа новых сообщений.
-  digest_min_new_messages: 30
+  digest_min_new_messages: 5
   retry_interval_seconds: 3600
   summarizer_model: deepseek-v4-flash-0731
   summarizer_timeout_seconds: 12

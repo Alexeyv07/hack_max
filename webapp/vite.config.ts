@@ -12,6 +12,16 @@ export default defineConfig(({ mode }) => {
 			target: apiTarget,
 			changeOrigin: true,
 			rewrite: (path: string) => path.replace(/^\/api/, '')
+		},
+		// Same-origin тайлы для превью в ленте (Max WebView часто режет сторонние img).
+		'/map-tiles/esri': {
+			target: 'https://server.arcgisonline.com',
+			changeOrigin: true,
+			rewrite: (path: string) =>
+				path.replace(
+					/^\/map-tiles\/esri/,
+					'/ArcGIS/rest/services/World_Street_Map/MapServer/tile'
+				)
 		}
 	};
 
