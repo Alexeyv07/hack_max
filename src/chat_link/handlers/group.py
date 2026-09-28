@@ -450,7 +450,7 @@ async def announce_connected_group(
 
 def _connected_group_keyboard(referral: str | None) -> Any | None:
     """В общем чате только переход в личку для выбора адреса жителем."""
-    return _group_link_keyboard(referral, text="Указать свой адрес")
+    return _group_link_keyboard(referral, text="Присоединиться")
 
 
 def connected_group_keyboard(bot: Any, chat_id: int) -> Any | None:

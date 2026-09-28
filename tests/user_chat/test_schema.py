@@ -82,7 +82,7 @@ def test_sql_migrations_chain_complete() -> None:
     assert "0023_group_welcome_message" in versions
     assert "0024_notify_delivery_message_mid" in versions
     assert "0025_bot_group_registry" in versions
-    assert versions[-1] == "0026_user_chat_addresses"
+    assert versions[-1] == "0027_user_chat_address_order"
     for version in versions:
         assert up_path(version).is_file()
         assert down_path(version).is_file()

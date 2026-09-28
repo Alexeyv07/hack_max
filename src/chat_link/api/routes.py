@@ -11,6 +11,7 @@ from maxapi.utils.deep_linking import create_start_link
 from auth.commands.home import send_home
 from auth.commands.start import ADDRESS_PICKER_TEXT
 from auth.handlers import get_user_by_max_id
+from auth.handlers.managed_addresses import list_managed_address_rows
 from auth.handlers.residence import get_personal_address, set_personal_address
 from chat_link.api.schemas import (
     AddressOption,
@@ -287,7 +288,7 @@ def nearest_addresses(
     "/residence",
     response_model=PersonalResidenceResponse,
     summary="Текущий выбранный дом пользователя",
-    response_description="Адрес или null",
+    response_description="Основной адрес + все дома из «Мои адреса»",
     responses={
         status.HTTP_200_OK: {"model": PersonalResidenceResponse},
         **_AUTH_ERRORS,
@@ -295,14 +296,26 @@ def nearest_addresses(
 )
 def get_residence(session: DbSession, max_user_id: MaxUserId) -> PersonalResidenceResponse:
     """
-    Вернуть личный адрес жителя, если он выбран **и** по нему есть linked MAX-чат.
+    Вернуть личный адрес жителя для nearby и все текущие дома из «Мои адреса».
 
-    Иначе `address=null` (nearby-лента будет пустой, пока пользователь не пройдёт онбординг).
+    `address` остаётся обратносуместимым полем для nearby. `addresses` используется картой:
+    по каждому дому рисуется иконка, первый сохранённый дом — цель кнопки «К дому».
     """
     address = get_personal_address(session, max_user_id)
-    if address is not None and not linked_group_ids(session, max_user_id, address_id=address.id):
+
+    if address is not None and not linked_group_ids(
+        session,
+        max_user_id,
+        address_id=address.id,
+    ):
         address = None
-    return PersonalResidenceResponse(address=_option(address) if address is not None else None)
+
+    addresses = [_option(row) for row in list_managed_address_rows(session, max_user_id)]
+
+    return PersonalResidenceResponse(
+        address=_option(address) if address is not None else None,
+        addresses=addresses,
+    )
 
 
 @router.post(

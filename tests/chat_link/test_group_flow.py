@@ -536,7 +536,7 @@ def test_successful_binding_sends_new_welcome_instead_of_editing_old(db_session,
     assert welcome_text.startswith(f"Домовой чат по адресу:\n• {address.address_text}")
     assert "откройте сервис по кнопке ниже:" in welcome_text
     button = bot.send_message.await_args.kwargs["attachments"][1].payload.buttons[0][0]
-    assert button.text == "Указать свой адрес"
+    assert button.text == "Присоединиться"
     assert "chat_-9001" in button.url
 
 
@@ -564,7 +564,7 @@ def test_group_welcome_falls_back_to_text_if_image_is_missing(db_session, monkey
     first, second = bot.send_message.await_args_list
     assert len(first.kwargs["attachments"]) == 2  # Обложка и ссылка в личку.
     assert len(second.kwargs["attachments"]) == 1  # При повторе только ссылка.
-    assert second.kwargs["attachments"][0].payload.buttons[0][0].text == "Указать свой адрес"
+    assert second.kwargs["attachments"][0].payload.buttons[0][0].text == "Присоединиться"
 
 
 def test_group_address_lookup_shows_only_connected_group(db_session) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -12,8 +13,12 @@ import auth.commands.manage_addresses as commands
 from address.db import AddressRow
 from auth.commands.home import linked_addresses
 from auth.db import UserRow
-from auth.handlers.managed_addresses import list_managed_addresses, remove_managed_address
-from user_chat.db import ChatRow, chat_addresses, users_chat
+from auth.handlers.managed_addresses import (
+    list_managed_address_rows,
+    list_managed_addresses,
+    remove_managed_address,
+)
+from user_chat.db import ChatRow, chat_addresses, user_chat_addresses, users_chat
 from user_chat.handlers.membership import has_connected_chat
 
 
@@ -263,3 +268,38 @@ def test_personal_address_fallback_shows_linked_chat(db_session) -> None:
     addresses = list_managed_addresses(db_session, 42)
     assert next(item for item in addresses if item.id == shared.id).chat_titles == ("Дом 1",)
     assert a.id in [item.id for item in addresses]
+
+
+def test_map_addresses_keep_first_added_order(db_session) -> None:
+    a, b, _, user, _ = _setup(db_session)
+    first = datetime(2026, 9, 1, tzinfo=UTC)
+    user.address_id = None
+    db_session.flush()
+    db_session.execute(
+        user_chat_addresses.insert(),
+        [
+            {
+                "user_id": user.id,
+                "chat_id": -1,
+                "address_id": a.id,
+                "added_at": first,
+            },
+            {
+                "user_id": user.id,
+                "chat_id": -2,
+                "address_id": b.id,
+                "added_at": first + timedelta(minutes=1),
+            },
+        ],
+    )
+
+    assert [row.id for row in list_managed_address_rows(db_session, 42)] == [a.id, b.id]
+
+    from chat_link.api.routes import get_residence
+
+    response = get_residence(db_session, 42)
+    assert response.address is None
+    assert [item.id for item in response.addresses] == [a.id, b.id]
+
+    assert remove_managed_address(db_session, max_user_id=42, address_id=a.id)
+    assert [row.id for row in list_managed_address_rows(db_session, 42)] == [b.id]
