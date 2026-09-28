@@ -134,6 +134,6 @@ def test_manage_chats_button_is_visible_only_for_admin() -> None:
     assert [row[0].text for row in admin.payload.buttons] == [
         "Посмотреть новости рядом",
         "Мои адреса",
-        "Управлять чатами",
+        "Администрирование чатов",
         "Помощь и обратная связь",
     ]

@@ -496,7 +496,7 @@ async def _finish_address(event: Any, context: Any, bot: Any, address_id: int) -
             user_id,
             notice=(
                 f"✅ Чат привязан к адресу: {address.address_text}. "
-                "Добавить ещё дом можно в «Управлять чатами»."
+                "Добавить ещё дом можно в «Администрирование чатов»."
                 + (
                     "\n⚠️ Приветствие не удалось отправить в группу. Попробуйте привязку ещё раз."
                     if greeting_failed

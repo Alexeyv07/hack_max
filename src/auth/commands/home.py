@@ -78,7 +78,7 @@ def build_home_keyboard(
         )
     builder.row(CallbackButton(text="Мои адреса", payload=MANAGE_ADDRESSES_PAYLOAD))
     if has_admin_chats:
-        builder.row(CallbackButton(text="Управлять чатами", payload=MANAGE_CHATS_PAYLOAD))
+        builder.row(CallbackButton(text="Администрирование чатов", payload=MANAGE_CHATS_PAYLOAD))
     builder.row(CallbackButton(text="Помощь и обратная связь", payload=HELP_PAYLOAD))
     return builder.as_markup()
 

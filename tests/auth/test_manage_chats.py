@@ -150,7 +150,8 @@ def test_last_address_unlinks_group_without_removing_bot(db_session, monkeypatch
     announce.assert_awaited_once_with(bot, -123)
     assert "Адрес успешно удалён из чата" in show.await_args.args[3]
     assert all(
-        row[0].text != "Управлять чатами" for row in show.await_args.args[4][1].payload.buttons
+        row[0].text != "Администрирование чатов"
+        for row in show.await_args.args[4][1].payload.buttons
     )
 
 
