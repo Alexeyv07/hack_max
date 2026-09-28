@@ -70,7 +70,7 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 
 ### Добавление бота через чат соседей
 
-![template_flow.png](media/template_flow.png)
+![address_flow.png](media/address_flow.png)
 
 <table>
 <tr>
@@ -87,7 +87,7 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 
 ### Добавление бота в ваш чат
 
-![template_flow.png](media/template_flow.png)
+![custom_chat_flow.png](media/custom_chat_flow.png)
 
 <table>
 <tr>
@@ -105,7 +105,7 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 
 ### Просмотр новостной ленты
 
-![template_flow.png](media/template_flow.png)
+![news_flow.png](media/news_flow.png)
 
 <table>
 <tr>
@@ -123,7 +123,7 @@ docker compose -f docker-compose.prod.yaml --env-file .env up -d
 
 ### Просмотр уведомлений
 
-![template_flow.png](media/template_flow.png)
+![notiffy_flow.png](media/notiffy_flow.png)
 
 <table>
 <tr>
