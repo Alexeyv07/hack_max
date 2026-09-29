@@ -267,7 +267,7 @@ async def _show_methods(event: Any, context: Any, bot: Any) -> None:
         else ADDRESS_PICKER_TEXT
     )
     if target_chat_id is not None:
-        text = f"{text}\n\n{docs_html('Как выбрать адрес и подключить чат', page='chat-link')}"
+        text = f"{text}\n\n{docs_html('Как выбрать адрес и подключить чат', page='admin-setup')}"
     kwargs = {
         "text": text,
         "attachments": [
@@ -1027,7 +1027,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             await event.edit(
                 text=(
                     "Введите шестизначный почтовый индекс. Он только сузит список адресов.\n\n"
-                    f"{docs_html('Как выбрать адрес', page='chat-link')}"
+                    f"{docs_html('Как выбрать адрес по индексу', page='address-postcode')}"
                 ),
                 attachments=[postal_input_keyboard(from_manage=from_manage)],
                 notify=False,
@@ -1060,7 +1060,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                 await event.edit(
                     text=(
                         "Введите шестизначный почтовый индекс. Он только сузит список адресов.\n\n"
-                        f"{docs_html('Как выбрать адрес', page='chat-link')}"
+                        f"{docs_html('Как выбрать адрес по индексу', page='address-postcode')}"
                     ),
                     attachments=[postal_input_keyboard(from_manage=bool(data.get("from_manage")))],
                     notify=False,
@@ -1173,7 +1173,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                 text=(
                     "❗ Ошибка ❗\n\nИндекс должен состоять ровно из 6 цифр. "
                     "Введите индекс ещё раз.\n\n"
-                    f"{docs_html('Как выбрать адрес', page='chat-link')}."
+                    f"{docs_html('Как выбрать адрес по индексу', page='address-postcode')}."
                 ),
                 attachments=[postal_input_keyboard(from_manage=from_manage)],
             )
@@ -1188,7 +1188,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
                 text=(
                     "❗ Ошибка ❗\n\nТакого индекса нет в справочнике. "
                     "Введите другой шестизначный индекс.\n\n"
-                    f"{docs_html('Как выбрать адрес', page='chat-link')}."
+                    f"{docs_html('Как выбрать адрес по индексу', page='address-postcode')}."
                 ),
                 attachments=[postal_input_keyboard(from_manage=from_manage)],
             )

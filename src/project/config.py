@@ -303,20 +303,24 @@ class DocsConfig:
     github_url: str = "https://github.com/Alexeyv07/hack_max"
 
     def page(self, slug: str) -> str:
-        """URL одной страницы mdBook (`overview`, `chat-link`, …)."""
+        """URL одной страницы mdBook (`overview`, `address-management`, …).
+
+        Slug = имя файла из ``docs/src/*.md`` без расширения
+        (как в ``docs/src/SUMMARY.md``).
+        """
         base = self.url.rstrip("/")
-        clean = slug.strip("/").removesuffix(".html")
+        clean = slug.strip("/").removesuffix(".html").removesuffix(".md")
         return f"{base}/{clean}.html"
 
     @property
     def chat_link_url(self) -> str:
-        """Как выбрать адрес и подключить домовой чат."""
-        return self.page("chat-link")
+        """Подключение домового чата администратором."""
+        return self.page("admin-setup")
 
     @property
     def addresses_url(self) -> str:
         """Личный список адресов на главной."""
-        return self.page("addresses")
+        return self.page("address-management")
 
     @property
     def notifications_url(self) -> str:

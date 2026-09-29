@@ -50,12 +50,12 @@ def _list_view(
     page, pages = _page(page, len(addresses))
     text = (
         "<b>Ваши адреса 🏠</b>\n\nВыберите адрес, чтобы посмотреть его или удалить.\n\n"
-        f"{docs_html('Как управлять адресами', page='addresses')}"
+        f"{docs_html('Как управлять адресами', page='address-management')}"
     )
     if not addresses:
         text = (
             "<b>Ваши адреса 🏠</b>\n\nПока нет сохранённых адресов.\n\n"
-            f"{docs_html('Как управлять адресами', page='addresses')}"
+            f"{docs_html('Как управлять адресами', page='address-management')}"
         )
     if notice:
         text += f"\n\n{escape(notice)}"
@@ -96,7 +96,7 @@ def _detail_view(address: ManagedAddress, page: int) -> tuple[str, Any]:
         f"<b>{escape(address.text)}</b>\n\n"
         f"<b>{'Чаты' if len(address.chat_titles) > 1 else 'Чат'}:</b>\n{chats}\n\n"
         "Вы можете удалить этот адрес из своего списка.\n\n"
-        f"{docs_html('Управление адресами', page='addresses')}"
+        f"{docs_html('Управление адресами', page='address-management')}"
     )
     return text, builder.as_markup()
 
@@ -215,7 +215,7 @@ def register_manage_addresses(dp: Any, bot: Any) -> None:
                 bot,
                 event,
                 max_user_id,
-                f"<b>Помощь и обратная связь</b>\n\n{docs_html('О сервисе', page='overview')}",
+                f"<b>Помощь и обратная связь</b>\n\n{docs_html('Помощь и обратная связь', page='help')}",
                 [other_messages_image(bot), builder.as_markup()],
                 notification="Помощь",
             )
