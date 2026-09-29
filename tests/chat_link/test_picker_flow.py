@@ -702,6 +702,55 @@ def test_group_admin_button_is_private_only() -> None:
     bot.send_message.assert_not_awaited()
 
 
+def test_bind_chat_from_admin_menu_opens_picker_and_returns_to_chats(monkeypatch) -> None:
+    @contextmanager
+    def fake_session_scope():
+        yield object()
+
+    monkeypatch.setattr(flow, "session_scope", fake_session_scope)
+    monkeypatch.setattr(flow, "connected_admin_groups", AsyncMock(return_value=[]))
+
+    bot = SimpleNamespace(
+        me=SimpleNamespace(username="test_bot", user_id=999),
+        edit_message=AsyncMock(),
+    )
+
+    event = SimpleNamespace(
+        callback=SimpleNamespace(
+            payload="chat_link:start:admin",
+            user=SimpleNamespace(user_id=42),
+        ),
+        message=SimpleNamespace(
+            body=SimpleNamespace(mid="admin-menu"),
+        ),
+        ack=AsyncMock(),
+        edit=AsyncMock(),
+    )
+
+    context = FakeContext()
+    dp = FakeDispatcher()
+    flow.register_chat_link_commands(dp, bot)
+
+    asyncio.run(dp.handlers["message_callback"](event, context))
+
+    assert context.data["from_chats"] is True
+
+    keyboard = next(
+        attachment
+        for call in bot.edit_message.await_args_list
+        for attachment in call.kwargs.get("attachments", [])
+        if hasattr(getattr(attachment, "payload", None), "buttons")
+    )
+
+    buttons = keyboard.payload.buttons
+    assert buttons[-1][0].payload == "cl:back:chats"
+
+    event.callback.payload = "cl:back:chats"
+    asyncio.run(dp.handlers["message_callback"](event, context))
+
+    assert "Управление чатами" in bot.edit_message.await_args.kwargs["text"]
+
+
 def test_add_address_from_chat_menu_preserves_target_and_back(monkeypatch) -> None:
     from chat_link.handlers.registry import AdminGroup
 
