@@ -50,7 +50,7 @@ def is_event_active(
 def list_active_events(
     session: Session,
     *,
-    active_days: int = 21,
+    active_days: int = 30,
     now: datetime | None = None,
     limit: int = 2000,
 ) -> list[ActiveEventView]:

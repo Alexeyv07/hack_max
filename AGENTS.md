@@ -59,7 +59,7 @@ fetch → ParserCandidate ─normalize─▶ EventDraft ──resolve──▶ N
   Локально без Docker: `python scripts/migrate.py up`.
   Пересборка CSV: `python scripts/build_pg_seed_dumps.py`.
 - **Дедуп (KAN-19):** `ml_dedup` внутри `persist_candidate` —
-  NEW / DUPLICATE / UPDATE; окно активности `ml_dedup.active_days` (21).
+  NEW / DUPLICATE / UPDATE; окно активности `ml_dedup.active_days` (30).
 - Контракт для авторов парсеров: `src/parser_common/README.md`.
 - Обучение: `ml/classify/`, `ml/time/`, `ml/dedup/` (GPU). Пакет `ml/` из `src`
   не импортировать.
@@ -164,7 +164,7 @@ sources → RawMcNotice → resolve_notice_geos (все улицы) → ParserCa
 - Вес ленты: `0.5×relevance + 0.3×timeliness + 0.2×source_reliability`
   (`events.weight`); reliability — в `news_parser.sources.*.reliability`.
 - Дедуп (KAN-19): `ml_dedup.resolve` в `persist_candidate` —
-  DUPLICATE → не плодить; UPDATE → обновить активное событие (окно 21 день).
+  DUPLICATE → не плодить; UPDATE → обновить активное событие (окно 30 дней).
 
 ## WebApp (KAN-16)
 

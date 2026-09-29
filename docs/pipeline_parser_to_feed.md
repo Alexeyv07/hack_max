@@ -44,7 +44,7 @@ flowchart TB
 
   subgraph DEDUP["ml_dedup.resolve · KAN-19"]
     D1{source + source_msg_id<br/>уже в DB?}
-    D2[Пул активных Events<br/>active_days = 21<br/>и не истёкший active_to]
+    D2[Пул активных Events<br/>active_days = 30<br/>и не истёкший active_to]
     D3[Embed title+body<br/>ONNX / rubert / hash]
     D4{Cosine score}
     D1 -->|да| DUP1([DUPLICATE · вернуть existing])

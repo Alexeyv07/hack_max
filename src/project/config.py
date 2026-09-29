@@ -172,7 +172,7 @@ class MlDedupConfig:
 
     enabled: bool = True
     # Новость «активна» для match/update столько дней (и lookback пула).
-    active_days: int = 21
+    active_days: int = 30
     duplicate_threshold: float = 0.88
     update_threshold: float = 0.72
     radius_m: float = 3000.0
@@ -485,7 +485,7 @@ def load_settings() -> Settings:
         ),
         ml_dedup=MlDedupConfig(
             enabled=bool(ml_dedup_raw.get("enabled", True)),
-            active_days=int(ml_dedup_raw.get("active_days", 21)),
+            active_days=int(ml_dedup_raw.get("active_days", 30)),
             duplicate_threshold=float(ml_dedup_raw.get("duplicate_threshold", 0.88)),
             update_threshold=float(ml_dedup_raw.get("update_threshold", 0.72)),
             radius_m=float(ml_dedup_raw.get("radius_m", 3000)),

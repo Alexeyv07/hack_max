@@ -57,7 +57,7 @@ class DedupDecision:
 @dataclass(frozen=True, slots=True)
 class DedupConfig:
     enabled: bool = True
-    active_days: int = 21
+    active_days: int = 30
     duplicate_threshold: float = 0.88
     update_threshold: float = 0.72
     radius_m: float = 3000.0

@@ -30,19 +30,19 @@ def _addr(session, text: str = "Москва, улица Лесная, д. 1") -
     return row
 
 
-def test_is_event_active_within_21_days() -> None:
+def test_is_event_active_within_active_days() -> None:
     now = datetime(2026, 3, 20, tzinfo=UTC)
     assert is_event_active(
         now=now,
-        active_days=21,
+        active_days=30,
         published_at=now - timedelta(days=7),
         created_at=None,
         active_from=None,
         active_to=None,
     )
-    assert not is_event_active(
+    assert is_event_active(
         now=now,
-        active_days=21,
+        active_days=30,
         published_at=now - timedelta(days=30),
         created_at=None,
         active_from=None,
@@ -50,7 +50,15 @@ def test_is_event_active_within_21_days() -> None:
     )
     assert not is_event_active(
         now=now,
-        active_days=21,
+        active_days=30,
+        published_at=now - timedelta(days=31),
+        created_at=None,
+        active_from=None,
+        active_to=None,
+    )
+    assert not is_event_active(
+        now=now,
+        active_days=30,
         published_at=now - timedelta(days=3),
         created_at=None,
         active_from=None,
@@ -143,7 +151,7 @@ def test_resolve_update_with_hint(db_session) -> None:
         allow_hash_fallback=True,
         duplicate_threshold=0.99,
         update_threshold=0.01,
-        active_days=21,
+        active_days=30,
     )
     decision, event = resolve_draft(db_session, draft, config=cfg, now=now)
     assert decision.action in {DedupAction.UPDATE, DedupAction.NEW, DedupAction.DUPLICATE}
