@@ -17,4 +17,5 @@ preferred-dark-theme = "navy"
 git-repository-url = "https://github.com/Alexeyv07/hack_max"
 edit-url-template = "https://github.com/Alexeyv07/hack_max/edit/main/docs/{path}"
 site-url = "/hack_max/docs/"
+additional-css = ["custom.css"]
 additional-js = ["mermaid.min.js", "mermaid-init.js"]
