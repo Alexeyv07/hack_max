@@ -81,6 +81,8 @@ def test_chats_list_address_selection_and_back():
     text, keyboard = commands.chat_list_view([group])
     assert "Выбор чатов" in text
     assert keyboard.payload.buttons[0][0].payload == "home:chats:open:-123"
+    assert keyboard.payload.buttons[-2][0].text == "Привязать чат"
+    assert keyboard.payload.buttons[-2][0].payload == "chat_link:start:admin"
     assert keyboard.payload.buttons[-1][0].payload == "home:addresses:home"
 
     addresses = [SimpleNamespace(id=42, address_text="Москва, ул. Длинная, д. 15 корп. 1")]

@@ -395,6 +395,10 @@ def test_ack_opens_fresh_main_menu_only_once_for_owner(session_factory, monkeypa
             session.commit()
 
     monkeypatch.setattr(commands, "session_scope", scoped_session)
+    import auth.commands.home as home
+
+    send_home = AsyncMock()
+    monkeypatch.setattr(home, "send_home", send_home)
     dp = _CallbackDispatcher()
     bot = SimpleNamespace()
     commands.register_notify_commands(dp, bot)
@@ -414,18 +418,58 @@ def test_ack_opens_fresh_main_menu_only_once_for_owner(session_factory, monkeypa
     other = callback(9999)
     asyncio.run(handler(other, context))
     other.edit.assert_not_awaited()
+    send_home.assert_not_awaited()
 
     first = callback(1501)
     asyncio.run(handler(first, context))
     first.edit.assert_awaited_once()
     assert first.edit.await_args.kwargs.get("attachments") == []
+    send_home.assert_awaited_once()
+    assert send_home.await_args.args[0] is bot
+    assert send_home.await_args.args[2] == 1501
+    assert send_home.await_args.kwargs == {"recipient_chat_id": 5501}
 
     repeated = callback(1501)
     asyncio.run(handler(repeated, context))
     repeated.edit.assert_awaited_once()
+    send_home.assert_awaited_once()
 
     with session_factory() as session:
         assert session.get(NotifyDeliveryRow, delivery_id).acked_at is not None
+
+
+def test_demo_ack_opens_home(session_factory, monkeypatch) -> None:
+    with session_factory() as session:
+        session.add(UserRow(max_user_id=1601, chat_id=5601))
+        session.commit()
+
+    @contextmanager
+    def scoped_session():
+        with session_factory() as session:
+            yield session
+            session.commit()
+
+    monkeypatch.setattr(commands, "session_scope", scoped_session)
+    import auth.commands.home as home
+
+    send_home = AsyncMock()
+    monkeypatch.setattr(home, "send_home", send_home)
+    dp = _CallbackDispatcher()
+    bot = SimpleNamespace()
+    commands.register_notify_commands(dp, bot)
+    handler = next(h for h in dp.handlers if h.__name__ == "on_demo_ack")
+    event = SimpleNamespace(
+        callback=SimpleNamespace(payload="notify:demo:ack", user=SimpleNamespace(user_id=1601)),
+        edit=AsyncMock(),
+        ack=AsyncMock(),
+    )
+
+    asyncio.run(handler(event))
+
+    event.edit.assert_awaited_once()
+    send_home.assert_awaited_once()
+    assert send_home.await_args.args[2] == 1601
+    assert send_home.await_args.kwargs == {"recipient_chat_id": 5601}
 
 
 class _MaxDenied(Exception):

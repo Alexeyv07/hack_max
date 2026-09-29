@@ -53,10 +53,14 @@ def chat_list_view(groups: list[AdminGroup], page: int = 0) -> tuple[str, Any]:
             builder.row(CallbackButton(text="‹ Назад", payload=f"{_LIST_PREFIX}{page - 1}"))
         if page + 1 < pages:
             builder.row(CallbackButton(text="Далее ›", payload=f"{_LIST_PREFIX}{page + 1}"))
+    builder.row(CallbackButton(text="Привязать чат", payload="chat_link:start:admin"))
     builder.row(CallbackButton(text="Назад", payload="home:addresses:home"))
     text = "<b>Выбор чатов для редактирования адресов</b>\n\nВыберите чат."
     if not groups:
-        text = "<b>Управление чатами</b>\n\nСейчас нет доступных вам подключённых чатов."
+        text = (
+            "<b>Управление чатами</b>\n\n"
+            "Сейчас нет доступных вам подключённых чатов. Можно привязать новый чат."
+        )
     return text, builder.as_markup()
 
 

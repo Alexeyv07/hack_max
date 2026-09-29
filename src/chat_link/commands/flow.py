@@ -869,6 +869,7 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             return
         if payload.startswith("chat_link:start"):
             from_manage = payload == "chat_link:start:manage"
+            from_admin_menu = payload == "chat_link:start:admin"
             from_chats = payload.startswith("chat_link:start:chat:")
             current = await context.get_data()
             flags = _preserve_flow_flags(current)
@@ -878,6 +879,8 @@ def register_chat_link_commands(dp: Any, bot: Any) -> None:
             flags.pop("from_manage", None)
             flags.pop("from_chats", None)
             flags["from_manage"] = from_manage
+            if from_admin_menu:
+                flags["from_chats"] = True
             if from_chats:
                 try:
                     chat_id = int(payload.rsplit(":", 1)[1])
