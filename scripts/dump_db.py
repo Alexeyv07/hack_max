@@ -243,9 +243,15 @@ def _resolve_load_plan(out_dir: Path, conn: PgConnection) -> list[tuple[str, Pat
             if not gz.is_file():
                 print(f"WARN: нет файла {gz.name} — skip {table}", file=sys.stderr)
                 continue
-            cols = list(entry.get("columns") or [])
-            if not cols:
-                cols = _read_csv_header(gz)
+            cols = _read_csv_header(gz)
+            # manifest.columns — подсказка; источник истины — header файла
+            # (после миграций дамп могут пропатчить без полного re-dump из БД).
+            declared = list(entry.get("columns") or [])
+            if declared and declared != cols:
+                print(
+                    f"WARN: {table}: manifest.columns != csv header, используем header файла",
+                    file=sys.stderr,
+                )
             plan.append((table, gz, cols))
         return plan
 

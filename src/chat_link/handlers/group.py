@@ -369,7 +369,7 @@ async def announce_group_address_setup(bot: Any, chat_id: int) -> None:
         "2. Перейдите в бота и завершите привязку к чату. "
         "После успешной привязки в чат придёт приветственное сообщение.\n\n"
         "Каждый адрес должен быть свободен от привязки к другому чату.\n\n"
-        f"{docs_html('Как подключить домовой чат', page='chat-link')}."
+        f"{docs_html('Как подключить домовой чат', page='admin-setup')}."
     )
     await bot.send_message(
         chat_id=chat_id,

@@ -8,7 +8,7 @@ EventDraft ──resolve_draft──▶ NEW | DUPLICATE | UPDATE
                            create_event  noop   update_event
 ```
 
-Окно активности: ``ml_dedup.active_days`` (дефолт 21).
+Окно активности: ``ml_dedup.active_days`` (дефолт 30).
 """
 
 from __future__ import annotations

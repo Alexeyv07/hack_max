@@ -116,7 +116,7 @@ python scripts/migrate.py down --steps 3
 ## Конфиг
 
 - `APP_ENVIRONMENT=local|prod` → `conf/local.yaml` | `prod.yaml`
-- `ml_dedup.active_days: 21`, пороги cosine, `ml_enrich.spacy_model`
+- `ml_dedup.active_days: 30`, пороги cosine, `ml_enrich.spacy_model`
 - Env перекрывает YAML (`DATABASE_*`, `MAX_BOT_TOKEN`, `ML_DEDUP_ENABLED`, …)
 - Секреты только в `.env`: `MAX_BOT_TOKEN`, `CLOUDPUB_TOKEN`, `AITUNNEL_API_KEY`
 

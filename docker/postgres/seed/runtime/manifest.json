@@ -67,7 +67,8 @@
       "columns": [
         "user_id",
         "chat_id",
-        "address_id"
+        "address_id",
+        "added_at"
       ]
     },
     {

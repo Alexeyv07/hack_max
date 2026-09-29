@@ -42,7 +42,7 @@ events:
 
 ml_dedup:
   enabled: true
-  active_days: 21
+  active_days: 30
   duplicate_threshold: 0.82
   update_threshold: 0.58
   radius_m: 3000
@@ -72,9 +72,9 @@ notify:
 runtime:
   enable_bot: true
   enable_api: true
-  enable_news_parser: true
-  enable_mc_parser: true
-  enable_chat_parser: false
+  enable_news_parser: false
+  enable_mc_parser: false
+  enable_chat_parser: true
 
 chat_parser:
   enabled: true

@@ -172,7 +172,7 @@ class MlDedupConfig:
 
     enabled: bool = True
     # Новость «активна» для match/update столько дней (и lookback пула).
-    active_days: int = 21
+    active_days: int = 30
     duplicate_threshold: float = 0.88
     update_threshold: float = 0.72
     radius_m: float = 3000.0
@@ -303,20 +303,24 @@ class DocsConfig:
     github_url: str = "https://github.com/Alexeyv07/hack_max"
 
     def page(self, slug: str) -> str:
-        """URL одной страницы mdBook (`overview`, `chat-link`, …)."""
+        """URL одной страницы mdBook (`overview`, `address-management`, …).
+
+        Slug = имя файла из ``docs/src/*.md`` без расширения
+        (как в ``docs/src/SUMMARY.md``).
+        """
         base = self.url.rstrip("/")
-        clean = slug.strip("/").removesuffix(".html")
+        clean = slug.strip("/").removesuffix(".html").removesuffix(".md")
         return f"{base}/{clean}.html"
 
     @property
     def chat_link_url(self) -> str:
-        """Как выбрать адрес и подключить домовой чат."""
-        return self.page("chat-link")
+        """Подключение домового чата администратором."""
+        return self.page("admin-setup")
 
     @property
     def addresses_url(self) -> str:
         """Личный список адресов на главной."""
-        return self.page("addresses")
+        return self.page("address-management")
 
     @property
     def notifications_url(self) -> str:
@@ -485,7 +489,7 @@ def load_settings() -> Settings:
         ),
         ml_dedup=MlDedupConfig(
             enabled=bool(ml_dedup_raw.get("enabled", True)),
-            active_days=int(ml_dedup_raw.get("active_days", 21)),
+            active_days=int(ml_dedup_raw.get("active_days", 30)),
             duplicate_threshold=float(ml_dedup_raw.get("duplicate_threshold", 0.88)),
             update_threshold=float(ml_dedup_raw.get("update_threshold", 0.72)),
             radius_m=float(ml_dedup_raw.get("radius_m", 3000)),

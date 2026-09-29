@@ -19,3 +19,7 @@ python scripts/dump_db.py load
 (`docker/postgres/init/02_load_runtime.sh`) после миграций и seed addresses/events.
 
 `address_id` / `event_id` в runtime-дампе должны совпадать с id из seed адресов и событий.
+
+После миграций, добавивших колонки с `DEFAULT` (например `user_chat_addresses.added_at`),
+старый csv без этих полей всё ещё грузится: `COPY` перечисляет только колонки из header/manifest,
+а Postgres подставляет default. Новый dump уже содержит полный набор колонок.
