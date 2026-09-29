@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Обзор - Умный город</title>
+        <title>Первый запуск и главная - Умный город</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-6d807c22.js";
+            window.path_to_searchindex_js = "searchindex-197b0fd1.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-d413af99.js"></script>
+        <script src="toc-7e61c4f8.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -180,21 +180,32 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="обзор"><a class="header" href="#обзор">Обзор</a></h1>
-<p>Продукт для Max:</p>
+                        <h1 id="первый-запуск-и-главная"><a class="header" href="#первый-запуск-и-главная">Первый запуск и главная</a></h1>
+<p>После начала диалога бот кратко объясняет, что собирает новости о доме и городе, показывает события на карте и присылает важные уведомления. Для начала работы нужно указать адрес.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/03-first-welcome.jpg" alt="Первое сообщение и кнопка выбора адреса"><span class="img-wrapper"><img src="images/03-first-welcome.jpg" alt="Первое сообщение и кнопка выбора адреса"></span></label></p>
+<p>Нажмите <strong>«Выбрать адрес»</strong>. Откроется меню с четырьмя способами: выбрать адрес из списка, указать почтовый индекс, выбрать дом на карте или ввести адрес текстом.</p>
+<p>После настройки основной экран становится главной точкой навигации. Здесь отображаются сохранённые адреса, а ниже находятся кнопки новостей, адресов, администрирования чатов и помощи.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/54-home-main.jpg" alt="Главная страница"><span class="img-wrapper"><img src="images/54-home-main.jpg" alt="Главная страница"></span></label></p>
+<p>Если к подключённому чату относится несколько домов, бот может сохранить сразу несколько адресов. При этом для персональной ленты рекомендуется отдельно указать свой адрес проживания через <strong>«Мои адреса»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/56-joined-multiple-addresses.jpg" alt="Главная после сохранения нескольких адресов чата"><span class="img-wrapper"><img src="images/56-joined-multiple-addresses.jpg" alt="Главная после сохранения нескольких адресов чата"></span></label></p>
+<p>Для возврата из меню выбора адреса используйте <strong>«← Назад»</strong>. Эта кнопка возвращает в предыдущий раздел, а не запускает выбор заново.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/48-picker-back.jpg" alt="Кнопка возврата из выбора адреса"><span class="img-wrapper"><img src="images/48-picker-back.jpg" alt="Кнопка возврата из выбора адреса"></span></label></p>
+<p>Дальше можно выбрать удобный способ указания дома:</p>
 <ul>
-<li>чаты соседей;</li>
-<li>события рядом и по городу;</li>
-<li>уведомления о важном.</li>
+<li><a href="address-list.html">по списку</a>;</li>
+<li><a href="address-postcode.html">по почтовому индексу</a>;</li>
+<li><a href="address-map-text.html">на карте или текстом</a>.</li>
 </ul>
-<p>Стек: Python (бот + FastAPI), SvelteKit (WebApp), Postgres.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
 
-                            <a rel="next prefetch" href="chat-link.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="address-list.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -204,8 +215,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
 
-                    <a rel="next prefetch" href="chat-link.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="address-list.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

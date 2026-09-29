@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-6d807c22.js";
+            window.path_to_searchindex_js = "searchindex-197b0fd1.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-d413af99.js"></script>
+        <script src="toc-7e61c4f8.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -178,156 +178,185 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="обзор"><a class="header" href="#обзор">Обзор</a></h1>
-<p>Продукт для Max:</p>
-<ul>
-<li>чаты соседей;</li>
-<li>события рядом и по городу;</li>
-<li>уведомления о важном.</li>
-</ul>
-<p>Стек: Python (бот + FastAPI), SvelteKit (WebApp), Postgres.</p>
+                        <h1 id="альтернативная-документация-касаетсяменя"><a class="header" href="#альтернативная-документация-касаетсяменя">Альтернативная документация «КасаетсяМеня»</a></h1>
+<p>Эта версия документации построена вокруг всех 56 экранов из переданного PDF: бота, группового чата и мини-приложения. Красные стрелки на скриншотах показывают, куда нажимать. Персональные данные и уникальные пригласительные ссылки на скриншотах скрыты.</p>
+<p>Документация охватывает весь пользовательский путь: первый запуск, четыре способа выбора адреса, подключение домового чата, работу администратора, управление адресами, новости, карту и уведомления.</p>
+<p>Начните с <a href="#первый-запуск-и-главная">первого запуска</a>, а затем переходите к нужному сценарию через <code>SUMMARY.md</code>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="подключение-чата"><a class="header" href="#подключение-чата">Подключение чата</a></h1>
-<p>KAN-7 подключает пользователя к реальному домовому групповому чату MAX и связывает чат с
-конкретным домом из локального адресного справочника.</p>
-<h2 id="выбор-дома"><a class="header" href="#выбор-дома">Выбор дома</a></h2>
-<p>Есть четыре способа, как в исходном меню:</p>
-<ol>
-<li><strong>Выбрать место жительства</strong> — бот: город → район → улица → дом.</li>
-<li><strong>Указать почтовый индекс</strong> — бот: индекс → улица → дом (без повторного выбора города/района).</li>
-<li><strong>Указать на карте</strong> — WebApp (<code>chat_link_map</code>), ближайшие дома по курсору.</li>
-<li><strong>Ввести текстом</strong> — WebApp (<code>chat_link_text</code>), быстрый fuzzy-поиск адреса.</li>
-</ol>
-<p>Поиск по индексу внутри WebApp не показывается. Текстовый WebApp содержит одно поле адреса.
-После выбора дома система проверяет, подключён ли к адресу групповой чат MAX и состоит ли
-пользователь в нём. Если членство подтверждено через MAX, адрес сохраняется и бот присылает
-отдельную главную с фото. Иначе сохранения и персональной ленты нет: человеку рекомендуют
-вступить в чат через «Госуслуги Дом» либо показывают приглашение администратору.</p>
-<p>Все способы заканчиваются одним <code>address_id</code>, после чего используется один и тот же flow
-подключения чата.</p>
-<h3 id="адреса-только-из-памяти"><a class="header" href="#адреса-только-из-памяти">Адреса только из памяти</a></h3>
-<p>KAN-7 не создаёт второй справочник. Он переиспользует существующий <code>address.StreetCatalog</code>,
-который уже нужен парсерам для in-memory street lookup. Для onboarding каталог один раз загружается
-с <code>city=None</code> и хранится process-wide; после прогрева callback-и и API поиска/карты не делают
-<code>SELECT</code> для построения кнопок. БД используется для первоначального snapshot и persistence
-выбранного дома/чата.</p>
-<p><code>StreetCatalog</code> хранит структурированные <code>city / district / street / house</code>, координаты,
-почтовый индекс и <code>address_id</code>. UI нормализует NFKC, регистр, <code>ё/е</code>, пробелы и zero-width Unicode;
-одинаковые варианты не дублируются.</p>
-<h3 id="район-и-пагинация"><a class="header" href="#район-и-пагинация">Район и пагинация</a></h3>
-<p>Основной UX первого способа всегда идёт через район, а не через «слоги» улицы. Район берётся из
-локального адресного snapshot; карта в MiniApp отображается через Yandex Maps JS API, а ближайшие
-дома по-прежнему ищутся в <code>StreetCatalog</code>, поэтому движение карты не делает внешний геокодинг на
-каждый жест пользователя.</p>
-<p>Обычные списки picker-а ограничены 10 предметными кнопками на страницу, чтобы клавиатура не
-становилась слишком высокой. Номера домов идут по 15 на страницу — ровно 5 рядов по 3 кнопки.
-Навигация везде одинаковая: <code>‹  1 / N  ›</code> и отдельная кнопка <code>← Назад</code>; если страниц больше 10,
-добавляются переходы <code>«5</code> и <code>5»</code>. Только если даже
-после выбора района улиц всё ещё аномально много (&gt;72), появляется дополнительное
-prefix-сужение; оно использует ту же пагинацию и не является штатным шагом flow.</p>
-<p>Почтовый индекс — самостоятельный фильтр области поиска. После ввода индекса picker <strong>не спрашивает
-ни город, ни район</strong>: пользователь сразу получает улицы внутри этого индекса, затем дома:
-<code>индекс → улица → дом</code>. Если одинаковый номер дома встречается у нескольких адресов внутри одного
-индекса и улицы, кнопка добавляет locality только для различения вариантов.</p>
-<h2 id="один-bot-screen"><a class="header" href="#один-bot-screen">Один bot-screen</a></h2>
-<p>Весь личный onboarding живёт одним сообщением бота. Callback-переходы используют edit, а не
-<code>send → delete</code>. <code>flow_mid</code> хранится в FSM, поэтому после обычного текстового сообщения с индексом
-редактируется тот же экран. Повторный <code>/start</code> сбрасывает незавершённый state и переиспользует
-этот экран, если сообщение ещё существует.</p>
-<h2 id="реальный-групповой-max-чат"><a class="header" href="#реальный-групповой-max-чат">Реальный групповой MAX-чат</a></h2>
-<p>После выбора дома создаётся <code>chat_links</code> — явная state machine заявки. Отдельная сущность нужна,
-потому что между выбором дома и появлением реального MAX <code>chat_id</code> есть незавершённый lifecycle.
-<code>chats</code> и <code>users_chat</code> по-прежнему принадлежат модулю <code>user_chat</code>.</p>
-<h3 id="домовой-чат-уже-подключён"><a class="header" href="#домовой-чат-уже-подключён">Домовой чат уже подключён</a></h3>
-<p>Пользователь не добавляется в чужую группу автоматически. Если у выбранного дома есть подключённый
-MAX-чат, но пользователь в нём не состоит, бот рекомендует вступить через «Госуслуги Дом».
-После фактического вступления событие <code>user_added</code> идемпотентно создаёт <code>users_chat</code>;
-<code>user_removed</code> удаляет членство. Выбор адреса повторно проверяет MAX API, поэтому одна ссылка
-или устаревшая запись в БД не подтверждает членство. Legacy DIALOG-записи старого mock-flow не
-открывают доступ.</p>
-<h3 id="домового-чата-ещё-нет"><a class="header" href="#домового-чата-ещё-нет">Домового чата ещё нет</a></h3>
-<p>Для администратора основной flow начинается с уже созданной MAX-группы:</p>
-<ol>
-<li>администратор добавляет бота в групповой чат;</li>
-<li>бот сразу публикует кнопку <strong>«Выбрать адрес»</strong> и напоминает выдать право
-<code>read_all_messages</code>;</li>
-<li>кнопка открывает личный диалог через <code>chat_bind_&lt;chat_id&gt;</code>;</li>
-<li>пользователь выбирает конкретный дом через бот или мини-приложение;</li>
-<li>перед привязкой сервис проверяет admin/owner, право бота <code>read_all_messages</code>, отсутствие уже
-подключённого адреса у этого MAX-чата и отсутствие другого активного домового чата у
-выбранного адреса;</li>
-<li>только после этих проверок сохраняются <code>chat_id</code>, <code>address_id</code> и membership администратора.</li>
-</ol>
-<p>Для карты и текстового ввода целевой <code>chat_id</code> входит в WebApp start-param, поэтому тот же flow
-работает не только в нативном picker-е бота. Если адрес уже занят другим домовым чатом, привязка
-не создаётся и администратору предлагается выбрать другой дом.</p>
-<p>Старый сценарий остаётся обратно совместимым: если пользователь сначала выбрал адрес и уже имеет
-<code>waiting_group</code>, событие <code>bot_added</code> по-прежнему может автоматически завершить такую заявку после
-выдачи прав. Однако предварительный выбор адреса больше не является обязательным.</p>
-<p>Обычный resident-flow после выбора дома не меняется: житель может скопировать deep-link для
-администратора, а кнопка <code>Я администратор чата</code> показывает инструкцию по добавлению бота.</p>
-<p>После подключения бот публикует в рабочем чате welcome и referral deep-link <code>chat_&lt;chat_id&gt;</code>.
-Deep-link не является доказательством членства: при открытии бот сначала проверяет через MAX, что
-пользователь действительно состоит в этой группе, и только затем создаёт <code>users_chat</code>. Поэтому
-ссылку можно безопасно использовать для быстрого онбординга соседей.</p>
-<p>В личном welcome кнопка <code>Смотреть события</code> скрыта, пока у пользователя нет ни одного реального
-membership.</p>
-<h2 id="первый-вход-личный-адрес-и-групповое-сообщение"><a class="header" href="#первый-вход-личный-адрес-и-групповое-сообщение">Первый вход, личный адрес и групповое сообщение</a></h2>
-<p>Презентационный текст с именной обложкой отправляется только при первом создании пользователя.
-Следующий экран выбора дома использует изображение летящего голубя, главная — голубя в квартире.
-Если адрес уже выбран и соответствующее членство подтверждено, повторный <code>/start</code> ведёт сразу
-на главную, без повторной презентации. Для пользователя без адреса выбор доступен всеми четырьмя
-способами, но сам ввод адреса не даёт доступа к ленте.</p>
+<h1 id="первый-запуск-и-главная"><a class="header" href="#первый-запуск-и-главная">Первый запуск и главная</a></h1>
+<p>После начала диалога бот кратко объясняет, что собирает новости о доме и городе, показывает события на карте и присылает важные уведомления. Для начала работы нужно указать адрес.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/03-first-welcome.jpg" alt="Первое сообщение и кнопка выбора адреса"><span class="img-wrapper"><img src="images/03-first-welcome.jpg" alt="Первое сообщение и кнопка выбора адреса"></span></label></p>
+<p>Нажмите <strong>«Выбрать адрес»</strong>. Откроется меню с четырьмя способами: выбрать адрес из списка, указать почтовый индекс, выбрать дом на карте или ввести адрес текстом.</p>
+<p>После настройки основной экран становится главной точкой навигации. Здесь отображаются сохранённые адреса, а ниже находятся кнопки новостей, адресов, администрирования чатов и помощи.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/54-home-main.jpg" alt="Главная страница"><span class="img-wrapper"><img src="images/54-home-main.jpg" alt="Главная страница"></span></label></p>
+<p>Если к подключённому чату относится несколько домов, бот может сохранить сразу несколько адресов. При этом для персональной ленты рекомендуется отдельно указать свой адрес проживания через <strong>«Мои адреса»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/56-joined-multiple-addresses.jpg" alt="Главная после сохранения нескольких адресов чата"><span class="img-wrapper"><img src="images/56-joined-multiple-addresses.jpg" alt="Главная после сохранения нескольких адресов чата"></span></label></p>
+<p>Для возврата из меню выбора адреса используйте <strong>«← Назад»</strong>. Эта кнопка возвращает в предыдущий раздел, а не запускает выбор заново.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/48-picker-back.jpg" alt="Кнопка возврата из выбора адреса"><span class="img-wrapper"><img src="images/48-picker-back.jpg" alt="Кнопка возврата из выбора адреса"></span></label></p>
+<p>Дальше можно выбрать удобный способ указания дома:</p>
 <ul>
-<li><strong>Есть подключённый чат, но человек не участник:</strong> рекомендация вступить через
-«Госуслуги Дом» и повторить выбор.</li>
-<li><strong>Нет подключённого чата:</strong> кнопка копирования приглашения для администратора,
-«Я администратор» открывает инструкцию по подключению чата/бота. До подтверждённого
-членства личный адрес не сохраняется.</li>
-<li><strong>Членство подтверждено через MAX для выбранного адреса:</strong> сохраняется
-<code>users.address_id</code> и <code>users_chat.address_id</code>, открывается главная и nearby.</li>
+<li><a href="#выбор-адреса-по-списку">по списку</a>;</li>
+<li><a href="#выбор-адреса-по-почтовому-индексу">по почтовому индексу</a>;</li>
+<li><a href="#карта-и-ввод-адреса-текстом">на карте или текстом</a>.</li>
 </ul>
-<p>В групповом чате бот сохраняет <code>chats.welcome_mid</code> и редактирует одно сообщение со всем
-списком <code>chat_addresses</code> при добавлении или удалении дома администратором. Для удаления
-доступна кнопка в группе и защищённый API; последний адрес нельзя удалить, пока группа
-остаётся подключённой. У ранее созданных сообщений без сохранённого <code>mid</code> первое обновление
-создаст новое отслеживаемое сообщение, последующие будут редактировать именно его.
-Новая миграция: <code>0023_group_welcome_message</code> (после <code>0022_user_residence</code>).</p>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="управление-адресами"><a class="header" href="#управление-адресами">Управление адресами</a></h1>
-<p>На главной экрана бота кнопка <strong>«Управлять адресами»</strong> открывает список домов,
-которые вы указали для себя.</p>
-<h2 id="что-можно-сделать"><a class="header" href="#что-можно-сделать">Что можно сделать</a></h2>
-<ul>
-<li>посмотреть сохранённые адреса;</li>
-<li>удалить адрес из <em>личного</em> списка.</li>
-</ul>
-<p>Удаление адреса из вашего списка <strong>не отключает</strong> домовой чат и не убирает
-адрес у всей группы соседей. Чтобы убрать адрес именно у чата, это делает
-администратор группы (кнопка в приветственном сообщении бота в чате).</p>
-<h2 id="если-адреса-ещё-нет"><a class="header" href="#если-адреса-ещё-нет">Если адреса ещё нет</a></h2>
-<p>Вернитесь на главную (<code>/home</code>) или нажмите «Указать свой адрес» и выберите дом
-одним из способов: список, индекс, карта или текст.</p>
-<p>Подробнее про подключение дома и чата: <a href="#подключение-чата">Подключение чата</a>.</p>
+<h1 id="выбор-адреса-по-списку"><a class="header" href="#выбор-адреса-по-списку">Выбор адреса по списку</a></h1>
+<p>Способ <strong>«Выбрать адрес»</strong> удобен, когда известны район, улица и номер дома. Бот ведёт по адресу последовательно и не требует ручного ввода.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/04-picker-menu-list.jpg" alt="Выбор способа по списку"><span class="img-wrapper"><img src="images/04-picker-menu-list.jpg" alt="Выбор способа по списку"></span></label></p>
+<p>Сначала выберите город. В текущем сценарии доступна Москва.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/05-list-city.jpg" alt="Выбор города"><span class="img-wrapper"><img src="images/05-list-city.jpg" alt="Выбор города"></span></label></p>
+<p>После этого выберите район. Длинные списки разбиты на страницы: снизу есть стрелки перехода, номер текущей страницы и быстрые переходы на несколько страниц.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/01-list-district.jpg" alt="Выбор района"><span class="img-wrapper"><img src="images/01-list-district.jpg" alt="Выбор района"></span></label></p>
+<p>Далее бот показывает улицы выбранного района. Нажмите на нужную улицу.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/02-list-street.jpg" alt="Выбор улицы"><span class="img-wrapper"><img src="images/02-list-street.jpg" alt="Выбор улицы"></span></label></p>
+<p>Последний шаг - номер дома. Если домов много, список также разбивается на страницы.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/06-list-house.jpg" alt="Выбор дома"><span class="img-wrapper"><img src="images/06-list-house.jpg" alt="Выбор дома"></span></label></p>
+<p>После выбора дома сервис показывает результат. Если к адресу уже есть доступный домовой чат, он появляется в списке и его можно выбрать для привязки.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/11-selected-existing-chat.jpg" alt="Выбранный адрес и доступный чат"><span class="img-wrapper"><img src="images/11-selected-existing-chat.jpg" alt="Выбранный адрес и доступный чат"></span></label></p>
+<p>Если чат ещё не подключён, сервис предлагает два варианта: скопировать приглашение для администратора или продолжить подключение самостоятельно как администратор.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/14-selected-no-chat-admin.jpg" alt="Адрес без подключённого чата"><span class="img-wrapper"><img src="images/14-selected-no-chat-admin.jpg" alt="Адрес без подключённого чата"></span></label></p>
+<p>Если вы администратор, переходите к разделу <a href="#подготовка-домового-чата-администратором">«Подготовка домового чата»</a>. Если чат уже найден, переходите к <a href="#привязка-адреса-к-домовому-чату">привязке адреса</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="личные-уведомления"><a class="header" href="#личные-уведомления">Личные уведомления</a></h1>
-<p>Важные события рядом с домом приходят <strong>личным сообщением</strong> от бота
-(красный маркер 🔴).</p>
-<h2 id="как-это-выглядит"><a class="header" href="#как-это-выглядит">Как это выглядит</a></h2>
-<ol>
-<li>Бот присылает короткое сообщение: <strong>заголовок</strong> события.</li>
-<li>Подробный текст по умолчанию <strong>скрыт</strong>. Нажмите <strong>«Подробнее»</strong>, чтобы раскрыть,
-и <strong>«Свернуть»</strong>, чтобы снова спрятать (в MAX нет встроенных spoiler-тегов —
-раскрытие сделано через кнопку и правку того же сообщения).</li>
-<li>Внизу кнопка <strong>«Увидел»</strong> — нажмите её, когда прочитали.</li>
-<li>Пока кнопку не нажали, бот может напомнить снова через час.
-Старое такое же сообщение при этом убирается, чтобы чат не засорялся.</li>
-</ol>
-<h2 id="если-уведомление-не-пришло"><a class="header" href="#если-уведомление-не-пришло">Если уведомление не пришло</a></h2>
-<p>На хакатоне и для проверки можно запросить пример командой:</p>
-<p><code>/get_notify</code></p>
-<p>Бот покажет, как выглядит настоящее уведомление. Сообщение с командой
-после этого удалится само.</p>
+<h1 id="выбор-адреса-по-почтовому-индексу"><a class="header" href="#выбор-адреса-по-почтовому-индексу">Выбор адреса по почтовому индексу</a></h1>
+<p>Если известен шестизначный индекс, этот способ позволяет быстро сузить список улиц и домов.</p>
+<p>В меню выбора адреса нажмите <strong>«Указать почтовый индекс»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/10-picker-menu-postcode.jpg" alt="Выбор способа по индексу"><span class="img-wrapper"><img src="images/10-picker-menu-postcode.jpg" alt="Выбор способа по индексу"></span></label></p>
+<p>Бот попросит отправить индекс обычным сообщением. Индекс не выбирает дом автоматически - он только ограничивает список подходящих адресов.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/07-postcode-prompt.jpg" alt="Запрос шестизначного индекса"><span class="img-wrapper"><img src="images/07-postcode-prompt.jpg" alt="Запрос шестизначного индекса"></span></label></p>
+<p>После отправки индекса появится список улиц, относящихся к нему. Выберите нужную улицу.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/08-postcode-street.jpg" alt="Улицы по индексу"><span class="img-wrapper"><img src="images/08-postcode-street.jpg" alt="Улицы по индексу"></span></label></p>
+<p>Затем выберите дом. Если список большой, используйте навигацию по страницам снизу.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/09-postcode-house.jpg" alt="Дома по выбранной улице"><span class="img-wrapper"><img src="images/09-postcode-house.jpg" alt="Дома по выбранной улице"></span></label></p>
+<p>После выбора дома дальнейший сценарий совпадает с другими способами: сервис показывает выбранный адрес и либо предлагает существующий чат, либо помогает подключить новый.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="карта-и-ввод-адреса-текстом"><a class="header" href="#карта-и-ввод-адреса-текстом">Карта и ввод адреса текстом</a></h1>
+<h2 id="выбор-дома-на-карте"><a class="header" href="#выбор-дома-на-карте">Выбор дома на карте</a></h2>
+<p>На главном экране выбора адреса нажмите <strong>«Указать на карте»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/15-picker-menu-map.jpg" alt="Переход к карте"><span class="img-wrapper"><img src="images/15-picker-menu-map.jpg" alt="Переход к карте"></span></label></p>
+<p>В мини-приложении можно двигать карту и использовать свою геопозицию. Ниже отображаются ближайшие дома. Нажмите на подходящий адрес.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/12-map-nearby-houses.jpg" alt="Ближайшие дома на карте"><span class="img-wrapper"><img src="images/12-map-nearby-houses.jpg" alt="Ближайшие дома на карте"></span></label></p>
+<p>Проверьте выбранный адрес и нажмите <strong>«Подтвердить адрес»</strong>. Если дом выбран неверно, нажмите <strong>«Выбрать другой»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/13-map-confirm.jpg" alt="Подтверждение адреса на карте"><span class="img-wrapper"><img src="images/13-map-confirm.jpg" alt="Подтверждение адреса на карте"></span></label></p>
+<h2 id="ввод-адреса-текстом"><a class="header" href="#ввод-адреса-текстом">Ввод адреса текстом</a></h2>
+<p>Можно не искать дом вручную. Выберите <strong>«Ввести текстом»</strong> и начните вводить улицу, дом или район.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/45-text-input.jpg" alt="Поле ввода адреса"><span class="img-wrapper"><img src="images/45-text-input.jpg" alt="Поле ввода адреса"></span></label></p>
+<p>Сервис показывает подходящие варианты по мере ввода. Нажмите на нужный адрес.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/46-text-results.jpg" alt="Результаты поиска адреса"><span class="img-wrapper"><img src="images/46-text-results.jpg" alt="Результаты поиска адреса"></span></label></p>
+<p>После выбора ещё раз проверьте адрес и подтвердите его.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/47-text-confirm.jpg" alt="Подтверждение адреса из поиска"><span class="img-wrapper"><img src="images/47-text-confirm.jpg" alt="Подтверждение адреса из поиска"></span></label></p>
+<p>Оба способа приводят к одному результату: адрес сохраняется для дальнейшего подключения чата или личной ленты.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="подготовка-домового-чата-администратором"><a class="header" href="#подготовка-домового-чата-администратором">Подготовка домового чата администратором</a></h1>
+<p>Если у выбранного дома ещё нет подключённого чата, сервис предлагает отправить приглашение администратору или продолжить подключение самостоятельно.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/17-selected-no-chat-invite-bot.jpg" alt="Выбор действия после выбора адреса"><span class="img-wrapper"><img src="images/17-selected-no-chat-invite-bot.jpg" alt="Выбор действия после выбора адреса"></span></label></p>
+<p>Кнопка <strong>«Скопировать пригласительное сообщение»</strong> создаёт готовый текст со ссылкой на подключение. Уникальная часть ссылки на скриншотах скрыта.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/19-invitation-in-bot.jpg" alt="Приглашение в личном чате с ботом"><span class="img-wrapper"><img src="images/19-invitation-in-bot.jpg" alt="Приглашение в личном чате с ботом"></span></label></p>
+<p>После копирования можно вернуться к экрану выбранного адреса и продолжить подключение из того же места.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/20-selected-no-chat-invite-repeat.jpg" alt="Возврат к действиям с выбранным адресом"><span class="img-wrapper"><img src="images/20-selected-no-chat-invite-repeat.jpg" alt="Возврат к действиям с выбранным адресом"></span></label></p>
+<p>Тот же текст можно открыть в мини-приложении и скопировать оттуда.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/21-invitation-miniapp.jpg" alt="Пригласительное сообщение в мини-приложении"><span class="img-wrapper"><img src="images/21-invitation-miniapp.jpg" alt="Пригласительное сообщение в мини-приложении"></span></label></p>
+<p>Если подключаете чат сами, выберите <strong>«Я админ чата»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/23-selected-no-chat-admin-repeat.jpg" alt="Переход к сценарию администратора"><span class="img-wrapper"><img src="images/23-selected-no-chat-admin-repeat.jpg" alt="Переход к сценарию администратора"></span></label></p>
+<p>Бот объяснит два обязательных действия: добавить его в групповой чат и выдать право читать сообщения. После выполнения нужно вернуться в личный чат и нажать <strong>«Проверить ещё раз»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/22-admin-check-instructions.jpg" alt="Инструкция администратору"><span class="img-wrapper"><img src="images/22-admin-check-instructions.jpg" alt="Инструкция администратору"></span></label></p>
+<h2 id="добавление-бота-в-группу"><a class="header" href="#добавление-бота-в-группу">Добавление бота в группу</a></h2>
+<p>Откройте информацию о домовом чате и нажмите <strong>«Добавить участника»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/24-group-add-member.jpg" alt="Добавление участника в группу"><span class="img-wrapper"><img src="images/24-group-add-member.jpg" alt="Добавление участника в группу"></span></label></p>
+<p>В списке участников используйте поиск.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/29-group-member-list.jpg" alt="Поиск участника"><span class="img-wrapper"><img src="images/29-group-member-list.jpg" alt="Поиск участника"></span></label></p>
+<p>Найдите <strong>«Хакатон MAX 763»</strong> и выберите бота.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/30-search-bot.jpg" alt="Поиск бота"><span class="img-wrapper"><img src="images/30-search-bot.jpg" alt="Поиск бота"></span></label></p>
+<p>После выбора нажмите <strong>«Добавить в чат»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/31-add-bot-confirm.jpg" alt="Добавление выбранного бота"><span class="img-wrapper"><img src="images/31-add-bot-confirm.jpg" alt="Добавление выбранного бота"></span></label></p>
+<p>MAX может спросить, показывать ли новому участнику историю чата. Для работы сервиса выберите <strong>«Показать»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/36-chat-history-prompt.jpg" alt="Разрешение истории чата"><span class="img-wrapper"><img src="images/36-chat-history-prompt.jpg" alt="Разрешение истории чата"></span></label></p>
+<p>Если бот добавлен без нужных прав, в группе появится предупреждение.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/49-group-bot-no-rights.jpg" alt="Предупреждение об отсутствии прав"><span class="img-wrapper"><img src="images/49-group-bot-no-rights.jpg" alt="Предупреждение об отсутствии прав"></span></label></p>
+<h2 id="выдача-прав-администратора"><a class="header" href="#выдача-прав-администратора">Выдача прав администратора</a></h2>
+<p>Откройте раздел <strong>«Администраторы»</strong> в настройках группы.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/37-group-admins-entry.jpg" alt="Переход к администраторам"><span class="img-wrapper"><img src="images/37-group-admins-entry.jpg" alt="Переход к администраторам"></span></label></p>
+<p>Нажмите <strong>«Добавить администратора»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/39-group-admin-list.jpg" alt="Список администраторов"><span class="img-wrapper"><img src="images/39-group-admin-list.jpg" alt="Список администраторов"></span></label></p>
+<p>Выберите бота в списке.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/40-select-bot-admin.jpg" alt="Выбор бота как администратора"><span class="img-wrapper"><img src="images/40-select-bot-admin.jpg" alt="Выбор бота как администратора"></span></label></p>
+<p>В правах администратора обязательно включите <strong>«Читать сообщения»</strong>, затем нажмите <strong>«Назначить администратором»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/42-bot-admin-rights.jpg" alt="Права администратора бота"><span class="img-wrapper"><img src="images/42-bot-admin-rights.jpg" alt="Права администратора бота"></span></label></p>
+<p>После этого вернитесь в личный чат с ботом и продолжите <a href="#привязка-адреса-к-домовому-чату">привязку адреса к чату</a>.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="привязка-адреса-к-домовому-чату"><a class="header" href="#привязка-адреса-к-домовому-чату">Привязка адреса к домовому чату</a></h1>
+<p>После того как бот добавлен в группу и получил нужные права, вернитесь в личный диалог и продолжите подключение.</p>
+<p>Если выбранный адрес уже связан с доступным чатом, сервис сразу показывает этот чат.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/11-selected-existing-chat.jpg" alt="Чат, доступный для привязки"><span class="img-wrapper"><img src="images/11-selected-existing-chat.jpg" alt="Чат, доступный для привязки"></span></label></p>
+<p>В мини-приложении нажмите на нужный чат.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/11-selected-existing-chat.jpg" alt="Выбор домового чата"><span class="img-wrapper"><img src="images/11-selected-existing-chat.jpg" alt="Выбор домового чата"></span></label></p>
+<p>Проверьте адрес и название чата, затем нажмите <strong>«Подтвердить»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/16-bind-confirm-miniapp.jpg" alt="Подтверждение привязки в мини-приложении"><span class="img-wrapper"><img src="images/16-bind-confirm-miniapp.jpg" alt="Подтверждение привязки в мини-приложении"></span></label></p>
+<p>После успешной привязки появляется экран с кнопкой <strong>«На главную»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/18-bind-success-miniapp.jpg" alt="Успешная привязка в мини-приложении"><span class="img-wrapper"><img src="images/18-bind-success-miniapp.jpg" alt="Успешная привязка в мини-приложении"></span></label></p>
+<p>Есть и тот же сценарий в личном чате с ботом. После проверки прав бот показывает группы, к которым можно привязать выбранный адрес.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/51-chat-choice-bot.jpg" alt="Список групп для привязки"><span class="img-wrapper"><img src="images/51-chat-choice-bot.jpg" alt="Список групп для привязки"></span></label></p>
+<p>Выберите группу и подтвердите действие.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/52-chat-bind-confirm-bot.jpg" alt="Подтверждение привязки в боте"><span class="img-wrapper"><img src="images/52-chat-bind-confirm-bot.jpg" alt="Подтверждение привязки в боте"></span></label></p>
+<p>Бот сообщит, что адрес успешно привязан.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/53-chat-bind-success-bot.jpg" alt="Успешная привязка в боте"><span class="img-wrapper"><img src="images/53-chat-bind-success-bot.jpg" alt="Успешная привязка в боте"></span></label></p>
+<p>Если подключение выполнялось через мини-приложение, отдельный экран также подтверждает успешное добавление чата.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/43-chat-added-miniapp.jpg" alt="Чат успешно добавлен"><span class="img-wrapper"><img src="images/43-chat-added-miniapp.jpg" alt="Чат успешно добавлен"></span></label></p>
+<p>После завершения в домовом чате появляется приветственное сообщение сервиса с адресом и кнопкой <strong>«Присоединиться»</strong> для жителей.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/55-group-join.jpg" alt="Приветствие в подключённом домовом чате"><span class="img-wrapper"><img src="images/55-group-join.jpg" alt="Приветствие в подключённом домовом чате"></span></label></p>
+<p>Адрес должен быть свободен от привязки к другому домовому чату. Если условия не выполнены, сначала исправьте настройки группы или выберите другой адрес.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="мои-адреса-и-администрирование-чатов"><a class="header" href="#мои-адреса-и-администрирование-чатов">Мои адреса и администрирование чатов</a></h1>
+<p>В сервисе есть два разных раздела: <strong>«Мои адреса»</strong> для личных адресов пользователя и <strong>«Администрирование чатов»</strong> для адресов групп, которыми вы управляете.</p>
+<h2 id="мои-адреса"><a class="header" href="#мои-адреса">Мои адреса</a></h2>
+<p>На главной нажмите <strong>«Мои адреса»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/27-home-my-addresses.jpg" alt="Переход в Мои адреса"><span class="img-wrapper"><img src="images/27-home-my-addresses.jpg" alt="Переход в Мои адреса"></span></label></p>
+<p>Здесь отображаются сохранённые адреса. Можно открыть существующий адрес или добавить новый.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/28-my-addresses.jpg" alt="Список личных адресов"><span class="img-wrapper"><img src="images/28-my-addresses.jpg" alt="Список личных адресов"></span></label></p>
+<p>Если вы присоединились к чату, у которого несколько адресов, сервис может сохранить все адреса чата. Для персональных новостей рядом с домом добавьте собственный адрес проживания отдельно.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/56-joined-multiple-addresses.jpg" alt="Сохранено несколько адресов чата"><span class="img-wrapper"><img src="images/56-joined-multiple-addresses.jpg" alt="Сохранено несколько адресов чата"></span></label></p>
+<h2 id="администрирование-чатов"><a class="header" href="#администрирование-чатов">Администрирование чатов</a></h2>
+<p>На главной нажмите <strong>«Администрирование чатов»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/25-home-admin-chats.jpg" alt="Переход в администрирование чатов"><span class="img-wrapper"><img src="images/25-home-admin-chats.jpg" alt="Переход в администрирование чатов"></span></label></p>
+<p>Бот показывает чаты, доступные для редактирования, и отдельную кнопку <strong>«Привязать чат»</strong> для подключения нового.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/26-admin-chat-selection.jpg" alt="Выбор чата или новая привязка"><span class="img-wrapper"><img src="images/26-admin-chat-selection.jpg" alt="Выбор чата или новая привязка"></span></label></p>
+<p>Открыв адрес конкретного чата, администратор может удалить его из списка привязанных адресов.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/32-admin-address-delete.jpg" alt="Удаление адреса из чата"><span class="img-wrapper"><img src="images/32-admin-address-delete.jpg" alt="Удаление адреса из чата"></span></label></p>
+<p>Если нужно подключить новый чат, нажмите <strong>«Привязать чат»</strong>. После этого откроется стандартное меню выбора адреса с теми же четырьмя способами, что и при первом запуске.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="подключение-обычного-участника"><a class="header" href="#подключение-обычного-участника">Подключение обычного участника</a></h1>
+<p>После того как администратор связал домовой чат с адресом, в группе появляется сообщение сервиса. Жителю не нужно повторять административную настройку.</p>
+<p>Нажмите <strong>«Присоединиться»</strong> под сообщением в домовом чате.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/55-group-join.jpg" alt="Кнопка Присоединиться в домовом чате"><span class="img-wrapper"><img src="images/55-group-join.jpg" alt="Кнопка Присоединиться в домовом чате"></span></label></p>
+<p>Бот сохранит адреса этого чата в <strong>«Мои адреса»</strong>. Если у чата несколько домов, будут добавлены все связанные адреса.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/56-joined-multiple-addresses.jpg" alt="Адреса чата сохранены пользователю"><span class="img-wrapper"><img src="images/56-joined-multiple-addresses.jpg" alt="Адреса чата сохранены пользователю"></span></label></p>
+<p>После этого можно вернуться на главную и пользоваться новостями, картой и уведомлениями. Для более точной персональной ленты укажите собственный адрес проживания через <strong>«Мои адреса» → «Добавить адрес»</strong>.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="новости-и-карта-событий"><a class="header" href="#новости-и-карта-событий">Новости и карта событий</a></h1>
+<p>Кнопка <strong>«Посмотреть новости рядом»</strong> открывает мини-приложение с двумя лентами: новости рядом с выбранным адресом и общегородские новости.</p>
+<p>Во вкладке <strong>«Новости рядом»</strong> показываются события, которые относятся к ближайшей территории.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/33-news-nearby.jpg" alt="Лента новостей рядом"><span class="img-wrapper"><img src="images/33-news-nearby.jpg" alt="Лента новостей рядом"></span></label></p>
+<p>Во вкладке <strong>«Новости города»</strong> можно переключиться на события более широкого масштаба.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/34-news-city.jpg" alt="Лента новостей города"><span class="img-wrapper"><img src="images/34-news-city.jpg" alt="Лента новостей города"></span></label></p>
+<p>На карте события отмечены маркерами. Карточка выбранного события показывает заголовок, место и краткое описание.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/41-news-map-city.jpg" alt="Городская карта событий"><span class="img-wrapper"><img src="images/41-news-map-city.jpg" alt="Городская карта событий"></span></label></p>
+<p>Карта умеет фокусироваться на вашем доме. Кнопка <strong>«Назад»</strong> возвращает к предыдущему экрану, а <strong>«К дому»</strong> переводит карту к сохранённому адресу.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/44-news-map-home.jpg" alt="Карта около дома"><span class="img-wrapper"><img src="images/44-news-map-home.jpg" alt="Карта около дома"></span></label></p>
+<p>Карточку события внизу карты можно сворачивать, чтобы освободить место для просмотра маркеров.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/50-news-map-card.jpg" alt="Свёрнутая карточка события на карте"><span class="img-wrapper"><img src="images/50-news-map-card.jpg" alt="Свёрнутая карточка события на карте"></span></label></p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="уведомления"><a class="header" href="#уведомления">Уведомления</a></h1>
+<p>Сервис присылает отдельные уведомления о важных событиях. Для демонстрации того же интерфейса можно использовать команду <code>/get_notify</code>.</p>
+<p>Сначала уведомление приходит в компактном виде: краткий текст, ссылка с объяснением механики и две кнопки - <strong>«Подробнее»</strong> и <strong>«Увидел»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/35-notification-collapsed.jpg" alt="Компактное уведомление"><span class="img-wrapper"><img src="images/35-notification-collapsed.jpg" alt="Компактное уведомление"></span></label></p>
+<p>Нажмите <strong>«Подробнее»</strong>, чтобы развернуть сообщение. В расширенной версии отображается полный текст и карточка источника. Кнопка меняется на <strong>«Свернуть»</strong>.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/38-notification-expanded.jpg" alt="Развёрнутое уведомление"><span class="img-wrapper"><img src="images/38-notification-expanded.jpg" alt="Развёрнутое уведомление"></span></label></p>
+<p>Кнопка <strong>«Увидел»</strong> подтверждает просмотр уведомления. После подтверждения бот возвращает пользователя на главную страницу.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/54-home-main.jpg" alt="Главная после работы с уведомлением"><span class="img-wrapper"><img src="images/54-home-main.jpg" alt="Главная после работы с уведомлением"></span></label></p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="помощь-и-обратная-связь"><a class="header" href="#помощь-и-обратная-связь">Помощь и обратная связь</a></h1>
+<p>На главной странице есть отдельная кнопка <strong>«Помощь и обратная связь»</strong>. Используйте её, если возник вопрос по работе сервиса или нужно сообщить о проблеме.</p>
+<p><label class="checkbox-label"><input class="checkbox-img" type="checkbox"><img src="images/54-home-main.jpg" alt="Кнопка Помощь и обратная связь на главной"><span class="img-wrapper"><img src="images/54-home-main.jpg" alt="Кнопка Помощь и обратная связь на главной"></span></label></p>
+<p>В исходном наборе скриншотов показан только вход в этот раздел, поэтому дальнейшие экраны здесь не описаны.</p>
 
                     </main>
 
