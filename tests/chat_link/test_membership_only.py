@@ -277,10 +277,9 @@ def test_webapp_navigation_mirrors_home_and_picker(db_session, monkeypatch):
     )
     assert response.status_code == 204
     assert "Выберите удобный способ" in bot.send_message.await_args.kwargs["text"]
-    assert (
-        bot.send_message.await_args.kwargs["attachments"][0].payload.buttons[0][0].text
-        == "Выбрать адрес"
-    )
+    attachments = bot.send_message.await_args.kwargs["attachments"]
+    assert attachments[0].path.endswith("other_messages.webp")
+    assert attachments[1].payload.buttons[0][0].text == "Выбрать адрес"
 
     response = asyncio.run(
         routes.navigate_chat_link(
