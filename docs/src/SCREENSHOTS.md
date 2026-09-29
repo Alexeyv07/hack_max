@@ -1,0 +1,60 @@
+# Инвентарь скриншотов
+
+Все 56 скриншотов из исходного PDF включены в документацию. Этот файл нужен для быстрой проверки полноты.
+
+- `01-list-district.jpg` - address-list.md
+- `02-list-street.jpg` - address-list.md
+- `03-first-welcome.jpg` - overview.md
+- `04-picker-menu-list.jpg` - address-list.md
+- `05-list-city.jpg` - address-list.md
+- `06-list-house.jpg` - address-list.md
+- `07-postcode-prompt.jpg` - address-postcode.md
+- `08-postcode-street.jpg` - address-postcode.md
+- `09-postcode-house.jpg` - address-postcode.md
+- `10-picker-menu-postcode.jpg` - address-postcode.md
+- `11-selected-existing-chat.jpg` - address-list.md, admin-bind.md
+- `12-map-nearby-houses.jpg` - address-map-text.md
+- `13-map-confirm.jpg` - address-map-text.md
+- `14-selected-no-chat-admin.jpg` - address-list.md
+- `15-picker-menu-map.jpg` - address-map-text.md
+- `16-bind-confirm-miniapp.jpg` - admin-bind.md
+- `17-selected-no-chat-invite-bot.jpg` - admin-setup.md
+- `18-bind-success-miniapp.jpg` - admin-bind.md
+- `19-invitation-in-bot.jpg` - admin-setup.md
+- `20-selected-no-chat-invite-repeat.jpg` - admin-setup.md
+- `21-invitation-miniapp.jpg` - admin-setup.md
+- `22-admin-check-instructions.jpg` - admin-setup.md
+- `23-selected-no-chat-admin-repeat.jpg` - admin-setup.md
+- `24-group-add-member.jpg` - admin-setup.md
+- `25-home-admin-chats.jpg` - address-management.md
+- `26-admin-chat-selection.jpg` - address-management.md
+- `27-home-my-addresses.jpg` - address-management.md
+- `28-my-addresses.jpg` - address-management.md
+- `29-group-member-list.jpg` - admin-setup.md
+- `30-search-bot.jpg` - admin-setup.md
+- `31-add-bot-confirm.jpg` - admin-setup.md
+- `32-admin-address-delete.jpg` - address-management.md
+- `33-news-nearby.jpg` - news.md
+- `34-news-city.jpg` - news.md
+- `35-notification-collapsed.jpg` - notifications.md
+- `36-chat-history-prompt.jpg` - admin-setup.md
+- `37-group-admins-entry.jpg` - admin-setup.md
+- `38-notification-expanded.jpg` - notifications.md
+- `39-group-admin-list.jpg` - admin-setup.md
+- `40-select-bot-admin.jpg` - admin-setup.md
+- `41-news-map-city.jpg` - news.md
+- `42-bot-admin-rights.jpg` - admin-setup.md
+- `43-chat-added-miniapp.jpg` - admin-bind.md
+- `44-news-map-home.jpg` - news.md
+- `45-text-input.jpg` - address-map-text.md
+- `46-text-results.jpg` - address-map-text.md
+- `47-text-confirm.jpg` - address-map-text.md
+- `48-picker-back.jpg` - overview.md
+- `49-group-bot-no-rights.jpg` - admin-setup.md
+- `50-news-map-card.jpg` - news.md
+- `51-chat-choice-bot.jpg` - admin-bind.md
+- `52-chat-bind-confirm-bot.jpg` - admin-bind.md
+- `53-chat-bind-success-bot.jpg` - admin-bind.md
+- `54-home-main.jpg` - help.md, notifications.md, overview.md
+- `55-group-join.jpg` - admin-bind.md, join-chat.md
+- `56-joined-multiple-addresses.jpg` - address-management.md, join-chat.md, overview.md
