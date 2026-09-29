@@ -474,7 +474,8 @@ def test_method_screen_uses_regular_message_edit(monkeypatch) -> None:
     args = bot.edit_message.await_args.args
     kwargs = bot.edit_message.await_args.kwargs
     assert args == ("mid",)
-    buttons = kwargs["attachments"][0].payload.buttons
+    assert kwargs["attachments"][0].path.endswith("other_messages.webp")
+    buttons = kwargs["attachments"][1].payload.buttons
     assert buttons[-1][0].text == "← Назад"
 
 
@@ -587,7 +588,8 @@ def test_back_from_method_screen_returns_to_welcome(monkeypatch) -> None:
     assert bot.edit_message.await_args.args == ("mid",)
     kwargs = bot.edit_message.await_args.kwargs
     assert kwargs["text"].startswith("Давайте найдём ваш дом")
-    buttons = kwargs["attachments"][0].payload.buttons
+    assert kwargs["attachments"][0].path.endswith("other_messages.webp")
+    buttons = kwargs["attachments"][1].payload.buttons
     assert buttons[0][0].text == "Выбрать адрес"
     assert context.data == {"flow_mid": "mid"}
     assert context.state is None
@@ -737,7 +739,9 @@ def test_add_address_from_chat_menu_preserves_target_and_back(monkeypatch) -> No
     asyncio.run(dp.handlers["message_callback"](event, context))
     assert context.data["target_chat_id"] == -8123
     assert context.data["from_chats"] is True
-    buttons = bot.edit_message.await_args.kwargs["attachments"][0].payload.buttons
+    attachments = bot.edit_message.await_args.kwargs["attachments"]
+    assert attachments[0].path.endswith("other_messages.webp")
+    buttons = attachments[1].payload.buttons
     assert buttons[-1][0].payload == "cl:back:chats"
 
     event.callback.payload = "cl:back:chats"

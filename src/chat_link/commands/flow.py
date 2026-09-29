@@ -166,7 +166,7 @@ async def _show_welcome(event: Any, context: Any, bot: Any) -> None:
     show_events = await asyncio.to_thread(user_can_see_events, max_user_id)
     kwargs = {
         "text": ADDRESS_PICKER_TEXT,
-        "attachments": [],
+        "attachments": [other_messages_image(bot)],
         "format": Format.HTML,
         "notify": False,
     }
@@ -271,13 +271,14 @@ async def _show_methods(event: Any, context: Any, bot: Any) -> None:
     kwargs = {
         "text": text,
         "attachments": [
+            other_messages_image(bot),
             method_keyboard(
                 bot,
                 target_chat_id=target_chat_id,
                 resident_chat_id=resident_chat_id,
                 from_manage=from_manage,
                 from_chats=from_chats,
-            )
+            ),
         ],
         "notify": False,
         "format": Format.HTML,

@@ -61,6 +61,7 @@ from chat_link.handlers.links import get_request_by_token, pending_for_address
 from chat_link.handlers.residence_selection import resolve_residence
 from chat_link.models import ChatLinkStatus
 from project.api_deps import DbSession, get_max_user_id
+from project.bot_media import other_messages_image
 from project.bot_screens import send_screen
 from project.logging_setup import get_logger
 from project.max_runtime import get_max_bot
@@ -796,7 +797,7 @@ async def navigate_chat_link(
                 max_user_id,
                 user_id=max_user_id,
                 text=ADDRESS_PICKER_TEXT,
-                attachments=[method_keyboard(bot)],
+                attachments=[other_messages_image(bot), method_keyboard(bot)],
                 format=Format.HTML,
             )
     except Exception as exc:
