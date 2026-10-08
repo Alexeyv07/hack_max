@@ -9,7 +9,7 @@ logging:
 
 database:
   host: localhost
-  port: 5432
+  port: 5439
   name: hack_max
   user: hack_max
   echo: false
